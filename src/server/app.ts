@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Logger } from "../log.js";
 import type { Task } from "../index/tasks.js";
+import { PAUSE_SOURCES, type InstallationSnapshot, type PauseSource } from "../orchestrator/installation-state.js";
 import type { Orchestrator } from "../orchestrator/orchestrator.js";
 import type { Ports } from "../ports/index.js";
 
@@ -11,7 +12,7 @@ export type AppDeps = {
   index: RuntimeIndex;
   log: Logger;
   version: string;
-  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue">;
+  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation">;
 };
 
 export type HealthResponse = {
@@ -35,6 +36,26 @@ export type TasksResponse = {
   inProgress: TaskView[];
   ready: ReadyTaskView[];
   stuck: StuckTaskView[];
+};
+
+export type InstallationResponse = InstallationSnapshot & { slots: { used: number; max: number } };
+
+// Body of `PUT /api/installation/pause`: a human pauses or resumes the Installation.
+export type PauseRequest = { paused: boolean; reason?: string; source?: PauseSource };
+
+export const DEFAULT_PAUSE_REASON = "paused from the UI";
+
+const parsePauseRequest = (body: unknown): PauseRequest | undefined => {
+  if (typeof body !== "object" || body === null) return undefined;
+  const raw = body as Record<string, unknown>;
+  if (typeof raw.paused !== "boolean") return undefined;
+  if (raw.reason !== undefined && typeof raw.reason !== "string") return undefined;
+  if (raw.source !== undefined && !PAUSE_SOURCES.includes(raw.source as PauseSource)) return undefined;
+  return {
+    paused: raw.paused,
+    ...(raw.reason !== undefined ? { reason: raw.reason } : {}),
+    ...(raw.source !== undefined ? { source: raw.source as PauseSource } : {}),
+  };
 };
 
 // Events pushed to the UI over `/ws`; later tickets extend the union.
@@ -94,6 +115,28 @@ export function createApp(deps: AppDeps): App {
       })),
     };
     return c.json(body);
+  });
+
+  const installationView = (): InstallationResponse => ({
+    ...deps.orchestrator.installation.snapshot(),
+    slots: deps.orchestrator.slots(),
+  });
+
+  app.get("/api/installation", (c) => c.json(installationView()));
+
+  app.put("/api/installation/pause", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "body must be JSON with a boolean `paused`" }, 400);
+    }
+    const request = parsePauseRequest(body);
+    if (!request) return c.json({ error: "body must be JSON with a boolean `paused`, optional string `reason`" }, 400);
+    const installation = deps.orchestrator.installation;
+    if (request.paused) installation.pause(request.source ?? "human", request.reason ?? DEFAULT_PAUSE_REASON);
+    else installation.unpause();
+    return c.json(installationView());
   });
 
   app.get(
