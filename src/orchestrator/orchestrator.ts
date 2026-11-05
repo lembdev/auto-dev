@@ -11,6 +11,7 @@ import { GitHubNotFoundError, type Issue, type IssueComment, type PollQuery, typ
 import type { Ports } from "../ports/index.js";
 import { Comments } from "./comments.js";
 import { Implementation, type AskHumanHandler } from "./implementation.js";
+import { InstallationState } from "./installation-state.js";
 import { IntentJournal } from "./intents.js";
 import type { StagePrompts } from "../prompts/index.js";
 import { READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
@@ -49,6 +50,8 @@ export type OrchestratorOptions = {
   hooks?: OrchestratorHooks;
   // Where the Product is cloned; defaults to `<dataDir>/repo` of a standard Installation.
   product?: Product;
+  // Data directory of the Installation: its disk is watched, the limit file lives there.
+  dataDir?: string;
   prompts?: StagePrompts;
   // How long an Agent process outlives its Turn before the runner stops it.
   idleTimeoutMs?: number;
@@ -69,6 +72,7 @@ export class Orchestrator {
   private readonly _comments: Comments;
   private readonly _agents: AgentRunner;
   private readonly _implementation: Implementation;
+  private readonly _installation: InstallationState;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
   private readonly _seenComments = new Map<CommentId, string>();
@@ -111,6 +115,14 @@ export class Orchestrator {
       ...(options.prompts ? { prompts: options.prompts } : {}),
       ...(options.onAskHuman ? { onAskHuman: options.onAskHuman } : {}),
     });
+    this._installation = new InstallationState({
+      index: this._index,
+      clock: this._ports.clock,
+      disk: this._ports.disk,
+      runner: this._agents,
+      log: this._log,
+      dataDir: options.dataDir ?? DEFAULT_DATA_DIR,
+    });
   }
 
   // Runner of every Agent of the Installation; the UI and later Stages subscribe to it.
@@ -120,6 +132,17 @@ export class Orchestrator {
 
   get implementation(): Implementation {
     return this._implementation;
+  }
+
+  // Pause, the subscription limit and the disk; the UI reads and toggles them here.
+  get installation(): InstallationState {
+    return this._installation;
+  }
+
+  // Whether a new Turn may start now: not paused, not at the limit, the five hour window not nearly spent.
+  // Checked before a Ready task is taken and before any Agent or QA Round starts.
+  canStartTurn(): boolean {
+    return this._installation.canStartTurn();
   }
 
   // Journal of external actions; other parts of the pipeline register their own intent kinds here.
@@ -141,6 +164,7 @@ export class Orchestrator {
 
   stop(): void {
     this._running = false;
+    this._installation.stop();
     if (this._timer !== undefined) {
       this._ports.clock.clear(this._timer);
       this._timer = undefined;
@@ -234,6 +258,7 @@ export class Orchestrator {
     }
     if (!this._bootstrapped) await this._bootstrap();
     await this._recoverIntents();
+    await this._installation.check();
     await this._pollIssues();
     await this._pollComments();
     await this._startImplementers();
@@ -244,6 +269,10 @@ export class Orchestrator {
   private async _startImplementers(): Promise<void> {
     for (const task of this._index.tasks.listByStage(["taken"])) {
       if (task.pullNumber === null) continue;
+      if (!this.canStartTurn()) {
+        this._log.debug({ issue: task.issueNumber, blocker: this._installation.blocker() }, "implementer not started: no new turns now");
+        return;
+      }
       const issue = this._issues.get(task.issueNumber) ?? (await this._ports.github.getIssue(task.issueNumber));
       try {
         await this._implementation.start(task, structuredClone(issue));
@@ -329,6 +358,10 @@ export class Orchestrator {
 
   private async _fillSlots(): Promise<void> {
     for (const issue of this.readyQueue()) {
+      if (!this.canStartTurn()) {
+        this._log.debug({ blocker: this._installation.blocker(), next: issue.number }, "no new tasks now");
+        return;
+      }
       const slots = this.slots();
       if (slots.used >= slots.max) {
         this._log.debug({ ...slots, next: issue.number }, "all slots busy");
