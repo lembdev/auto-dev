@@ -12,7 +12,7 @@ export type AppDeps = {
   index: RuntimeIndex;
   log: Logger;
   version: string;
-  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation">;
+  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa">;
 };
 
 export type HealthResponse = {
@@ -33,6 +33,8 @@ export type ReadyTaskView = {
 
 export type TasksResponse = {
   slots: { used: number; max: number };
+  // Limit of QA rounds; a Task in `qa` is in round `round + 1` of it.
+  maxQaRounds: number;
   inProgress: TaskView[];
   ready: ReadyTaskView[];
   stuck: StuckTaskView[];
@@ -102,6 +104,7 @@ export function createApp(deps: AppDeps): App {
     };
     const body: TasksResponse = {
       slots: deps.orchestrator.slots(),
+      maxQaRounds: deps.orchestrator.qa.maxRounds(),
       inProgress: deps.index.tasks.listActive().map(view),
       ready: ready.map((issue) => ({
         issueNumber: issue.number,

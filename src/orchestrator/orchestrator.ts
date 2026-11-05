@@ -10,10 +10,12 @@ import type { TimerHandle } from "../ports/clock.js";
 import { GitHubNotFoundError, type Issue, type IssueComment, type PollQuery, type PollResult } from "../ports/github.js";
 import type { Ports } from "../ports/index.js";
 import { Comments } from "./comments.js";
+import { HumanRequests } from "./human-requests.js";
 import { Implementation, type AskHumanHandler } from "./implementation.js";
 import { InstallationState } from "./installation-state.js";
 import { IntentJournal } from "./intents.js";
 import type { StagePrompts } from "../prompts/index.js";
+import { QaStage } from "./qa.js";
 import { READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
 import { Workspace, type Product } from "./workspace.js";
 
@@ -71,7 +73,9 @@ export class Orchestrator {
   private readonly _workspace: Workspace;
   private readonly _comments: Comments;
   private readonly _agents: AgentRunner;
+  private readonly _humanRequests: HumanRequests;
   private readonly _implementation: Implementation;
+  private readonly _qa: QaStage;
   private readonly _installation: InstallationState;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
@@ -106,6 +110,15 @@ export class Orchestrator {
       log: this._log,
       ...(options.idleTimeoutMs !== undefined ? { idleTimeoutMs: options.idleTimeoutMs } : {}),
     });
+    this._humanRequests = new HumanRequests({
+      github: this._ports.github,
+      runner: this._agents,
+      index: this._index,
+      log: this._log,
+      clock: this._ports.clock,
+      comments: this._comments,
+      journal: this._intents,
+    });
     this._implementation = new Implementation({
       github: this._ports.github,
       runner: this._agents,
@@ -113,7 +126,22 @@ export class Orchestrator {
       log: this._log,
       transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
       ...(options.prompts ? { prompts: options.prompts } : {}),
-      ...(options.onAskHuman ? { onAskHuman: options.onAskHuman } : {}),
+      onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
+    });
+    this._qa = new QaStage({
+      github: this._ports.github,
+      runner: this._agents,
+      index: this._index,
+      log: this._log,
+      clock: this._ports.clock,
+      journal: this._intents,
+      implementation: this._implementation,
+      transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
+      postComment: (issueNumber, key, text) => this.postComment(issueNumber, key, text),
+      findIssue: (issueNumber) => this._issueOf(issueNumber),
+      canStartRound: () => this.canStartTurn(),
+      ...(options.prompts ? { prompts: options.prompts } : {}),
+      onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
     });
     this._installation = new InstallationState({
       index: this._index,
@@ -139,8 +167,18 @@ export class Orchestrator {
     return this._installation;
   }
 
-  // Whether a new Turn may start now: not paused, not at the limit, the five hour window not nearly spent.
-  // Checked before a Ready task is taken and before any Agent or QA Round starts.
+  // Questions of Agents to the human and the Answers from GitHub.
+  get humanRequests(): HumanRequests {
+    return this._humanRequests;
+  }
+
+  get qa(): QaStage {
+    return this._qa;
+  }
+
+  // Whether a new Turn (a new QA round, a resumed Session) may start now; the Pause, the limit of
+  // the subscription, pre-arm and a full disk turn it off while running Turns finish. Taking Ready
+  // tasks and starting Implementers consult the Installation state directly.
   canStartTurn(): boolean {
     return this._installation.canStartTurn();
   }
@@ -261,21 +299,28 @@ export class Orchestrator {
     await this._installation.check();
     await this._pollIssues();
     await this._pollComments();
+    await this._humanRequests.deliver();
     await this._startImplementers();
+    await this._qa.startRounds();
     await this._fillSlots();
+  }
+
+  private async _issueOf(issueNumber: IssueNumber): Promise<Issue> {
+    const known = this._issues.get(issueNumber);
+    return known ? structuredClone(known) : this._ports.github.getIssue(issueNumber);
   }
 
   // Tasks taken but left without an Implementer (a failed launch, a crash in between) get one now.
   private async _startImplementers(): Promise<void> {
     for (const task of this._index.tasks.listByStage(["taken"])) {
       if (task.pullNumber === null) continue;
-      if (!this.canStartTurn()) {
+      if (!this._installation.canStartTurn()) {
         this._log.debug({ issue: task.issueNumber, blocker: this._installation.blocker() }, "implementer not started: no new turns now");
         return;
       }
-      const issue = this._issues.get(task.issueNumber) ?? (await this._ports.github.getIssue(task.issueNumber));
+      const issue = await this._issueOf(task.issueNumber);
       try {
-        await this._implementation.start(task, structuredClone(issue));
+        await this._implementation.start(task, issue);
       } catch (error) {
         this._log.error({ err: error, issue: task.issueNumber }, "implementer not started");
       }
@@ -330,6 +375,7 @@ export class Orchestrator {
     const fresh = polled.filter((comment) => this._seenComments.get(comment.id) !== comment.updatedAt);
     for (const comment of fresh) this._seenComments.set(comment.id, comment.updatedAt);
     if (fresh.length === 0) return;
+    await this._humanRequests.onIssueComments(fresh);
     await this._hooks.onIssueComments?.(fresh);
   }
 
@@ -358,7 +404,7 @@ export class Orchestrator {
 
   private async _fillSlots(): Promise<void> {
     for (const issue of this.readyQueue()) {
-      if (!this.canStartTurn()) {
+      if (!this._installation.canStartTurn()) {
         this._log.debug({ blocker: this._installation.blocker(), next: issue.number }, "no new tasks now");
         return;
       }

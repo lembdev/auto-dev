@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { AgentStore } from "./agents.js";
+import { AppliedAnswerStore, HumanRequestStore } from "./human-requests.js";
 import { migrations, type Migration } from "./migrations.js";
 import { IntentStore } from "./intents.js";
 import { LimitSampleStore } from "./limit-samples.js";
@@ -43,6 +44,8 @@ export class RuntimeIndex {
   readonly tasks: TaskStore;
   readonly transitions: TransitionStore;
   readonly intents: IntentStore;
+  readonly humanRequests: HumanRequestStore;
+  readonly appliedAnswers: AppliedAnswerStore;
   readonly limitSamples: LimitSampleStore;
 
   constructor(readonly db: DatabaseSync) {
@@ -51,6 +54,8 @@ export class RuntimeIndex {
     this.tasks = new TaskStore(db);
     this.transitions = new TransitionStore(db);
     this.intents = new IntentStore(db);
+    this.humanRequests = new HumanRequestStore(db);
+    this.appliedAnswers = new AppliedAnswerStore(db);
     this.limitSamples = new LimitSampleStore(db);
   }
 

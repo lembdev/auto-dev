@@ -27,7 +27,7 @@ describe("runtime index", () => {
   it("creates the schema version table and the installation table in memory", () => {
     const index = openRuntimeIndex(IN_MEMORY);
     expect(index.schemaVersion()).toBe(migrations.at(-1)?.version);
-    expect(tableNames(index.db)).toEqual(["agents", "installation", "intents", "limit_samples", "schema_version", "sqlite_sequence", "tasks", "transitions"]);
+    expect(tableNames(index.db)).toEqual(["agents", "applied_answers", "human_requests", "installation", "intents", "limit_samples", "schema_version", "sqlite_sequence", "tasks", "transitions"]);
     index.close();
   });
 
