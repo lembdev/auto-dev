@@ -29,7 +29,7 @@ npm start         # node dist/main.js
 | Переменная          | По умолчанию          | Назначение                                   |
 | ------------------- | --------------------- | -------------------------------------------- |
 | `AUTO_DEV_ENV_FILE` | `/etc/auto-dev/env`   | файл env с секретами Установки               |
-| `AUTO_DEV_DATA_DIR` | `/var/lib/auto-dev`   | данные: `runtime.db`, клон Продукта          |
+| `AUTO_DEV_DATA_DIR` | `/var/lib/auto-dev`   | данные: `runtime.db`, клон Продукта `repo/` (клонируется на старте, если его нет) |
 | `AUTO_DEV_HOST`     | `0.0.0.0`             | адрес HTTP-сервера                           |
 | `AUTO_DEV_PORT`     | `8080`                | порт HTTP-сервера (`0` = свободный)          |
 | `LOG_LEVEL`         | `info`                | уровень pino: fatal, error, warn, info, debug, trace, silent |
@@ -47,7 +47,7 @@ npm start         # node dist/main.js
 ```
 AUTO_DEV_DATA_DIR=./.data AUTO_DEV_ENV_FILE=./.data/env AUTO_DEV_PORT=8080 npm run dev
 curl http://127.0.0.1:8080/api/health
-curl http://127.0.0.1:8080/api/tasks   # Задачи в работе, очередь Готовых, Тупики, Слоты
+curl http://127.0.0.1:8080/api/tasks   # Задачи в работе (ветка, PR, worktree), очередь Готовых, Тупики, Слоты
 ```
 
 ## Структура
@@ -55,10 +55,17 @@ curl http://127.0.0.1:8080/api/tasks   # Задачи в работе, очер�
 - `src/ports/`: интерфейсы внешних зависимостей Оркестратора (GitHub, Драйвер, worktree, часы, процессы).
   Это единственный шов тестирования.
 - `src/fakes/`: in-memory фейки портов с журналом вызовов `calls` и helpers `seed*` / `human*`.
-- `src/adapters/`: реальные адаптеры Установки.
+- `src/adapters/`: реальные адаптеры Установки: GitHub REST, git (`worktree.ts`, через `child_process`;
+  токен уходит в git через окружение), часы, процессы.
 - `src/orchestrator/`: Оркестратор: опрос GitHub (issues и комментарии с `since` и ETag каждые 15 с),
   выбор Готовых Задач, взятие в Слоты, переходы Стадий; хуки `afterTake`, `onIssuesUpdated`, `onIssueComments`.
+  `workspace.ts`: при взятии worktree `issue-<N>` (повтор `issue-<N>-r<k>`) в `<repo>/.claude/worktrees/`,
+  ветка `worktree-<имя>` от `origin/main`, push и PR `WIP: <title>` с `Closes #N`.
+  `intents.ts`: журнал намерений: внешнее действие записывается в `intents` до выполнения и отмечается
+  после; незавершённые досовершаются на каждом цикле опроса идемпотентно (обработчик сам проверяет,
+  что уже есть: worktree, ветка, PR по head-ветке, комментарий с маркером `<!-- auto-dev -->`).
+  `comments.ts`: комментарии Оркестратора с маркером, по одному на ключ.
 - `src/index/`: Рантайм-индекс (SQLite через `node:sqlite`), миграции только вперёд; таблицы `installation`,
-  `tasks`, `transitions`.
+  `tasks`, `transitions`, `intents`.
 - `src/server/`: Hono + `ws` на одном http-сервере, `createApp(deps)` для тестов на фейках.
 - `test/`: vitest, `test/helpers/test-app.ts` поднимает сервер на фейках.
