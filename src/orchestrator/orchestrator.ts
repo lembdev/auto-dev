@@ -14,6 +14,7 @@ import { HumanRequests } from "./human-requests.js";
 import { Implementation, type AskHumanHandler } from "./implementation.js";
 import { IntentJournal } from "./intents.js";
 import type { StagePrompts } from "../prompts/index.js";
+import { QaStage } from "./qa.js";
 import { READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
 import { Workspace, type Product } from "./workspace.js";
 
@@ -71,6 +72,7 @@ export class Orchestrator {
   private readonly _agents: AgentRunner;
   private readonly _humanRequests: HumanRequests;
   private readonly _implementation: Implementation;
+  private readonly _qa: QaStage;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
   private readonly _seenComments = new Map<CommentId, string>();
@@ -122,6 +124,21 @@ export class Orchestrator {
       ...(options.prompts ? { prompts: options.prompts } : {}),
       onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
     });
+    this._qa = new QaStage({
+      github: this._ports.github,
+      runner: this._agents,
+      index: this._index,
+      log: this._log,
+      clock: this._ports.clock,
+      journal: this._intents,
+      implementation: this._implementation,
+      transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
+      postComment: (issueNumber, key, text) => this.postComment(issueNumber, key, text),
+      findIssue: (issueNumber) => this._issueOf(issueNumber),
+      canStartRound: () => this.canStartTurn(),
+      ...(options.prompts ? { prompts: options.prompts } : {}),
+      onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
+    });
   }
 
   // Runner of every Agent of the Installation; the UI and later Stages subscribe to it.
@@ -136,6 +153,16 @@ export class Orchestrator {
   // Questions of Agents to the human and the Answers from GitHub.
   get humanRequests(): HumanRequests {
     return this._humanRequests;
+  }
+
+  get qa(): QaStage {
+    return this._qa;
+  }
+
+  // Whether a new Turn (a new QA round, a resumed Session) may start now; the Pause and the limit
+  // of the subscription turn it off while running Turns finish.
+  canStartTurn(): boolean {
+    return true;
   }
 
   // Journal of external actions; other parts of the pipeline register their own intent kinds here.
@@ -254,16 +281,22 @@ export class Orchestrator {
     await this._pollComments();
     await this._humanRequests.deliver();
     await this._startImplementers();
+    await this._qa.startRounds();
     await this._fillSlots();
+  }
+
+  private async _issueOf(issueNumber: IssueNumber): Promise<Issue> {
+    const known = this._issues.get(issueNumber);
+    return known ? structuredClone(known) : this._ports.github.getIssue(issueNumber);
   }
 
   // Tasks taken but left without an Implementer (a failed launch, a crash in between) get one now.
   private async _startImplementers(): Promise<void> {
     for (const task of this._index.tasks.listByStage(["taken"])) {
       if (task.pullNumber === null) continue;
-      const issue = this._issues.get(task.issueNumber) ?? (await this._ports.github.getIssue(task.issueNumber));
+      const issue = await this._issueOf(task.issueNumber);
       try {
-        await this._implementation.start(task, structuredClone(issue));
+        await this._implementation.start(task, issue);
       } catch (error) {
         this._log.error({ err: error, issue: task.issueNumber }, "implementer not started");
       }

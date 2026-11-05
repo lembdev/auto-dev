@@ -42,3 +42,5 @@ export {
   type HumanRequestsOptions,
   type RequestText,
 } from "./human-requests.js";
+export { QaStage, DEAD_END, DEFAULT_MAX_QA_ROUNDS, MAX_QA_ROUNDS_KEY, VERDICT_RETRY_PROMPT, type QaStageOptions } from "./qa.js";
+export { parseVerdict, formatVerdict, formatBlockers, type Verdict, type Blocker } from "./verdict.js";

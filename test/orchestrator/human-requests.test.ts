@@ -153,18 +153,20 @@ describe("Human requests through ask_human", () => {
     resumed.emit(sdkMessages.init(SESSION));
     resumed.emit(sdkMessages.resultSuccess(SESSION, "done"));
     await flush();
-    expect(driver.launches).toHaveLength(2);
+    // The end of the Turn hands the Task to QA, whose own Agent starts; only resumes of the Session count here.
+    const resumes = () => driver.launches.filter((launch) => launch.launch.resume === SESSION).length;
+    expect(resumes()).toBe(1);
 
     await s.ports.clock.advance(1_000);
     github.humanEditComment(answer.id, "green actually");
     await s.orchestrator.pollOnce();
-    expect(driver.launches).toHaveLength(2);
+    expect(resumes()).toBe(1);
     expect(github.reactions).toHaveLength(1);
     expect(resumed.sent).toEqual([]);
 
     github.humanDeleteComment(answer.id);
     await s.orchestrator.pollOnce();
-    expect(driver.launches).toHaveLength(2);
+    expect(resumes()).toBe(1);
     expect(s.index.appliedAnswers.find({ kind: "github", id: String(answer.id) })).toBeDefined();
   });
 

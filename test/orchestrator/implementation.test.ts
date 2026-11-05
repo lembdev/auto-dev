@@ -40,9 +40,11 @@ describe("Implementation Stage", () => {
     }
   });
 
+  // New QA rounds are on hold here: this file watches the Implementer alone.
   const taken = async (): Promise<Scenario> => {
     const testApp = createTestApp();
     open.push(testApp);
+    testApp.orchestrator.canStartTurn = () => false;
     const issue = seedTask(testApp);
     await testApp.orchestrator.pollOnce();
     return { ...testApp, issue };
