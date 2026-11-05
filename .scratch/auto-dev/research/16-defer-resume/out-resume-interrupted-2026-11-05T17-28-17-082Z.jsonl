@@ -1,0 +1,12 @@
+{"t":1793899697086,"kind":"run","mode":"resume-interrupted","sessionArg":"025b5b3b-c5fd-45fb-ae3c-412bf253ad5e","outFile":"/Users/lembdev/Developer/lembdev/auto-dev/.scratch/auto-dev/research/16-defer-resume/out-resume-interrupted-2026-11-05T17-28-17-082Z.jsonl","sdk":"0.3.318"}
+{"t":1793899697356,"kind":"msg","type":"command_lifecycle","session_id":"025b5b3b-c5fd-45fb-ae3c-412bf253ad5e"}
+{"t":1793899697425,"kind":"msg","type":"system","subtype":"init","session_id":"025b5b3b-c5fd-45fb-ae3c-412bf253ad5e","tools":["Task","Bash","CronCreate","CronDelete","CronList","DesignSync","Edit","EnterWorktree","ExitWorktree","ListAgents","Monitor","NotebookEdit","PushNotification","Read","RemoteTrigger","ReportFindings","ScheduleWakeup","SendMessage","Skill","TaskStop","ToolSearch","WebSearch","Workflow","Write","mcp__human__ask_human"],"mcp_servers":[{"name":"human","status":"connected","source":"sdk"}],"model":"claude-haiku-5-5","permissionMode":"auto","apiKeySource":"none"}
+{"t":1793899698589,"kind":"msg","type":"assistant","session_id":"025b5b3b-c5fd-45fb-ae3c-412bf253ad5e","content":[{"type":"tool_use","id":"toolu_014hyK3jtRZwqwmzHPnXTGZH","name":"Bash","input":{"command":"sleep 20 && echo done","description":"Sleep 20 seconds then echo done"},"caller":{"type":"direct"}}],"stop_reason":null,"resume_reason":"interrupted_turn"}
+{"t":1793899699093,"kind":"msg","type":"rate_limit_event","session_id":"025b5b3b-c5fd-45fb-ae3c-412bf253ad5e"}
+{"t":1793899702635,"kind":"msg","type":"system","subtype":"task_started","session_id":"025b5b3b-c5fd-45fb-ae3c-412bf253ad5e"}
+{"t":1793899719647,"kind":"msg","type":"system","subtype":"task_notification","session_id":"025b5b3b-c5fd-45fb-ae3c-412bf253ad5e"}
+{"t":1793899719680,"kind":"msg","type":"user","session_id":"025b5b3b-c5fd-45fb-ae3c-412bf253ad5e","content":[{"tool_use_id":"toolu_014hyK3jtRZwqwmzHPnXTGZH","type":"tool_result","content":"done","is_error":false}]}
+{"t":1793899720164,"kind":"msg","type":"assistant","session_id":"025b5b3b-c5fd-45fb-ae3c-412bf253ad5e","content":[{"type":"text","text":"DONE"}],"stop_reason":null}
+{"t":1793899720198,"kind":"msg","type":"result","subtype":"success","session_id":"025b5b3b-c5fd-45fb-ae3c-412bf253ad5e","stop_reason":"end_turn","terminal_reason":"completed","is_error":false,"result":"DONE","num_turns":2,"resume_reason":"interrupted_turn","permission_denials":[]}
+{"t":1793899720199,"kind":"msg","type":"command_lifecycle","session_id":"025b5b3b-c5fd-45fb-ae3c-412bf253ad5e"}
+{"t":1793899720528,"kind":"done","sessionId":"025b5b3b-c5fd-45fb-ae3c-412bf253ad5e"}

@@ -27,3 +27,6 @@ Blocked by: 01, 02
 8. **События для UI**: поток `SDKMessage` с `includePartialMessages: true` и `forwardSubagentText`; история и восстановление через `sessionStore` / `getSessionMessages`. JSONL-файлы напрямую не парсятся.
 
 Последствия для карты: разблокированы 07, 08, 09; заведён тикет 16 (прототип defer+resume); фог «риск `--bare`» закрыт пунктом 2; фог «Секреты на VM» сузился до «где лежат токены, которые оркестратор кладёт в env».
+
+## Comments
+- 2026-11-05, поправка по прототипу 16: п.5 читать как «ask_human = stdio MCP tool (тонкий процесс-эхо) + in-process `PreToolUse` hook в Оркестраторе». In-process `createSdkMcpServer` при resume не работает (`tool_deferred_unavailable`). Ответ доставляется при resume через `allow` + `updatedInput: {...input, answer}` на тот же `tool_use_id`; resume отложенного вызова только streaming input с открытым генератором и без промпта. Обязателен `strictMcpConfig: true`; в `env` Агента нужны полные PATH и HOME.

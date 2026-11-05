@@ -1,0 +1,4 @@
+{"t":1793899554051,"kind":"run","mode":"resume","sessionArg":"e20d69f5-07c8-40fc-9ffd-f4bfd6103999","answerArg":"blue","outFile":"/Users/lembdev/Developer/lembdev/auto-dev/.scratch/auto-dev/research/16-defer-resume/out-resume-2026-11-05T17-25-54-048Z.jsonl","sdk":"0.3.318"}
+{"t":1793899554263,"kind":"msg","type":"command_lifecycle","session_id":"e20d69f5-07c8-40fc-9ffd-f4bfd6103999"}
+{"t":1793899554298,"kind":"msg","type":"result","subtype":"success","session_id":"e20d69f5-07c8-40fc-9ffd-f4bfd6103999","stop_reason":"tool_deferred_unavailable","terminal_reason":"tool_deferred_unavailable","deferred_tool_use":{"id":"toolu_01MbzqssLoqExWB9Sywz6G61","name":"mcp__human__ask_human","input":{"question":"Какой цвет вы предпочитаете?","options":["red","blue"]}},"is_error":true,"result":"","num_turns":17,"permission_denials":[]}
+{"t":1793899554298,"kind":"msg","type":"command_lifecycle","session_id":"e20d69f5-07c8-40fc-9ffd-f4bfd6103999"}

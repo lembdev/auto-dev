@@ -1,0 +1,431 @@
+<!doctype html>
+<!--
+  ПРОТОТИП (throwaway). Экран Режима разработки auto-dev.
+  План: три варианта раскладки одного экрана, переключение через ?variant=A|B|C
+  и плавающую панель внизу (стрелки / клавиши влево-вправо). Все данные mock,
+  все действия меняют только состояние на странице. Нет сборки и зависимостей.
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>auto-dev: Режим разработки (прототип)</title>
+<style>
+:root {
+  --bg: #f5f6f8; --fg: #16181d; --muted: #6b7280; --card: #ffffff; --border: #d9dce3;
+  --accent: #2563eb; --accent-fg: #fff; --ok: #16a34a; --warn: #d97706; --danger: #dc2626;
+  --wait-bg: #fff7e6; --wait-border: #f0b429; --sys: #8b909a; --tool-bg: #f0f2f5; --sub-bg: #eef3ff;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115; --fg: #e6e8ee; --muted: #9aa0ad; --card: #171a21; --border: #2a2f3a;
+    --accent: #5b8def; --accent-fg: #fff; --ok: #34c362; --warn: #f2a93b; --danger: #f06565;
+    --wait-bg: #2a2410; --wait-border: #d9a12d; --sys: #767c88; --tool-bg: #1f232c; --sub-bg: #182036;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--accent); }
+button { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button.danger { color: var(--danger); border-color: var(--danger); }
+button.small { padding: 2px 8px; font-size: 12px; }
+button.on { background: var(--warn); color: #111; border-color: var(--warn); }
+input[type=text], textarea { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; width: 100%; }
+textarea { resize: vertical; min-height: 56px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 18px 0 8px; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 12px; }
+
+/* шапка (общая для всех вариантов) */
+header.top { position: sticky; top: 0; z-index: 20; background: var(--card); border-bottom: 1px solid var(--border); padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+header .product { font-weight: 600; font-size: 15px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: transparent; }
+.seg button.active { background: var(--accent); color: var(--accent-fg); }
+.limits { display: flex; gap: 12px; }
+.limit { font-size: 12px; min-width: 150px; }
+.limit .bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin: 2px 0; }
+.limit .bar i { display: block; height: 100%; background: var(--ok); }
+.limit.l60 .bar i { background: var(--warn); } .limit.l85 .bar i { background: var(--danger); }
+.limit.l60 b { color: var(--warn); } .limit.l85 b { color: var(--danger); }
+.spacer { flex: 1; }
+.banner { width: 100%; background: var(--sub-bg); border: 1px solid var(--accent); border-radius: 6px; padding: 6px 10px; display: flex; gap: 10px; align-items: center; }
+
+/* карточки */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; cursor: pointer; }
+.card:hover { border-color: var(--accent); }
+.card.waiting { background: var(--wait-bg); border-color: var(--wait-border); }
+.card.selected { outline: 2px solid var(--accent); }
+.card .title { font-weight: 600; }
+.card .meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
+.badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); color: var(--muted); }
+.st-working { border-color: var(--ok); color: var(--ok); }
+.st-idle { border-color: var(--muted); }
+.st-waiting { border-color: var(--warn); color: var(--warn); }
+.st-stopped { border-color: var(--danger); color: var(--danger); }
+.st-dead { border-color: var(--danger); color: var(--danger); }
+.list { display: flex; flex-direction: column; gap: 8px; }
+.digest { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.digest ul { margin: 6px 0 0; padding-left: 18px; }
+.empty { color: var(--muted); font-style: italic; padding: 8px 0; }
+
+/* вариант A: одна колонка + правая выдвижная панель */
+.layout-a { max-width: 1000px; margin: 0 auto; padding: 8px 16px 80px; }
+.drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(620px, 100vw); background: var(--card); border-left: 1px solid var(--border); z-index: 30; display: flex; flex-direction: column; box-shadow: -8px 0 24px rgba(0,0,0,.15); }
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 29; }
+
+/* вариант B: боковая колонка + плитки живых Агентов, панель на весь экран */
+.layout-b { display: grid; grid-template-columns: 300px 1fr; gap: 16px; padding: 8px 16px 80px; }
+.layout-b aside .card { padding: 6px 10px; }
+.layout-b .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.layout-b .tile { min-height: 190px; display: flex; flex-direction: column; }
+.layout-b .tile .preview { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 6px; font-size: 12px; color: var(--muted); flex: 1; overflow: hidden; }
+.layout-b .tile .preview div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.full { position: fixed; inset: 0; background: var(--bg); z-index: 30; display: flex; flex-direction: column; }
+.full .panel { max-width: 900px; width: 100%; margin: 0 auto; }
+@media (max-width: 800px) { .layout-b { grid-template-columns: 1fr; } }
+
+/* вариант C: колонки по Стадиям, панель снизу */
+.layout-c { padding: 8px 16px 80px; display: flex; flex-direction: column; min-height: calc(100vh - 60px); }
+.layout-c .board { display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); gap: 10px; overflow-x: auto; flex: 1; }
+.layout-c .col { background: rgba(127,127,127,.07); border-radius: 8px; padding: 8px; }
+.layout-c .col h2 { margin: 0 0 8px; }
+.layout-c .col .card { padding: 8px 10px; margin-bottom: 8px; }
+.layout-c .col .card .title { font-size: 13px; }
+.bottom { position: fixed; left: 0; right: 0; bottom: 0; height: 58vh; background: var(--card); border-top: 2px solid var(--accent); z-index: 30; display: flex; flex-direction: column; }
+.layout-c.with-panel { padding-bottom: 60vh; }
+.layout-c details.digest summary { cursor: pointer; font-weight: 600; }
+
+/* панель Агента (общая) */
+.panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.panel .phead { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.panel .phead .title { font-weight: 600; }
+.panel .feed { flex: 1; overflow: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+.panel .pfoot { border-top: 1px solid var(--border); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; background: var(--card); }
+.request { background: var(--wait-bg); border: 1px solid var(--wait-border); border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; }
+.request .q { font-weight: 600; margin-bottom: 6px; }
+.request .opts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.request .opts button.pick { border-color: var(--accent); background: var(--sub-bg); }
+.ev { padding: 4px 0; }
+.ev.assistant { white-space: pre-wrap; }
+.ev.user { background: var(--sub-bg); border-radius: 6px; padding: 6px 10px; }
+.ev.sys { color: var(--sys); font-size: 12px; font-family: var(--mono); }
+.ev.tool { background: var(--tool-bg); border-radius: 6px; padding: 4px 8px; font-family: var(--mono); font-size: 12px; }
+.ev.tool summary { cursor: pointer; list-style: none; }
+.ev.tool summary::before { content: "▸ "; } .ev.tool[open] summary::before { content: "▾ "; }
+.ev.tool pre { margin: 6px 0 0; white-space: pre-wrap; border-top: 1px dashed var(--border); padding-top: 6px; }
+.ev.thinking { color: var(--muted); font-size: 12px; } .ev.thinking summary { cursor: pointer; }
+.sub { border-left: 3px solid var(--accent); background: var(--sub-bg); border-radius: 0 6px 6px 0; padding: 6px 10px; margin: 2px 0; }
+.sub .subhead { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.sub .subhead b { color: var(--fg); }
+.queue { display: flex; flex-direction: column; gap: 4px; }
+.queue .q-item { display: flex; gap: 8px; align-items: center; font-size: 12px; background: var(--tool-bg); border-radius: 6px; padding: 4px 8px; }
+.queue .q-item span { flex: 1; }
+.queue .q-item button { padding: 0 6px; line-height: 1.4; }
+.row { display: flex; gap: 8px; align-items: center; }
+.confirm { background: var(--card); border: 1px solid var(--danger); border-radius: 6px; padding: 8px 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* заглушка планирования */
+.stub { max-width: 800px; margin: 60px auto; text-align: center; color: var(--muted); }
+
+/* переключатель вариантов (не часть дизайна) */
+#switcher { position: fixed; bottom: 14px; left: 14px; z-index: 100; background: #111; color: #fff; border-radius: 999px; padding: 6px 10px; display: flex; gap: 10px; align-items: center; box-shadow: 0 4px 16px rgba(0,0,0,.4); font-size: 13px; }
+#switcher button { background: #333; color: #fff; border: 0; border-radius: 999px; width: 28px; height: 28px; padding: 0; }
+#switcher span { min-width: 220px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="switcher"><button data-sw="-1">←</button><span id="swlabel"></span><button data-sw="1">→</button></div>
+
+<script>
+// ------------------------------------------------------------------ mock-состояние
+const VARIANTS = { A: 'Список + боковая панель', B: 'Плитки Агентов + панель на весь экран', C: 'Колонки по Стадиям + панель снизу' };
+const RL = { five_hour: 72, five_reset: '14:30', seven_day: 41, seven_reset: 'чт 09:00' };
+
+const state = {
+  mode: 'dev',
+  paused: false,
+  maxSlots: 2,
+  updateAvailable: 'v0.3.0', updating: false, version: 'v0.2.4',
+  selected: null,
+  confirmCancel: false,
+  pickedOption: null,
+  lastVisit: '2026-11-05 08:14',
+  digest: {
+    requests: [{ n: 138, t: 'Валидация дат вязки' }],
+    done: [{ n: 137, t: 'Фото котят в галерее', pr: 149 }],
+    dead: [{ n: 129, t: 'Синхронизация с WCF' }],
+  },
+  tasks: [
+    { n: 142, t: 'Экспорт родословной в PDF', ms: 'v0.3 Родословные', stage: 'impl', round: null, agent: 'working', pr: 151, since: '42 мин', request: null, queue: [],
+      events: [
+        { k: 'sys', text: 'session 9f3c…a1 resumed · Стадия Реализация · Ход 7' },
+        { k: 'assistant', text: 'Добавляю генерацию PDF через pdfkit. Сначала посмотрю, как сейчас собирается дерево предков.' },
+        { k: 'tool', name: 'Read', head: 'src/pedigree/tree.ts', input: '{ "file_path": "src/pedigree/tree.ts" }', result: '1  export function buildTree(catId: CatId, depth = 4) { … }\n…' },
+        { k: 'thinking', text: 'Глубина 4 поколения, в PDF поместится на A4 landscape, если ужать шрифт до 8pt…' },
+        { k: 'tool', name: 'Edit', head: 'src/pedigree/pdf.ts (+48 -0)', input: '{ "file_path": "src/pedigree/pdf.ts", "old_string": "", "new_string": "import PDFDocument from \'pdfkit\';\n…" }', result: 'OK' },
+        { k: 'sub', name: 'Explore', task: 'Найти, где уже используется pdfkit или аналог', events: [
+          { k: 'tool', name: 'Grep', head: 'pdfkit|puppeteer', input: '{ "pattern": "pdfkit|puppeteer" }', result: 'package.json:31 "pdfkit": "^0.15.0"\nsrc/reports/invoice.ts:3' },
+          { k: 'assistant', text: 'pdfkit уже в зависимостях, используется в src/reports/invoice.ts. Можно переиспользовать шрифты из там же.' },
+        ] },
+        { k: 'tool', name: 'Bash', head: 'pnpm test pedigree', input: '{ "command": "pnpm test pedigree" }', result: 'Tests: 12 passed, 12 total' },
+        { k: 'assistant', text: 'Тесты зелёные. Дальше: эндпоинт GET /cats/:id/pedigree.pdf и проверка на кошке с неполной родословной.' },
+        { k: 'sys', text: 'compaction: контекст сжат (118k -> 42k)' },
+      ] },
+    { n: 138, t: 'Валидация дат вязки', ms: 'v0.3 Родословные', stage: 'qa', round: [2, 3], agent: 'waiting', pr: 147, since: '2 ч 10 мин', queue: [],
+      request: { q: 'В данных есть вязки с датой раньше даты рождения кошки (импорт из старой базы). Как валидировать: ошибка, предупреждение или пропускать при импорте?', options: ['Ошибка', 'Предупреждение', 'Пропускать при импорте'], at: '09:41', comment: 'issues/138#issuecomment-2211' },
+      events: [
+        { k: 'sys', text: 'QA Круг 2 из 3 · замечание: «дата вязки раньше рождения не отклоняется»' },
+        { k: 'assistant', text: 'Проверяю фикстуры: в импорте 14 записей с датой вязки раньше рождения. Строгая валидация сломает импорт из старой базы.' },
+        { k: 'tool', name: 'Bash', head: 'pnpm tsx scripts/check-dates.ts', input: '{ "command": "pnpm tsx scripts/check-dates.ts" }', result: '14 rows: mating_date < birth_date' },
+        { k: 'assistant', text: 'Решение зависит от того, нужна ли обратная совместимость с импортом. Спрошу.' },
+        { k: 'tool', name: 'ask_human', head: 'Как валидировать вязки с датой раньше рождения?', input: '{ "question": "…", "options": ["Ошибка", "Предупреждение", "Пропускать при импорте"] }', result: '(ожидание)' },
+        { k: 'sys', text: 'Запрос опубликован комментарием в issue #138 · 09:41 · процесс погашен, Слот освобождён' },
+      ] },
+    { n: 135, t: 'Миграция на pnpm workspaces', ms: 'Инфраструктура', stage: 'merge', round: null, agent: 'stopped', pr: 140, since: '5 ч 03 мин', request: null, queue: [],
+      events: [
+        { k: 'sys', text: 'Стадия Merge · конфликт с main в pnpm-lock.yaml, package.json' },
+        { k: 'assistant', text: 'Разрешаю конфликт: беру lock из main и пересобираю зависимости ветки.' },
+        { k: 'tool', name: 'Bash', head: 'git checkout --theirs pnpm-lock.yaml && pnpm install', input: '{ "command": "git checkout --theirs pnpm-lock.yaml && pnpm install" }', result: 'ERR_PNPM_OUTDATED_LOCKFILE …' },
+        { k: 'sys', text: 'Ход остановлен из UI · 12:02 · Сессия жива, Слот освобождён' },
+      ] },
+  ],
+  ready: [
+    { n: 144, t: 'Фильтр по окрасу в списке котят', ms: 'v0.3 Родословные' },
+    { n: 145, t: 'Страница питомника', ms: 'v0.4 Питомники' },
+    { n: 146, t: 'Импорт из CSV: окрасы', ms: 'v0.4 Питомники' },
+  ],
+  dead: [
+    { n: 129, t: 'Синхронизация с WCF', ms: 'v0.3 Родословные', reason: 'QA Круги исчерпаны (3 из 3)', pr: 133 },
+    { n: 131, t: 'Онлайн-оплата резерва котёнка', ms: 'v0.4 Питомники', reason: 'Агент: нет доступа к sandbox платёжного провайдера', pr: 136 },
+  ],
+};
+
+const STAGE = { impl: 'Реализация', qa: 'QA', merge: 'Merge' };
+const AGENT = { working: 'работает', idle: 'idle', waiting: 'ждёт человека', stopped: 'остановлен' };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const task = n => state.tasks.find(t => t.n === n);
+const slotsUsed = () => state.tasks.filter(t => t.agent === 'working' || t.agent === 'idle').length;
+const stageLabel = t => STAGE[t.stage] + (t.round ? ` · Круг ${t.round[0]} из ${t.round[1]}` : '');
+
+// ------------------------------------------------------------------ общие куски
+function header() {
+  const lim = (name, v, reset) => `<div class="limit ${v >= 85 ? 'l85' : v >= 60 ? 'l60' : ''}">
+    <div>${name}: <b>${v} %</b> <span class="muted">· сброс ${reset}</span></div><div class="bar"><i style="width:${v}%"></i></div></div>`;
+  return `<header class="top">
+    <span class="product">Breedly/breedly-api</span>
+    <div class="seg"><button class="${state.mode === 'dev' ? 'active' : ''}" data-act="mode" data-v="dev">Режим разработки</button><button class="${state.mode === 'plan' ? 'active' : ''}" data-act="mode" data-v="plan">Режим планирования</button></div>
+    <div class="limits">${lim('5 ч', RL.five_hour, RL.five_reset)}${lim('7 дн', RL.seven_day, RL.seven_reset)}</div>
+    <span class="badge" title="Слоты: работает или idle">Слоты ${slotsUsed()} / ${state.maxSlots}</span>
+    <button class="${state.paused ? 'on' : ''}" data-act="pause">${state.paused ? 'Пауза: вкл' : 'Пауза'}</button>
+    <span class="spacer"></span>
+    <span class="muted">${state.version}</span>
+    ${state.updateAvailable ? `<button data-act="update">Обновить</button>` : ''}
+    ${state.updateAvailable ? `<div class="banner">${state.updating ? 'Обновление… Установка перезапустится, живые Ходы дорабатываются.' : `Доступна ${state.updateAvailable}. Обновление перезапустит Оркестратор; Сессии Агентов продолжатся через resume.`}<span class="spacer"></span><button class="small" data-act="update-dismiss">скрыть</button></div>` : ''}
+    ${state.paused ? `<div class="banner">Пауза: новые Задачи и новые Круги QA не стартуют, живые Ходы дорабатываются.</div>` : ''}
+  </header>`;
+}
+
+function digest(collapsible) {
+  const d = state.digest;
+  const body = `<ul>
+    <li>Запросы к человеку: ${d.requests.length ? d.requests.map(r => `<a href="#" data-act="open" data-n="${r.n}">#${r.n} ${esc(r.t)}</a>`).join(', ') : 'нет'}</li>
+    <li>Завершённые Задачи: ${d.done.length ? d.done.map(r => `#${r.n} ${esc(r.t)} <span class="muted">(PR #${r.pr} влит)</span>`).join(', ') : 'нет'}</li>
+    <li>Тупики: ${d.dead.length ? d.dead.map(r => `#${r.n} ${esc(r.t)}`).join(', ') : 'нет'}</li></ul>`;
+  const head = `С прошлого визита <span class="muted">(${state.lastVisit})</span>`;
+  return collapsible ? `<details class="digest" open><summary>${head}</summary>${body}</details>` : `<div class="digest"><b>${head}</b>${body}</div>`;
+}
+
+function taskCard(t, cls = '') {
+  return `<div class="card ${t.agent === 'waiting' ? 'waiting' : ''} ${state.selected === t.n ? 'selected' : ''} ${cls}" data-act="open" data-n="${t.n}">
+    <div class="title">#${t.n} ${esc(t.t)}</div>
+    <div class="meta"><span>${esc(t.ms)}</span><span>${stageLabel(t)}</span><span class="badge st-${t.agent}">${AGENT[t.agent]}</span><a href="#" onclick="return false">PR #${t.pr}</a><span>${t.since}</span></div>
+  </div>`;
+}
+const readyCard = r => `<div class="card" style="cursor:default"><div class="title">#${r.n} ${esc(r.t)}</div><div class="meta"><span>${esc(r.ms)}</span><span class="badge">готова, ждёт Слот</span></div></div>`;
+const deadCard = r => `<div class="card" style="cursor:default"><div class="title">#${r.n} ${esc(r.t)}</div><div class="meta"><span>${esc(r.ms)}</span><span class="badge st-dead">ready-for-human</span><a href="#" onclick="return false">PR #${r.pr}</a></div><div class="muted" style="font-size:12px;margin-top:4px">${esc(r.reason)}</div></div>`;
+
+function eventHtml(e) {
+  switch (e.k) {
+    case 'assistant': return `<div class="ev assistant">${esc(e.text)}</div>`;
+    case 'user': return `<div class="ev user"><span class="muted" style="font-size:11px">${esc(e.who)}</span><br>${esc(e.text)}</div>`;
+    case 'sys': return `<div class="ev sys">· ${esc(e.text)}</div>`;
+    case 'thinking': return `<details class="ev thinking"><summary>thinking</summary>${esc(e.text)}</details>`;
+    case 'tool': return `<details class="ev tool"><summary><b>${esc(e.name)}</b> ${esc(e.head)}</summary><pre>input: ${esc(e.input)}\n\nresult: ${esc(e.result)}</pre></details>`;
+    case 'sub': return `<div class="sub"><div class="subhead">сабагент <b>${esc(e.name)}</b>: ${esc(e.task)}</div>${e.events.map(eventHtml).join('')}</div>`;
+  }
+  return '';
+}
+
+function panel(t, closeLabel) {
+  const req = t.request ? `<div class="request">
+      <div class="muted" style="font-size:12px">Запрос к человеку · ${t.request.at} · <a href="#" onclick="return false">комментарий в issue</a></div>
+      <div class="q">${esc(t.request.q)}</div>
+      <div class="opts">${t.request.options.map(o => `<button class="small ${state.pickedOption === o ? 'pick' : ''}" data-act="pick" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div>
+      <div class="row"><input type="text" id="answer" placeholder="Ответ свободным текстом (варианты только подсказка)" value="${esc(state.pickedOption || '')}"><button class="primary" data-act="answer">Ответить</button></div>
+    </div>` : '';
+  const queue = t.queue.length ? `<div class="queue"><div class="muted" style="font-size:12px">Ещё не доставлено (уйдёт после конца текущего Хода):</div>
+      ${t.queue.map((m, i) => `<div class="q-item"><span>${esc(m)}</span><button class="small" data-act="unqueue" data-i="${i}" title="удалить до доставки">×</button></div>`).join('')}</div>` : '';
+  const confirm = state.confirmCancel ? `<div class="confirm">Отменить Задачу #${t.n}? Issue будет закрыта без влитого PR, Агент погашен, worktree и PR #${t.pr} убраны.
+      <button class="danger small" data-act="cancel-yes">Да, отменить</button><button class="small" data-act="cancel-no">Нет</button></div>` : '';
+  return `<div class="panel">
+    <div class="phead">
+      <button class="small" data-act="close">${closeLabel}</button>
+      <span class="title">#${t.n} ${esc(t.t)}</span>
+      <span class="badge">${stageLabel(t)}</span><span class="badge st-${t.agent}">${AGENT[t.agent]}</span>
+      <a href="#" onclick="return false">PR #${t.pr}</a><span class="muted">${t.since}</span>
+    </div>
+    <div class="feed" id="feed">${req}${t.events.map(eventHtml).join('')}</div>
+    <div class="pfoot">
+      ${queue}${confirm}
+      <div class="row"><input type="text" id="dlg" placeholder="${t.agent === 'waiting' ? 'Сообщение в Диалог (доставится после Ответа)' : 'Сообщение Агенту (доставится после конца Хода)'}"><button data-act="send">Отправить</button></div>
+      <div class="row"><button class="small" data-act="stop" ${t.agent === 'working' ? '' : 'disabled'}>Остановить ход</button><button class="small danger" data-act="cancel">Отменить задачу</button><span class="spacer"></span><span class="muted" style="font-size:12px">Другого ручного управления нет</span></div>
+    </div>
+  </div>`;
+}
+
+// ------------------------------------------------------------------ варианты
+function variantA() {
+  const sel = state.selected != null ? task(state.selected) : null;
+  return `<div class="layout-a">
+    ${digest(false)}
+    <h2>В работе (${state.tasks.length})</h2><div class="list">${state.tasks.map(t => taskCard(t)).join('') || '<div class="empty">пусто</div>'}</div>
+    <h2>Готовые Задачи, ждут Слот (${state.ready.length})</h2><div class="list">${state.ready.map(readyCard).join('')}</div>
+    <h2>Тупики: ready-for-human (${state.dead.length})</h2><div class="list">${state.dead.map(deadCard).join('')}</div>
+  </div>
+  ${sel ? `<div class="scrim" data-act="close"></div><div class="drawer">${panel(sel, '✕ закрыть')}</div>` : ''}`;
+}
+
+function variantB() {
+  const sel = state.selected != null ? task(state.selected) : null;
+  const tile = t => {
+    const last = t.events.slice(-3).map(e => e.k === 'tool' ? `${e.name} ${e.head}` : e.k === 'sub' ? `сабагент ${e.name}` : e.text);
+    return `<div class="card tile ${t.agent === 'waiting' ? 'waiting' : ''} ${state.selected === t.n ? 'selected' : ''}" data-act="open" data-n="${t.n}">
+      <div class="title">#${t.n} ${esc(t.t)}</div>
+      <div class="meta"><span>${esc(t.ms)}</span><span>${stageLabel(t)}</span><span class="badge st-${t.agent}">${AGENT[t.agent]}</span><a href="#" onclick="return false">PR #${t.pr}</a><span>${t.since}</span></div>
+      ${t.request ? `<div class="request" style="margin-top:8px;padding:6px 8px"><div class="q" style="font-size:13px">${esc(t.request.q)}</div><div class="muted" style="font-size:12px">${t.request.options.join(' · ')} · открыть, чтобы ответить</div></div>` : ''}
+      <div class="preview">${last.map(s => `<div>${esc(s)}</div>`).join('')}</div>
+    </div>`;
+  };
+  return `<div class="layout-b">
+    <aside>
+      ${digest(false)}
+      <h2>Готовые (${state.ready.length})</h2><div class="list">${state.ready.map(readyCard).join('')}</div>
+      <h2>Тупики (${state.dead.length})</h2><div class="list">${state.dead.map(deadCard).join('')}</div>
+    </aside>
+    <main>
+      <h2 style="margin-top:8px">Живые Агенты (${state.tasks.length}) · Слоты ${slotsUsed()} / ${state.maxSlots}</h2>
+      <div class="tiles">${state.tasks.map(tile).join('') || '<div class="empty">пусто</div>'}</div>
+    </main>
+  </div>
+  ${sel ? `<div class="full"><div class="panel" style="width:100%">${panel(sel, '← к плиткам')}</div></div>` : ''}`;
+}
+
+function variantC() {
+  const sel = state.selected != null ? task(state.selected) : null;
+  const col = (title, items) => `<div class="col"><h2>${title}</h2>${items.join('') || '<div class="empty">пусто</div>'}</div>`;
+  const by = s => state.tasks.filter(t => t.stage === s).map(t => taskCard(t));
+  return `<div class="layout-c ${sel ? 'with-panel' : ''}">
+    ${digest(true)}
+    <div class="board" style="margin-top:12px">
+      ${col(`Готовые (${state.ready.length})`, state.ready.map(readyCard))}
+      ${col('Реализация', by('impl'))}
+      ${col('QA', by('qa'))}
+      ${col('Merge', by('merge'))}
+      ${col(`Тупики (${state.dead.length})`, state.dead.map(deadCard))}
+    </div>
+  </div>
+  ${sel ? `<div class="bottom">${panel(sel, '▾ свернуть')}</div>` : ''}`;
+}
+
+function planningStub() {
+  return `<div class="stub"><h1 style="color:var(--fg)">Режим планирования</h1><p>Заглушка. Здесь будет сессия Claude Code на ветке main: замысел -> Milestones -> Задачи с зависимостями и labels (тикет 10).</p></div>`;
+}
+
+// ------------------------------------------------------------------ рендер и действия
+let variant = (new URLSearchParams(location.search).get('variant') || 'A').toUpperCase();
+if (!VARIANTS[variant]) variant = 'A';
+const openParam = +(new URLSearchParams(location.search).get('open') || 0);
+if (openParam && task(openParam)) state.selected = openParam;
+
+function render() {
+  const body = state.mode === 'plan' ? planningStub() : ({ A: variantA, B: variantB, C: variantC })[variant]();
+  document.getElementById('app').innerHTML = header() + body;
+  document.getElementById('swlabel').textContent = `${variant} (${VARIANTS[variant]})`;
+  const feed = document.getElementById('feed'); if (feed) feed.scrollTop = feed.scrollHeight;
+}
+
+function setVariant(v) {
+  variant = v; const u = new URL(location.href); u.searchParams.set('variant', v); history.replaceState(null, '', u); render();
+}
+function cycle(d) { const keys = Object.keys(VARIANTS); setVariant(keys[(keys.indexOf(variant) + d + keys.length) % keys.length]); }
+
+document.getElementById('switcher').addEventListener('click', e => { const b = e.target.closest('[data-sw]'); if (b) cycle(+b.dataset.sw); });
+document.addEventListener('keydown', e => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+  if (e.key === 'ArrowLeft') cycle(-1); if (e.key === 'ArrowRight') cycle(1);
+  if (e.key === 'Escape') { state.selected = null; state.confirmCancel = false; render(); }
+});
+
+function deliverQueue(t) {
+  // mock: после «конца Хода» очередь доставляется по одному сообщению
+  if (!t.queue.length || t.agent !== 'working') return;
+  const m = t.queue.shift();
+  t.events.push({ k: 'user', who: 'Диалог из UI · доставлено после конца Хода', text: m });
+  t.events.push({ k: 'assistant', text: `Принял: «${m}». Учту в следующем Ходе.` });
+  render();
+  if (t.queue.length) setTimeout(() => deliverQueue(t), 2500);
+}
+
+document.getElementById('app').addEventListener('click', e => {
+  const el = e.target.closest('[data-act]'); if (!el) return;
+  if (e.target.closest('a')) e.preventDefault();
+  const act = el.dataset.act; const t = state.selected != null ? task(state.selected) : null;
+  switch (act) {
+    case 'mode': state.mode = el.dataset.v; state.selected = null; break;
+    case 'pause': state.paused = !state.paused; break;
+    case 'update': state.updating = true; setTimeout(() => { state.updating = false; state.version = state.updateAvailable; state.updateAvailable = null; render(); }, 2500); break;
+    case 'update-dismiss': state.updateAvailable = null; break;
+    case 'open': state.mode = 'dev'; state.selected = +el.dataset.n; state.confirmCancel = false; state.pickedOption = null; break;
+    case 'close': state.selected = null; state.confirmCancel = false; break;
+    case 'pick': state.pickedOption = el.dataset.v; break;
+    case 'answer': {
+      const v = document.getElementById('answer').value.trim(); if (!v || !t) return;
+      t.events.push({ k: 'user', who: 'Ответ из UI · зеркалится комментарием в issue #' + t.n, text: v });
+      t.events.push({ k: 'sys', text: 'resume · Ответ передан как результат ask_human · Слот занят' });
+      t.events.push({ k: 'assistant', text: `Понял: «${v}». Правлю валидацию и фикстуры импорта.` });
+      t.request = null; t.agent = 'working'; state.pickedOption = null;
+      state.digest.requests = state.digest.requests.filter(r => r.n !== t.n);
+      setTimeout(() => deliverQueue(t), 2000);
+      break;
+    }
+    case 'send': {
+      const inp = document.getElementById('dlg'); const v = inp.value.trim(); if (!v || !t) return;
+      t.queue.push(v); inp.value = '';
+      if (t.agent === 'working' && t.queue.length === 1) setTimeout(() => deliverQueue(t), 3000);
+      if (t.agent === 'stopped') { // Сессия жива: сообщение = новый Ход
+        t.agent = 'working'; t.events.push({ k: 'sys', text: 'новый Ход по сообщению из UI · Слот занят' }); setTimeout(() => deliverQueue(t), 500);
+      }
+      break;
+    }
+    case 'unqueue': t.queue.splice(+el.dataset.i, 1); break;
+    case 'stop': t.agent = 'stopped'; t.events.push({ k: 'sys', text: 'interrupt() · Ход остановлен из UI · Сессия жива, Слот освобождён' }); break;
+    case 'cancel': state.confirmCancel = true; break;
+    case 'cancel-no': state.confirmCancel = false; break;
+    case 'cancel-yes':
+      state.tasks = state.tasks.filter(x => x.n !== t.n); state.selected = null; state.confirmCancel = false;
+      state.digest.requests = state.digest.requests.filter(r => r.n !== t.n);
+      break;
+  }
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
