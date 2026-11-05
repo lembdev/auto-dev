@@ -9,9 +9,12 @@ import type { Logger } from "../log.js";
 import type { TimerHandle } from "../ports/clock.js";
 import { GitHubNotFoundError, type Issue, type IssueComment, type PollQuery, type PollResult } from "../ports/github.js";
 import type { Ports } from "../ports/index.js";
+import { WorkspaceCleanup } from "./cleanup.js";
 import { Comments } from "./comments.js";
+import { DeadEnds } from "./dead-end.js";
 import { Implementation, type AskHumanHandler } from "./implementation.js";
 import { IntentJournal } from "./intents.js";
+import { MergeStage } from "./merge.js";
 import type { StagePrompts } from "../prompts/index.js";
 import { QaStage } from "./qa.js";
 import { READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
@@ -70,7 +73,10 @@ export class Orchestrator {
   private readonly _comments: Comments;
   private readonly _agents: AgentRunner;
   private readonly _implementation: Implementation;
+  private readonly _deadEnds: DeadEnds;
   private readonly _qa: QaStage;
+  private readonly _cleanup: WorkspaceCleanup;
+  private readonly _merge: MergeStage;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
   private readonly _seenComments = new Map<CommentId, string>();
@@ -113,20 +119,48 @@ export class Orchestrator {
       ...(options.prompts ? { prompts: options.prompts } : {}),
       ...(options.onAskHuman ? { onAskHuman: options.onAskHuman } : {}),
     });
+    this._deadEnds = new DeadEnds({
+      github: this._ports.github,
+      runner: this._agents,
+      index: this._index,
+      log: this._log,
+      journal: this._intents,
+      transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
+      postComment: (issueNumber, key, text) => this.postComment(issueNumber, key, text),
+    });
     this._qa = new QaStage({
       github: this._ports.github,
       runner: this._agents,
       index: this._index,
       log: this._log,
       clock: this._ports.clock,
-      journal: this._intents,
+      deadEnds: this._deadEnds,
       implementation: this._implementation,
       transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
-      postComment: (issueNumber, key, text) => this.postComment(issueNumber, key, text),
       findIssue: (issueNumber) => this._issueOf(issueNumber),
       canStartRound: () => this.canStartTurn(),
       ...(options.prompts ? { prompts: options.prompts } : {}),
       ...(options.onAskHuman ? { onAskHuman: options.onAskHuman } : {}),
+    });
+    this._cleanup = new WorkspaceCleanup({
+      worktree: this._ports.worktree,
+      journal: this._intents,
+      log: this._log,
+      repoPath: this._workspace.repoPath,
+    });
+    this._merge = new MergeStage({
+      github: this._ports.github,
+      index: this._index,
+      log: this._log,
+      clock: this._ports.clock,
+      journal: this._intents,
+      runner: this._agents,
+      implementation: this._implementation,
+      cleanup: this._cleanup,
+      deadEnds: this._deadEnds,
+      transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
+      postComment: (issueNumber, key, text) => this.postComment(issueNumber, key, text),
+      baseBranch: this._workspace.baseBranch,
     });
   }
 
@@ -141,6 +175,19 @@ export class Orchestrator {
 
   get qa(): QaStage {
     return this._qa;
+  }
+
+  get merge(): MergeStage {
+    return this._merge;
+  }
+
+  // Dead ends of any Stage and the local clean-up after a merge or a cancellation.
+  get deadEnds(): DeadEnds {
+    return this._deadEnds;
+  }
+
+  get cleanup(): WorkspaceCleanup {
+    return this._cleanup;
   }
 
   // Whether a new Turn (a new QA round, a resumed Session) may start now; the Pause and the limit
@@ -168,6 +215,7 @@ export class Orchestrator {
 
   stop(): void {
     this._running = false;
+    this._merge.stop();
     if (this._timer !== undefined) {
       this._ports.clock.clear(this._timer);
       this._timer = undefined;
@@ -265,6 +313,7 @@ export class Orchestrator {
     await this._pollComments();
     await this._startImplementers();
     await this._qa.startRounds();
+    await this._merge.startMerges();
     await this._fillSlots();
   }
 
