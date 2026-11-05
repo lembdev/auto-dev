@@ -34,6 +34,8 @@ export type PushInput = {
 
 // Git operations on the Product clone and its worktrees.
 export interface WorktreePort {
+  // True when `path` is the root of a git working tree (the Product clone).
+  isRepository(path: string): Promise<boolean>;
   clone(input: CloneInput): Promise<void>;
   fetch(input: RepoRef): Promise<void>;
   addWorktree(input: WorktreeInput): Promise<void>;

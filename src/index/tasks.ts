@@ -28,7 +28,7 @@ export type Task = {
 export type NewTask = Omit<Task, "round" | "attempt" | "pullNumber" | "branch" | "worktreePath" | "updatedAt"> &
   Partial<Pick<Task, "round" | "attempt" | "pullNumber" | "branch" | "worktreePath">>;
 
-export type TaskPatch = Partial<Omit<Task, "issueNumber" | "takenAt" | "updatedAt">>;
+export type TaskPatch = Partial<Omit<Task, "issueNumber" | "updatedAt">>;
 
 export type Transition = {
   id: number;
@@ -146,7 +146,7 @@ export class TaskStore {
     this._db
       .prepare(
         `UPDATE tasks SET title = ?, milestone_number = ?, milestone_title = ?, stage = ?, round = ?, attempt = ?,
-           pull_number = ?, branch = ?, worktree_path = ?, updated_at = ?
+           pull_number = ?, branch = ?, worktree_path = ?, taken_at = ?, updated_at = ?
          WHERE issue_number = ?`,
       )
       .run(
@@ -159,6 +159,7 @@ export class TaskStore {
         next.pullNumber,
         next.branch,
         next.worktreePath,
+        next.takenAt,
         next.updatedAt,
         issueNumber,
       );

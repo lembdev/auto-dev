@@ -17,7 +17,7 @@ describe("GET /api/health", () => {
     testApp = createTestApp({ version: "1.2.3" });
     const response = await testApp.app.request("/api/health");
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: "ok", version: "1.2.3", schemaVersion: 2, uptimeMs: 0 });
+    expect(await response.json()).toEqual({ status: "ok", version: "1.2.3", schemaVersion: 3, uptimeMs: 0 });
   });
 
   it("reports uptime from the clock port", async () => {

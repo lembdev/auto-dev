@@ -41,14 +41,21 @@ export type TestAppOptions = {
   hooks?: OrchestratorHooks;
 };
 
+// Where the fakes pretend the Product is cloned.
+export const TEST_REPO_PATH = "/var/lib/auto-dev/repo";
+
 // The server and the Orchestrator on fakes and an in-memory index: the seam every scenario test goes through.
 // The Orchestrator is not started; tests call `pollOnce()` or `start()` themselves.
 export function createTestApp(options: TestAppOptions = {}): TestApp {
   const ports = createFakePorts();
+  ports.worktree.seedRepo(TEST_REPO_PATH);
   const index = openRuntimeIndex(IN_MEMORY);
   const sink = createLogSink();
   const log = createLogger({ level: options.logLevel ?? "silent", destination: sink });
-  const orchestrator = new Orchestrator(options.hooks ? { ports, index, log, hooks: options.hooks } : { ports, index, log });
+  const product = { repoPath: TEST_REPO_PATH };
+  const orchestrator = new Orchestrator(
+    options.hooks ? { ports, index, log, hooks: options.hooks, product } : { ports, index, log, product },
+  );
   const app = createApp({ ports, index, log, version: options.version ?? "0.0.0-test", orchestrator });
   return {
     app,

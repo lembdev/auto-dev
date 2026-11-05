@@ -51,4 +51,23 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 3,
+    up(db) {
+      db.exec(`
+        CREATE TABLE intents (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          kind TEXT NOT NULL,
+          issue_number INTEGER NOT NULL,
+          payload TEXT NOT NULL,
+          state TEXT NOT NULL,
+          result TEXT,
+          created_at TEXT NOT NULL,
+          done_at TEXT
+        ) STRICT;
+        CREATE INDEX intents_state ON intents (state, id);
+        CREATE INDEX intents_issue ON intents (issue_number, id);
+      `);
+    },
+  },
 ];

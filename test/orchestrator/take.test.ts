@@ -20,6 +20,7 @@ const log = createLogger({ level: "silent" });
 
 const scenario = (options: { maxParallelTasks?: number; hooks?: OrchestratorHooks; index?: RuntimeIndex } = {}): Scenario => {
   const ports = createFakePorts();
+  ports.worktree.seedRepo("/var/lib/auto-dev/repo");
   const index = options.index ?? openRuntimeIndex(IN_MEMORY);
   if (options.maxParallelTasks !== undefined) {
     index.installation.set(INSTALLATION_KEYS.maxParallelTasks, String(options.maxParallelTasks));
@@ -118,9 +119,9 @@ describe("taking Ready tasks", () => {
       stage: "taken",
       round: 0,
       attempt: 1,
-      pullNumber: null,
-      branch: null,
-      worktreePath: null,
+      pullNumber: 1,
+      branch: "worktree-issue-42",
+      worktreePath: "/var/lib/auto-dev/repo/.claude/worktrees/issue-42",
       takenAt,
       updatedAt: takenAt,
     });
@@ -128,7 +129,7 @@ describe("taking Ready tasks", () => {
       { id: 1, issueNumber: 42, from: null, to: "taken", reason: null, at: takenAt },
     ]);
     expect(afterTake).toHaveLength(1);
-    expect(afterTake[0]?.task.issueNumber).toBe(42);
+    expect(afterTake[0]?.task).toMatchObject({ issueNumber: 42, pullNumber: 1, branch: "worktree-issue-42" });
     expect(afterTake[0]?.issue.title).toBe("Add login");
 
     // A second cycle changes nothing: the issue is ours now.

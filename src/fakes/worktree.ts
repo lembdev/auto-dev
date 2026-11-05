@@ -38,6 +38,11 @@ export class FakeWorktreePort implements WorktreePort {
     return [...this._repo(repoPath).worktrees.values()];
   }
 
+  async isRepository(path: string): Promise<boolean> {
+    this.log.record("isRepository", path);
+    return this._repos.has(path);
+  }
+
   async clone(input: CloneInput): Promise<void> {
     this.log.record("clone", input);
     if (this._repos.has(input.path)) throw new Error(`destination already exists: ${input.path}`);

@@ -21,7 +21,7 @@ export type HealthResponse = {
   uptimeMs: number;
 };
 
-export type TaskView = Task & { htmlUrl: string | null };
+export type TaskView = Task & { htmlUrl: string | null; pullUrl: string | null };
 export type StuckTaskView = TaskView & { reason: string | null };
 export type ReadyTaskView = {
   issueNumber: number;
@@ -47,6 +47,10 @@ export type App = Hono & {
 
 type Socket = { send(data: string): void };
 
+// GitHub addresses issues and pull requests under the same repository path.
+const pullUrlOf = (issueUrl: string | null, pullNumber: number | null): string | null =>
+  issueUrl === null || pullNumber === null ? null : issueUrl.replace(/\/issues\/\d+$/, `/pull/${pullNumber}`);
+
 // The HTTP and WebSocket API over the ports and the index. Tests hand it fakes and call it directly.
 export function createApp(deps: AppDeps): App {
   const app = new Hono() as App;
@@ -71,10 +75,10 @@ export function createApp(deps: AppDeps): App {
 
   app.get("/api/tasks", (c) => {
     const ready = deps.orchestrator.readyQueue();
-    const view = (task: Task): TaskView => ({
-      ...task,
-      htmlUrl: deps.orchestrator.findIssue(task.issueNumber)?.htmlUrl ?? null,
-    });
+    const view = (task: Task): TaskView => {
+      const htmlUrl = deps.orchestrator.findIssue(task.issueNumber)?.htmlUrl ?? null;
+      return { ...task, htmlUrl, pullUrl: pullUrlOf(htmlUrl, task.pullNumber) };
+    };
     const body: TasksResponse = {
       slots: deps.orchestrator.slots(),
       inProgress: deps.index.tasks.listActive().map(view),

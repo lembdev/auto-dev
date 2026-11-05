@@ -25,6 +25,7 @@ describe("polling cursors", () => {
   it("stores since and ETag for both endpoints, moves them only on changes and keeps them across a restart", async () => {
     const file = dbPath();
     const ports = createFakePorts();
+    ports.worktree.seedRepo("/var/lib/auto-dev/repo");
     const github = ports.github;
     github.seedIssue({ number: 1, labels: [] });
 
@@ -76,6 +77,7 @@ describe("polling cursors", () => {
 
   it("hands updated comments to the hook oldest first and only once", async () => {
     const ports = createFakePorts();
+    ports.worktree.seedRepo("/var/lib/auto-dev/repo");
     const github = ports.github;
     github.seedIssue({ number: 1 });
     const index = openRuntimeIndex(":memory:");
@@ -118,6 +120,7 @@ describe("polling cursors", () => {
 
   it("starts with since just before the first listing when the index has no cursor", async () => {
     const ports = createFakePorts();
+    ports.worktree.seedRepo("/var/lib/auto-dev/repo");
     const index = openRuntimeIndex(":memory:");
     const orchestrator = new Orchestrator({ ports, index, log });
     await orchestrator.pollOnce();

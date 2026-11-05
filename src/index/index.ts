@@ -12,3 +12,4 @@ export {
   type TaskPatch,
   type Transition,
 } from "./tasks.js";
+export { IntentStore, type Intent, type IntentState, type NewIntent } from "./intents.js";

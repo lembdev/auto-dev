@@ -1,3 +1,5 @@
+import path from "node:path";
+import { DEFAULT_DATA_DIR } from "../config.js";
 import type { CommentId, IssueNumber } from "../ids.js";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import { isActiveStage, type Task, type TaskStage } from "../index/tasks.js";
@@ -5,7 +7,10 @@ import type { Logger } from "../log.js";
 import type { TimerHandle } from "../ports/clock.js";
 import { GitHubNotFoundError, type Issue, type IssueComment, type PollQuery, type PollResult } from "../ports/github.js";
 import type { Ports } from "../ports/index.js";
+import { Comments } from "./comments.js";
+import { IntentJournal } from "./intents.js";
 import { READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
+import { Workspace, type Product } from "./workspace.js";
 
 export const DEFAULT_POLL_INTERVAL_MS = 15_000;
 export const DEFAULT_MAX_PARALLEL_TASKS = 2;
@@ -23,8 +28,8 @@ export const INSTALLATION_KEYS = {
 const FIRST_SINCE_MARGIN_MS = 60_000;
 
 export type OrchestratorHooks = {
-  // Runs once a Ready task is taken (assignee set, label removed, `tasks` and `transitions` written).
-  // Worktree, branch and the `WIP:` pull request are created from here.
+  // Runs once a Ready task is taken and its workspace is ready: assignee set, label removed, worktree,
+  // branch and the `WIP:` pull request created, `tasks` and `transitions` written. The Implementer starts here.
   afterTake?(task: Task, issue: Issue): Promise<void>;
   // Every issue comment updated since the last poll, oldest first.
   onIssueComments?(comments: IssueComment[]): Promise<void>;
@@ -38,6 +43,8 @@ export type OrchestratorOptions = {
   log: Logger;
   pollIntervalMs?: number;
   hooks?: OrchestratorHooks;
+  // Where the Product is cloned; defaults to `<dataDir>/repo` of a standard Installation.
+  product?: Product;
 };
 
 export type Slots = { used: number; max: number };
@@ -49,6 +56,9 @@ export class Orchestrator {
   private readonly _log: Logger;
   private readonly _pollIntervalMs: number;
   private readonly _hooks: OrchestratorHooks;
+  private readonly _intents: IntentJournal;
+  private readonly _workspace: Workspace;
+  private readonly _comments: Comments;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
   private readonly _seenComments = new Map<CommentId, string>();
@@ -64,6 +74,27 @@ export class Orchestrator {
     this._log = options.log;
     this._pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this._hooks = options.hooks ?? {};
+    this._intents = new IntentJournal({ index: this._index, log: this._log, clock: this._ports.clock });
+    this._workspace = new Workspace({
+      worktree: this._ports.worktree,
+      github: this._ports.github,
+      index: this._index,
+      log: this._log,
+      clock: this._ports.clock,
+      journal: this._intents,
+      product: options.product ?? { repoPath: path.join(DEFAULT_DATA_DIR, "repo") },
+    });
+    this._comments = new Comments({ github: this._ports.github, journal: this._intents });
+  }
+
+  // Journal of external actions; other parts of the pipeline register their own intent kinds here.
+  get intents(): IntentJournal {
+    return this._intents;
+  }
+
+  // Posts a marked comment in the issue once per `key`; safe to call again after a crash.
+  postComment(issueNumber: IssueNumber, key: string, text: string): Promise<IssueComment> {
+    return this._comments.post(issueNumber, key, text);
   }
 
   // Runs the first poll right away and keeps polling every `pollIntervalMs` until `stop()`.
@@ -150,6 +181,7 @@ export class Orchestrator {
       this._login = (await this._ports.github.getAuthenticatedUser()).login;
     }
     if (!this._bootstrapped) await this._bootstrap();
+    await this._recoverIntents();
     await this._pollIssues();
     await this._pollComments();
     await this._fillSlots();
@@ -157,6 +189,7 @@ export class Orchestrator {
 
   // Open issues are listed once at start; after that only changes arrive through polling.
   private async _bootstrap(): Promise<void> {
+    await this._workspace.ensureClone();
     const startedAt = this._ports.clock.now();
     const open = await this._ports.github.listIssues({ state: "open" });
     for (const issue of open) this._issues.set(issue.number, issue);
@@ -170,6 +203,15 @@ export class Orchestrator {
     }
     this._bootstrapped = true;
     this._log.info({ openIssues: open.length }, "issues loaded");
+  }
+
+  // Actions interrupted by a crash or a failed call are finished here; handlers are idempotent, so
+  // nothing is created twice.
+  private async _recoverIntents(): Promise<void> {
+    const pending = this._intents.pending().length;
+    if (pending === 0) return;
+    const summary = await this._intents.recover();
+    this._log.info({ pending, ...summary }, "pending intents recovered");
   }
 
   private async _pollIssues(): Promise<void> {
@@ -241,25 +283,59 @@ export class Orchestrator {
       if (!(error instanceof GitHubNotFoundError)) throw error;
     }
     const now = this._iso();
-    const task = this._index.transaction(() => {
-      const inserted = this._index.tasks.insert(
-        { issueNumber: issue.number, title: issue.title, milestone: issue.milestone, stage: "taken", takenAt: now },
-        now,
-      );
-      this._index.transitions.append({ issueNumber: issue.number, from: null, to: "taken", reason: null, at: now });
-      return inserted;
-    });
+    const task = this._index.transaction(() => this._recordTake(issue, now));
     const known = this._issues.get(issue.number);
     if (known) {
       known.assignees = [login];
       known.labels = known.labels.filter((label) => label !== READY_LABEL);
     }
-    this._log.info({ issue: issue.number, milestone: issue.milestone?.number ?? null }, "task taken");
+    this._log.info({ issue: issue.number, milestone: issue.milestone?.number ?? null, attempt: task.attempt }, "task taken");
+    let prepared: Task;
     try {
-      await this._hooks.afterTake?.(task, structuredClone(issue));
+      prepared = await this._workspace.prepare(task, issue);
+    } catch (error) {
+      // The pending intent stays in the journal and is retried on the next cycle; the Task keeps its Slot.
+      this._log.error({ err: error, issue: issue.number }, "workspace not ready");
+      return;
+    }
+    try {
+      await this._hooks.afterTake?.(prepared, structuredClone(issue));
     } catch (error) {
       this._log.error({ err: error, issue: issue.number }, "after-take hook failed");
     }
+  }
+
+  // A new row for a first take; a Task returned from a dead end or cancellation starts its next attempt.
+  private _recordTake(issue: Issue, now: string): Task {
+    const previous = this._index.tasks.find(issue.number);
+    const task = previous
+      ? this._index.tasks.update(
+          issue.number,
+          {
+            title: issue.title,
+            milestone: issue.milestone,
+            stage: "taken",
+            round: 0,
+            attempt: previous.attempt + 1,
+            pullNumber: null,
+            branch: null,
+            worktreePath: null,
+            takenAt: now,
+          },
+          now,
+        )
+      : this._index.tasks.insert(
+          { issueNumber: issue.number, title: issue.title, milestone: issue.milestone, stage: "taken", takenAt: now },
+          now,
+        );
+    this._index.transitions.append({
+      issueNumber: issue.number,
+      from: previous?.stage ?? null,
+      to: "taken",
+      reason: null,
+      at: now,
+    });
+    return task;
   }
 
   private _iso(): string {

@@ -8,3 +8,4 @@ export type PullNumber = number & { __brand: "PullNumber" };
 export type MilestoneNumber = number & { __brand: "MilestoneNumber" };
 export type SessionId = string & { __brand: "SessionId" };
 export type Pid = number & { __brand: "Pid" };
+export type IntentId = number & { __brand: "IntentId" };
