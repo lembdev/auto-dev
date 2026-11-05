@@ -42,8 +42,8 @@ export const DEFAULT_INTERRUPT_TIMEOUT_MS = 15_000;
 
 export type SdkDriverOptions = {
   envSource: AgentEnvSource;
-  // Compiled stdio server of the `ask_human` tool, run with the Orchestrator's own node.
-  askHumanServerPath: string;
+  // Arguments after `node` that start the stdio server of the `ask_human` tool.
+  askHumanServerArgs: string[];
   log: Logger;
   // Absolute path of the system `claude`; resolved from the Agent PATH when omitted.
   claudePath?: string | undefined;
@@ -207,15 +207,20 @@ class SdkAgentProcess implements AgentProcess {
   }
 
   async *messages(): AsyncIterable<SDKMessage> {
+    let lastWasResult = false;
     try {
       for await (const message of this._query) {
         if ("session_id" in message && typeof message.session_id === "string") this._sessionId = message.session_id as SessionId;
         if (message.type === "result") this._turnActive = false;
         if (isDeferredResult(message)) this._input.close();
+        lastWasResult = message.type === "result";
         yield message;
       }
     } catch (error) {
-      if (!(error instanceof AbortError)) throw error;
+      if (error instanceof AbortError) return;
+      // After an error result the SDK also throws; the result message already told the consumer everything.
+      if (!lastWasResult) throw error;
+      this._log.debug({ err: error }, "query ended after an error result");
     } finally {
       this._streamEnded = true;
       // Without a spawned child (startup failure) there is no exit event to wait for.
@@ -317,7 +322,7 @@ export class SdkDriver implements DriverPort {
       includePartialMessages: true,
       forwardSubagentText: true,
       mcpServers: {
-        [ASK_HUMAN_SERVER]: { type: "stdio", command: process.execPath, args: [this._options.askHumanServerPath], alwaysLoad: true },
+        [ASK_HUMAN_SERVER]: { type: "stdio", command: process.execPath, args: [...this._options.askHumanServerArgs], alwaysLoad: true },
       },
       hooks: { PreToolUse: [{ matcher: ASK_HUMAN_TOOL_NAME, hooks: [this._askHumanHook(launch)] }] },
       spawnClaudeCodeProcess: (spawnOptions: SpawnOptions) => {
@@ -332,6 +337,7 @@ export class SdkDriver implements DriverPort {
         return spawned;
       },
       ...(launch.resume ? { resume: launch.resume } : {}),
+      ...(launch.model ? { model: launch.model } : {}),
     };
 
     if (launch.prompt !== undefined) input.push(userMessage(launch.prompt, launch.resume));

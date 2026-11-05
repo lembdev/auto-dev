@@ -22,6 +22,8 @@ export type AgentLaunch = {
   resumeInterruptedTurn?: boolean;
   // Extra environment on top of what the adapter builds for every Agent.
   env?: Record<string, string>;
+  // Model alias or id; the CLI default otherwise.
+  model?: string;
   onAskHuman?: (call: AskHumanCall) => Promise<AskHumanDecision>;
 };
 

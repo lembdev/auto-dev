@@ -16,6 +16,10 @@ export type Config = {
   envFileExists: boolean;
   dataDir: string;
   runtimeDbPath: string;
+  // CLAUDE_CONFIG_DIR of the Installation: Agent sessions, credentials and settings live here.
+  claudeConfigDir: string;
+  // Explicit path of the system `claude`; resolved from PATH when absent.
+  claudePath: string | undefined;
   host: string;
   port: number;
   logLevel: LogLevel;
@@ -103,6 +107,8 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     envFileExists: fileContent !== undefined,
     dataDir,
     runtimeDbPath: path.join(dataDir, "runtime.db"),
+    claudeConfigDir: values.CLAUDE_CONFIG_DIR ?? path.join(dataDir, "claude"),
+    claudePath: values.AUTO_DEV_CLAUDE_PATH || undefined,
     host: values.AUTO_DEV_HOST ?? DEFAULT_HOST,
     port,
     logLevel,

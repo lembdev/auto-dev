@@ -19,6 +19,7 @@ export type AgentRunnerDeps = {
 // Per-launch settings that the Driver needs again when the runner resumes the Session itself.
 export type AgentSessionOptions = {
   env?: Record<string, string>;
+  model?: string;
   onAskHuman?: (call: AskHumanCall) => Promise<AskHumanDecision>;
 };
 
@@ -241,10 +242,12 @@ export class AgentRunner {
 
 const sessionOptions = (spec: AgentSessionOptions, remembered: AgentSessionOptions = {}): AgentSessionOptions => ({
   ...(spec.env ?? remembered.env ? { env: spec.env ?? remembered.env } : {}),
+  ...(spec.model ?? remembered.model ? { model: spec.model ?? remembered.model } : {}),
   ...(spec.onAskHuman ?? remembered.onAskHuman ? { onAskHuman: spec.onAskHuman ?? remembered.onAskHuman } : {}),
 });
 
-const launchOptions = (options: AgentSessionOptions): Pick<AgentLaunch, "env" | "onAskHuman"> => ({
+const launchOptions = (options: AgentSessionOptions): Pick<AgentLaunch, "env" | "model" | "onAskHuman"> => ({
   ...(options.env ? { env: options.env } : {}),
+  ...(options.model ? { model: options.model } : {}),
   ...(options.onAskHuman ? { onAskHuman: options.onAskHuman } : {}),
 });

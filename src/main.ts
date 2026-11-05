@@ -21,12 +21,14 @@ async function main(): Promise<void> {
 
   const log = createLogger({ level: config.logLevel });
   log.info({ version: VERSION, envFile: config.envFile, envFileExists: config.envFileExists, dataDir: config.dataDir }, "starting");
+  // The SDK's session helpers look up transcripts under the config dir of this process.
+  process.env.CLAUDE_CONFIG_DIR ??= config.claudeConfigDir;
 
   mkdirSync(config.dataDir, { recursive: true });
   const index = openRuntimeIndex(config.runtimeDbPath);
   log.info({ path: config.runtimeDbPath, schemaVersion: index.schemaVersion() }, "runtime index ready");
 
-  const ports = createSystemPorts();
+  const ports = createSystemPorts({ config, log });
   const app = createApp({ ports, index, log, version: VERSION });
   const server = await startServer({ app, host: config.host, port: config.port, log });
 

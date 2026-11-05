@@ -13,7 +13,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "smoke:driver": "tsx scripts/smoke-driver.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.318",

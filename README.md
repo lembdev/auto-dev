@@ -33,6 +33,10 @@ npm start         # node dist/main.js
 | `AUTO_DEV_HOST`     | `0.0.0.0`             | адрес HTTP-сервера                           |
 | `AUTO_DEV_PORT`     | `8080`                | порт HTTP-сервера (`0` = свободный)          |
 | `LOG_LEVEL`         | `info`                | уровень pino: fatal, error, warn, info, debug, trace, silent |
+| `CLAUDE_CONFIG_DIR` | `<data dir>/claude`   | каталог Claude Code Установки: сессии Агентов, credentials  |
+| `AUTO_DEV_CLAUDE_PATH` | ищется в `PATH`    | путь к системному `claude`                   |
+| `CLAUDE_CODE_OAUTH_TOKEN` |                 | токен подписки из `claude setup-token`, уходит Агентам |
+| `GH_TOKEN`          |                       | токен GitHub, уходит Агентам для `gh`        |
 
 Логи: pino JSON в stdout.
 
@@ -43,12 +47,38 @@ AUTO_DEV_DATA_DIR=./.data AUTO_DEV_ENV_FILE=./.data/env AUTO_DEV_PORT=8080 npm r
 curl http://127.0.0.1:8080/api/health
 ```
 
+## Драйвер Агентов
+
+`src/adapters/driver.ts` реализует порт Драйвера поверх Claude Agent SDK: один `query()` в streaming
+input mode на процесс Агента, системный `claude`, `bypassPermissions` (от root запуск отклоняется),
+`disallowedTools: ["AskUserQuestion"]`, `strictMcpConfig`. Окружение Агента собирается строго из
+`PATH`, `HOME`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`, `GH_TOKEN` плюс `CLAUDE_CODE_RETRY_WATCHDOG=1`
+(`src/adapters/agent-env.ts`). Tool `ask_human` живёт в отдельном stdio MCP-процессе
+(`src/adapters/ask-human-mcp.ts`), решение defer / allow принимает hook `PreToolUse` через `onAskHuman`
+из порта. История Сессии читается через `getSessionMessages` SDK и отдаётся как `user` / `assistant`
+сообщения `SDKMessage`; системные записи транскрипта опускаются.
+
+`src/agents/agent-runner.ts` ведёт процессы поверх порта и таблицу `agents`: работает во время Хода,
+idle после него до таймаута 10 мин (затем процесс гасится, Сессия жива), ждёт после отложенного
+`ask_human`, остановлен без процесса. Сообщения и смены состояния уходят подписчикам.
+
+Ручной smoke под подпиской Max (вне CI, запускает настоящий `claude`):
+
+```
+npm run smoke:driver -- start                      # промпт, сообщение в живой поток, stop
+npm run smoke:driver -- ask                        # ask_human отложен, процесс вышел
+npm run smoke:driver -- resume <sessionId> blue    # resume с открытым потоком, Ответ доставлен
+npm run smoke:driver -- interrupt                  # stop() посреди Хода: interrupt, затем SIGTERM
+npm run smoke:driver -- idle                       # AgentRunner гасит процесс по idle-таймауту
+```
+
 ## Структура
 
 - `src/ports/`: интерфейсы внешних зависимостей Оркестратора (GitHub, Драйвер, worktree, часы, процессы).
   Это единственный шов тестирования.
 - `src/fakes/`: in-memory фейки портов с журналом вызовов `calls` и helpers `seed*` / `human*`.
-- `src/adapters/`: реальные адаптеры Установки.
+- `src/adapters/`: реальные адаптеры Установки (Драйвер на Agent SDK, stdio-сервер `ask_human`, часы, процессы).
+- `src/agents/`: жизненный цикл процессов Агентов поверх порта Драйвера и таблица `agents`.
 - `src/index/`: Рантайм-индекс (SQLite через `node:sqlite`), миграции только вперёд.
 - `src/server/`: Hono + `ws` на одном http-сервере, `createApp(deps)` для тестов на фейках.
 - `test/`: vitest, `test/helpers/test-app.ts` поднимает сервер на фейках.

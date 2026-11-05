@@ -21,7 +21,7 @@ const createDriver = (fake: FakeSdkOptions = {}, overrides: Partial<SdkDriverOpt
   const sdk = createFakeSdk(fake);
   const driver = new SdkDriver({
     envSource,
-    askHumanServerPath: "/opt/auto-dev/current/dist/adapters/ask-human-mcp.js",
+    askHumanServerArgs: ["/opt/auto-dev/current/dist/adapters/ask-human-mcp.js"],
     claudePath: "/usr/local/bin/claude",
     log: createLogger({ level: "silent" }),
     isRoot: () => false,
@@ -186,6 +186,24 @@ describe("SdkDriver process", () => {
     expect(call.closes).toBe(1);
     expect(call.child?.signals).toEqual(["SIGTERM"]);
     expect(await process.stop()).toEqual({ code: null, signal: "SIGTERM" });
+  });
+
+  it("ends the stream quietly when the SDK throws after an error result, but surfaces startup failures", async () => {
+    const { driver, sdk } = createDriver();
+    const process = driver.launch({ cwd: "/w", prompt: "go" });
+    const received = collect(process.messages());
+    const call = sdk.lastCall();
+    call.emit(sdkMessages.init(SESSION));
+    call.emit(sdkMessages.resultError(SESSION, ["Not logged in"]));
+    await tick();
+    call.fail(new Error("Claude Code returned an error result: Not logged in"));
+    expect((await received).map((message) => message.type)).toEqual(["system", "result"]);
+    expect(await process.exited()).toEqual({ code: 1, signal: null });
+
+    const broken = driver.launch({ cwd: "/w", prompt: "go" });
+    const failing = collect(broken.messages());
+    sdk.lastCall().fail(new Error("spawn ENOENT"));
+    await expect(failing).rejects.toThrow("spawn ENOENT");
   });
 
   it("closes the input stream once a Turn ends with a deferred tool", async () => {

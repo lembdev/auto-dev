@@ -48,6 +48,8 @@ export type FakeQueryCall = {
   emit(message: SDKMessage): void;
   // Ends the message stream the way the CLI does when it exits on its own.
   end(exit?: { code: number | null; signal: NodeJS.Signals | null }): void;
+  // Ends the stream with an error, as the SDK does after an error result or a startup failure.
+  fail(error: Error): void;
   preToolUse(): HookCallback;
 };
 
@@ -70,6 +72,7 @@ export function createFakeSdk(defaults: FakeSdkOptions = {}) {
     const queue: SDKMessage[] = [];
     let wake: (() => void) | undefined;
     let ended = false;
+    let failure: Error | undefined;
     const call: FakeQueryCall = {
       options,
       spawn: undefined,
@@ -87,6 +90,10 @@ export function createFakeSdk(defaults: FakeSdkOptions = {}) {
         ended = true;
         call.child?.exit(exit.code, exit.signal);
         wake?.();
+      },
+      fail(error) {
+        failure = error;
+        call.end({ code: 1, signal: null });
       },
       preToolUse() {
         const hook = options.hooks?.PreToolUse?.[0]?.hooks[0];
@@ -124,7 +131,10 @@ export function createFakeSdk(defaults: FakeSdkOptions = {}) {
           yield next;
           continue;
         }
-        if (ended) return;
+        if (ended) {
+          if (failure) throw failure;
+          return;
+        }
         await new Promise<void>((resolve) => {
           wake = resolve;
         });
