@@ -90,4 +90,53 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    up(db) {
+      db.exec(`
+        CREATE TABLE human_requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          agent_id INTEGER NOT NULL,
+          issue_number INTEGER NOT NULL,
+          tool_use_id TEXT NOT NULL,
+          comment_id INTEGER,
+          created_at TEXT NOT NULL,
+          answered_at TEXT
+        ) STRICT;
+        CREATE UNIQUE INDEX human_requests_tool_use ON human_requests (tool_use_id);
+        CREATE INDEX human_requests_issue ON human_requests (issue_number, id);
+        CREATE INDEX human_requests_open ON human_requests (answered_at, id);
+
+        CREATE TABLE applied_answers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          request_id INTEGER NOT NULL,
+          source_kind TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        ) STRICT;
+        CREATE UNIQUE INDEX applied_answers_source ON applied_answers (source_kind, source_id);
+        CREATE INDEX applied_answers_request ON applied_answers (request_id, id);
+      `);
+    },
+  },
+  {
+    version: 6,
+    up(db) {
+      db.exec(`
+        CREATE TABLE limit_samples (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          at TEXT NOT NULL,
+          five_hour REAL,
+          five_hour_resets_at TEXT,
+          five_hour_at TEXT,
+          five_hour_source TEXT,
+          seven_day REAL,
+          seven_day_resets_at TEXT,
+          seven_day_at TEXT,
+          seven_day_source TEXT
+        ) STRICT;
+        CREATE INDEX limit_samples_at ON limit_samples (at);
+      `);
+    },
+  },
 ];

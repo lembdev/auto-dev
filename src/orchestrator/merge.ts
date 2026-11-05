@@ -168,7 +168,7 @@ export class MergeStage {
   }
 
   private async _run(task: Task): Promise<void> {
-    if (task.pullNumber === null || task.branch === null) {
+    if (task.pullNumber === null) {
       this._log.warn({ issue: task.issueNumber }, "task in merge without a pull request");
       return;
     }
@@ -217,14 +217,16 @@ export class MergeStage {
       this._log.info({ issue: task.issueNumber, pull: pullNumber, sha }, "pull request merged");
     }
     this._forget(task.issueNumber);
-    if (!done.has(DELETE_REMOTE_BRANCH.name)) {
+    // The branch is null once the cleanup ran; a crash right after it lands here with the step done.
+    if (task.branch !== null && !done.has(DELETE_REMOTE_BRANCH.name)) {
       await this._journal.run(DELETE_REMOTE_BRANCH, task.issueNumber, { pullNumber, branch: task.branch });
     }
     if (!done.has(CLOSE_ISSUE.name)) await this._journal.run(CLOSE_ISSUE, task.issueNumber, { pullNumber });
     const session = this._implementation.findImplementer(task)?.sessionId ?? null;
     await this._postComment(task.issueNumber, `done:${task.attempt}`, finalComment(pull, title, sha, session, this._baseBranch));
     await stopAgentsOf(this._runner, this._index.agents, task.issueNumber);
-    await this._cleanup.remove(task);
+    // The remote branch went right after the merge; the cleanup removes the worktree and the local branch.
+    await this._cleanup.run(task, { remoteBranch: false });
     this._transition(task.issueNumber, "done", "pull request merged");
     this._log.info({ issue: task.issueNumber, pull: pullNumber }, "task done");
   }

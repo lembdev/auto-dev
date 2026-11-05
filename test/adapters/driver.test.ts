@@ -107,6 +107,16 @@ describe("SdkDriver.launch", () => {
     expect(process.sessionId()).toBe(SESSION);
   });
 
+  it("passes the Installation settings to the process as flag settings, never as a file", async () => {
+    const settings = { statusLine: { type: "command" as const, command: "'/usr/bin/node' '/opt/w.js' '/var/lib/auto-dev/rate_limits.json'" } };
+    const { driver, sdk } = createDriver({}, { settings });
+    driver.launch({ cwd: "/w", prompt: "go" });
+    await tick();
+    expect(sdk.lastCall().options.settings).toEqual(settings);
+    expect(sdk.lastCall().options.settings).not.toBe(settings);
+    expect(sdk.lastCall().options.settingSources).toBeUndefined();
+  });
+
   it("refuses to launch under root", () => {
     const { driver, sdk } = createDriver({}, { isRoot: () => true });
     expect(() => driver.launch({ cwd: "/w", prompt: "go" })).toThrow(RootUserError);

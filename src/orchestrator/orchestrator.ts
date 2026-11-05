@@ -12,12 +12,15 @@ import type { Ports } from "../ports/index.js";
 import { WorkspaceCleanup } from "./cleanup.js";
 import { Comments } from "./comments.js";
 import { DeadEnds } from "./dead-end.js";
+import { HumanRequests } from "./human-requests.js";
 import { Implementation, type AskHumanHandler } from "./implementation.js";
+import { InstallationState } from "./installation-state.js";
 import { IntentJournal } from "./intents.js";
 import { MergeStage } from "./merge.js";
 import type { StagePrompts } from "../prompts/index.js";
 import { QaStage } from "./qa.js";
-import { READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
+import { HUMAN_LABEL, READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
+import { Reconciler } from "./reconcile.js";
 import { Workspace, type Product } from "./workspace.js";
 
 export const DEFAULT_POLL_INTERVAL_MS = 15_000;
@@ -53,6 +56,8 @@ export type OrchestratorOptions = {
   hooks?: OrchestratorHooks;
   // Where the Product is cloned; defaults to `<dataDir>/repo` of a standard Installation.
   product?: Product;
+  // Data directory of the Installation: its disk is watched, the limit file lives there.
+  dataDir?: string;
   prompts?: StagePrompts;
   // How long an Agent process outlives its Turn before the runner stops it.
   idleTimeoutMs?: number;
@@ -72,10 +77,13 @@ export class Orchestrator {
   private readonly _workspace: Workspace;
   private readonly _comments: Comments;
   private readonly _agents: AgentRunner;
+  private readonly _humanRequests: HumanRequests;
   private readonly _implementation: Implementation;
   private readonly _deadEnds: DeadEnds;
   private readonly _qa: QaStage;
+  private readonly _installation: InstallationState;
   private readonly _cleanup: WorkspaceCleanup;
+  private readonly _reconciler: Reconciler;
   private readonly _merge: MergeStage;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
@@ -110,6 +118,15 @@ export class Orchestrator {
       log: this._log,
       ...(options.idleTimeoutMs !== undefined ? { idleTimeoutMs: options.idleTimeoutMs } : {}),
     });
+    this._humanRequests = new HumanRequests({
+      github: this._ports.github,
+      runner: this._agents,
+      index: this._index,
+      log: this._log,
+      clock: this._ports.clock,
+      comments: this._comments,
+      journal: this._intents,
+    });
     this._implementation = new Implementation({
       github: this._ports.github,
       runner: this._agents,
@@ -117,7 +134,7 @@ export class Orchestrator {
       log: this._log,
       transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
       ...(options.prompts ? { prompts: options.prompts } : {}),
-      ...(options.onAskHuman ? { onAskHuman: options.onAskHuman } : {}),
+      onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
     });
     this._deadEnds = new DeadEnds({
       github: this._ports.github,
@@ -140,13 +157,33 @@ export class Orchestrator {
       findIssue: (issueNumber) => this._issueOf(issueNumber),
       canStartRound: () => this.canStartTurn(),
       ...(options.prompts ? { prompts: options.prompts } : {}),
-      ...(options.onAskHuman ? { onAskHuman: options.onAskHuman } : {}),
+      onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
+    });
+    this._installation = new InstallationState({
+      index: this._index,
+      clock: this._ports.clock,
+      disk: this._ports.disk,
+      runner: this._agents,
+      log: this._log,
+      dataDir: options.dataDir ?? DEFAULT_DATA_DIR,
     });
     this._cleanup = new WorkspaceCleanup({
       worktree: this._ports.worktree,
-      journal: this._intents,
+      github: this._ports.github,
+      index: this._index,
       log: this._log,
+      clock: this._ports.clock,
+      journal: this._intents,
       repoPath: this._workspace.repoPath,
+    });
+    this._reconciler = new Reconciler({
+      github: this._ports.github,
+      index: this._index,
+      log: this._log,
+      runner: this._agents,
+      cleanup: this._cleanup,
+      transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
+      login: () => this._login ?? "",
     });
     this._merge = new MergeStage({
       github: this._ports.github,
@@ -164,6 +201,11 @@ export class Orchestrator {
     });
   }
 
+  // Cleanup of worktrees, branches and pull requests: after a merge, a cancellation and before a retake.
+  get cleanup(): WorkspaceCleanup {
+    return this._cleanup;
+  }
+
   // Runner of every Agent of the Installation; the UI and later Stages subscribe to it.
   get agents(): AgentRunner {
     return this._agents;
@@ -171,6 +213,16 @@ export class Orchestrator {
 
   get implementation(): Implementation {
     return this._implementation;
+  }
+
+  // Pause, the subscription limit and the disk; the UI reads and toggles them here.
+  get installation(): InstallationState {
+    return this._installation;
+  }
+
+  // Questions of Agents to the human and the Answers from GitHub.
+  get humanRequests(): HumanRequests {
+    return this._humanRequests;
   }
 
   get qa(): QaStage {
@@ -181,19 +233,16 @@ export class Orchestrator {
     return this._merge;
   }
 
-  // Dead ends of any Stage and the local clean-up after a merge or a cancellation.
+  // Dead ends of any Stage: the Task leaves the Pipeline, the human gets the issue back with the reason.
   get deadEnds(): DeadEnds {
     return this._deadEnds;
   }
 
-  get cleanup(): WorkspaceCleanup {
-    return this._cleanup;
-  }
-
-  // Whether a new Turn (a new QA round, a resumed Session) may start now; the Pause and the limit
-  // of the subscription turn it off while running Turns finish.
+  // Whether a new Turn (a new QA round, a resumed Session) may start now; the Pause, the limit of
+  // the subscription, pre-arm and a full disk turn it off while running Turns finish. Taking Ready
+  // tasks and starting Implementers consult the Installation state directly.
   canStartTurn(): boolean {
-    return true;
+    return this._installation.canStartTurn();
   }
 
   // Journal of external actions; other parts of the pipeline register their own intent kinds here.
@@ -216,6 +265,7 @@ export class Orchestrator {
   stop(): void {
     this._running = false;
     this._merge.stop();
+    this._installation.stop();
     if (this._timer !== undefined) {
       this._ports.clock.clear(this._timer);
       this._timer = undefined;
@@ -309,8 +359,10 @@ export class Orchestrator {
     }
     if (!this._bootstrapped) await this._bootstrap();
     await this._recoverIntents();
+    await this._installation.check();
     await this._pollIssues();
     await this._pollComments();
+    await this._humanRequests.deliver();
     await this._startImplementers();
     await this._qa.startRounds();
     await this._merge.startMerges();
@@ -326,6 +378,10 @@ export class Orchestrator {
   private async _startImplementers(): Promise<void> {
     for (const task of this._index.tasks.listByStage(["taken"])) {
       if (task.pullNumber === null) continue;
+      if (!this._installation.canStartTurn()) {
+        this._log.debug({ issue: task.issueNumber, blocker: this._installation.blocker() }, "implementer not started: no new turns now");
+        return;
+      }
       const issue = await this._issueOf(task.issueNumber);
       try {
         await this._implementation.start(task, issue);
@@ -369,6 +425,7 @@ export class Orchestrator {
     if (issues.length === 0) return;
     for (const issue of issues) this._issues.set(issue.number, issue);
     this._log.debug({ issues: issues.map((issue) => issue.number) }, "issues updated");
+    await this._reconciler.apply(issues);
     await this._hooks.onIssuesUpdated?.(issues);
   }
 
@@ -383,6 +440,7 @@ export class Orchestrator {
     const fresh = polled.filter((comment) => this._seenComments.get(comment.id) !== comment.updatedAt);
     for (const comment of fresh) this._seenComments.set(comment.id, comment.updatedAt);
     if (fresh.length === 0) return;
+    await this._humanRequests.onIssueComments(fresh);
     await this._hooks.onIssueComments?.(fresh);
   }
 
@@ -411,6 +469,10 @@ export class Orchestrator {
 
   private async _fillSlots(): Promise<void> {
     for (const issue of this.readyQueue()) {
+      if (!this._installation.canStartTurn()) {
+        this._log.debug({ blocker: this._installation.blocker(), next: issue.number }, "no new tasks now");
+        return;
+      }
       const slots = this.slots();
       if (slots.used >= slots.max) {
         this._log.debug({ ...slots, next: issue.number }, "all slots busy");
@@ -424,20 +486,27 @@ export class Orchestrator {
     const login = this._login ?? "";
     const github = this._ports.github;
     await github.addAssignees(issue.number, [login]);
-    try {
-      await github.removeLabel(issue.number, READY_LABEL);
-    } catch (error) {
-      // Already removed by a human in between: the issue is still ours.
-      if (!(error instanceof GitHubNotFoundError)) throw error;
+    // A Task returned from a dead end also drops the label of the human.
+    const labels = issue.labels.includes(HUMAN_LABEL) ? [READY_LABEL, HUMAN_LABEL] : [READY_LABEL];
+    for (const label of labels) {
+      try {
+        await github.removeLabel(issue.number, label);
+      } catch (error) {
+        // Already removed by a human in between: the issue is still ours.
+        if (!(error instanceof GitHubNotFoundError)) throw error;
+      }
     }
     const now = this._iso();
+    const previous = this._index.tasks.find(issue.number);
     const task = this._index.transaction(() => this._recordTake(issue, now));
     const known = this._issues.get(issue.number);
     if (known) {
       known.assignees = [login];
-      known.labels = known.labels.filter((label) => label !== READY_LABEL);
+      known.labels = known.labels.filter((label) => !labels.includes(label));
     }
     this._log.info({ issue: issue.number, milestone: issue.milestone?.number ?? null, attempt: task.attempt }, "task taken");
+    // The old pull request, worktree and branch go before the new attempt gets its own.
+    if (previous) await this._cleanup.retire(previous);
     let prepared: Task;
     try {
       prepared = await this._workspace.prepare(task, issue);

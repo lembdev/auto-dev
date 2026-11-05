@@ -96,6 +96,8 @@ describe("Merge Stage", () => {
       "deleteBranch",
       "updateIssue",
       "createIssueComment",
+      // The cleanup looks at the pull request once more before it touches anything.
+      "getPullRequest",
     ]);
     expect(github.log.of("updatePullRequest")[0]?.args).toEqual([1, { title: "Add login" }]);
     expect(github.log.of("listCheckRuns")[0]?.args).toEqual([HEAD_SHA]);
@@ -122,7 +124,7 @@ describe("Merge Stage", () => {
     expect(s.index.transitions.listFor(ISSUE).at(-1)).toMatchObject({ from: "merge", to: "done", reason: "pull request merged" });
     expect(s.orchestrator.slots()).toEqual({ used: 0, max: 2 });
     expect(s.index.intents.listPending()).toEqual([]);
-    expect(s.ports.clock.pendingTimers()).toBe(0);
+    expect(s.orchestrator.merge.isWaiting(ISSUE)).toBe(false);
 
     const body = await tasks(s);
     expect(body.inProgress).toEqual([]);
@@ -162,7 +164,6 @@ describe("Merge Stage", () => {
     expect(s.index.tasks.get(ISSUE).stage).toBe("done");
     expect(s.orchestrator.slots().used).toBe(0);
     expect(s.orchestrator.merge.isWaiting(ISSUE)).toBe(false);
-    expect(clock.pendingTimers()).toBe(0);
   });
 
   it("does not poll checks twice when a cycle runs while a wait timer is pending", async () => {
@@ -237,7 +238,7 @@ describe("Merge Stage", () => {
     expect(s.index.tasks.get(ISSUE).stage).toBe("stuck");
     expect(s.index.transitions.listFor(ISSUE).at(-1)?.reason).toBe("merge: red checks: test, lint");
     expect(github.commentsOf(42).find((c) => isMarkedComment(c.body, "stuck:1"))?.body).toContain("test, lint");
-    expect(s.ports.clock.pendingTimers()).toBe(0);
+    expect(s.orchestrator.merge.isWaiting(ISSUE)).toBe(false);
   });
 
   it("reaches a dead end when the checks hang for an hour on the same head", async () => {
@@ -255,7 +256,7 @@ describe("Merge Stage", () => {
     expect(s.index.tasks.get(ISSUE).stage).toBe("stuck");
     expect(s.index.transitions.listFor(ISSUE).at(-1)?.reason).toBe("merge: checks not finished in 60 min");
     expect(github.log.of("mergePullRequest")).toHaveLength(0);
-    expect(clock.pendingTimers()).toBe(0);
+    expect(s.orchestrator.merge.isWaiting(ISSUE)).toBe(false);
   });
 
   it("finishes an interrupted merge on the next cycle without merging twice", async () => {

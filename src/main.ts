@@ -31,7 +31,7 @@ async function main(): Promise<void> {
 
   const ports = createSystemPorts({ config, log, version: VERSION });
   const product = config.github ? { repoPath: config.repoPath, cloneUrl: cloneUrlOf(config.github) } : { repoPath: config.repoPath };
-  const orchestrator = new Orchestrator({ ports, index, log, product });
+  const orchestrator = new Orchestrator({ ports, index, log, product, dataDir: config.dataDir });
   const app = createApp({ ports, index, log, version: VERSION, orchestrator });
   const server = await startServer({ app, host: config.host, port: config.port, log });
 

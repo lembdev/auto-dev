@@ -2,7 +2,8 @@ import { upgradeWebSocket } from "@hono/node-server";
 import { Hono } from "hono";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Logger } from "../log.js";
-import type { Task } from "../index/tasks.js";
+import type { Task, Transition } from "../index/tasks.js";
+import { PAUSE_SOURCES, type InstallationSnapshot, type PauseSource } from "../orchestrator/installation-state.js";
 import type { Orchestrator } from "../orchestrator/orchestrator.js";
 import type { Ports } from "../ports/index.js";
 
@@ -11,7 +12,7 @@ export type AppDeps = {
   index: RuntimeIndex;
   log: Logger;
   version: string;
-  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "qa">;
+  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa">;
 };
 
 export type HealthResponse = {
@@ -21,8 +22,10 @@ export type HealthResponse = {
   uptimeMs: number;
 };
 
-export type TaskView = Task & { htmlUrl: string | null; pullUrl: string | null };
-export type StuckTaskView = TaskView & { reason: string | null };
+export type TaskView = Task & { htmlUrl: string | null; pullUrl: string | null; transitions: Transition[] };
+// A Task that left the Pipeline, with the reason of its last transition.
+export type FinishedTaskView = TaskView & { reason: string | null };
+export type StuckTaskView = FinishedTaskView;
 export type ReadyTaskView = {
   issueNumber: number;
   title: string;
@@ -37,6 +40,27 @@ export type TasksResponse = {
   inProgress: TaskView[];
   ready: ReadyTaskView[];
   stuck: StuckTaskView[];
+  cancelled: FinishedTaskView[];
+};
+
+export type InstallationResponse = InstallationSnapshot & { slots: { used: number; max: number } };
+
+// Body of `PUT /api/installation/pause`: a human pauses or resumes the Installation.
+export type PauseRequest = { paused: boolean; reason?: string; source?: PauseSource };
+
+export const DEFAULT_PAUSE_REASON = "paused from the UI";
+
+const parsePauseRequest = (body: unknown): PauseRequest | undefined => {
+  if (typeof body !== "object" || body === null) return undefined;
+  const raw = body as Record<string, unknown>;
+  if (typeof raw.paused !== "boolean") return undefined;
+  if (raw.reason !== undefined && typeof raw.reason !== "string") return undefined;
+  if (raw.source !== undefined && !PAUSE_SOURCES.includes(raw.source as PauseSource)) return undefined;
+  return {
+    paused: raw.paused,
+    ...(raw.reason !== undefined ? { reason: raw.reason } : {}),
+    ...(raw.source !== undefined ? { source: raw.source as PauseSource } : {}),
+  };
 };
 
 // Events pushed to the UI over `/ws`; later tickets extend the union.
@@ -79,7 +103,11 @@ export function createApp(deps: AppDeps): App {
     const ready = deps.orchestrator.readyQueue();
     const view = (task: Task): TaskView => {
       const htmlUrl = deps.orchestrator.findIssue(task.issueNumber)?.htmlUrl ?? null;
-      return { ...task, htmlUrl, pullUrl: pullUrlOf(htmlUrl, task.pullNumber) };
+      return { ...task, htmlUrl, pullUrl: pullUrlOf(htmlUrl, task.pullNumber), transitions: deps.index.transitions.listFor(task.issueNumber) };
+    };
+    const finished = (task: Task): FinishedTaskView => {
+      const viewed = view(task);
+      return { ...viewed, reason: viewed.transitions.at(-1)?.reason ?? null };
     };
     const body: TasksResponse = {
       slots: deps.orchestrator.slots(),
@@ -91,12 +119,32 @@ export function createApp(deps: AppDeps): App {
         milestone: issue.milestone ? { number: issue.milestone.number, title: issue.milestone.title } : null,
         htmlUrl: issue.htmlUrl,
       })),
-      stuck: deps.index.tasks.listByStage(["stuck"]).map((task) => ({
-        ...view(task),
-        reason: deps.index.transitions.listFor(task.issueNumber).at(-1)?.reason ?? null,
-      })),
+      stuck: deps.index.tasks.listByStage(["stuck"]).map(finished),
+      cancelled: deps.index.tasks.listByStage(["cancelled"]).map(finished),
     };
     return c.json(body);
+  });
+
+  const installationView = (): InstallationResponse => ({
+    ...deps.orchestrator.installation.snapshot(),
+    slots: deps.orchestrator.slots(),
+  });
+
+  app.get("/api/installation", (c) => c.json(installationView()));
+
+  app.put("/api/installation/pause", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "body must be JSON with a boolean `paused`" }, 400);
+    }
+    const request = parsePauseRequest(body);
+    if (!request) return c.json({ error: "body must be JSON with a boolean `paused`, optional string `reason`" }, 400);
+    const installation = deps.orchestrator.installation;
+    if (request.paused) installation.pause(request.source ?? "human", request.reason ?? DEFAULT_PAUSE_REASON);
+    else installation.unpause();
+    return c.json(installationView());
   });
 
   app.get(
