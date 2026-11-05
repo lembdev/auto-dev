@@ -6,6 +6,8 @@ type Init = Extract<SDKMessage, { type: "system"; subtype: "init" }>;
 type Assistant = Extract<SDKMessage, { type: "assistant" }>;
 type ResultSuccess = Extract<SDKMessage, { type: "result"; subtype: "success" }>;
 type ResultError = Extract<SDKMessage, { type: "result"; errors: string[] }>;
+type RateLimitEvent = Extract<SDKMessage, { type: "rate_limit_event" }>;
+type ApiRetry = Extract<SDKMessage, { type: "system"; subtype: "api_retry" }>;
 
 type Uuid = Init["uuid"];
 
@@ -96,6 +98,25 @@ export const sdkMessages = {
       modelUsage: {},
       permission_denials: [],
       errors,
+      uuid: uuid(),
+      session_id: sessionId,
+      ...overrides,
+    };
+  },
+
+  rateLimitEvent(sessionId: SessionId, info: RateLimitEvent["rate_limit_info"]): RateLimitEvent {
+    return { type: "rate_limit_event", rate_limit_info: info, uuid: uuid(), session_id: sessionId };
+  },
+
+  apiRetry(sessionId: SessionId, error: ApiRetry["error"], overrides: Partial<ApiRetry> = {}): ApiRetry {
+    return {
+      type: "system",
+      subtype: "api_retry",
+      attempt: 1,
+      max_retries: 3,
+      retry_delay_ms: 1000,
+      error_status: 401,
+      error,
       uuid: uuid(),
       session_id: sessionId,
       ...overrides,

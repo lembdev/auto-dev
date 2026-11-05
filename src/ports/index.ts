@@ -4,8 +4,10 @@ export type * from "./driver.js";
 export type * from "./worktree.js";
 export type * from "./clock.js";
 export type * from "./process.js";
+export type * from "./disk.js";
 
 import type { Clock } from "./clock.js";
+import type { DiskPort } from "./disk.js";
 import type { DriverPort } from "./driver.js";
 import type { GitHubPort } from "./github.js";
 import type { ProcessPort } from "./process.js";
@@ -18,4 +20,5 @@ export type Ports = {
   worktree: WorktreePort;
   clock: Clock;
   processes: ProcessPort;
+  disk: DiskPort;
 };

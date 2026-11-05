@@ -1,5 +1,6 @@
 export { CallLog, type Call } from "./call-log.js";
 export { FakeClock } from "./clock.js";
+export { FakeDiskPort } from "./disk.js";
 export { FakeDriverPort, FakeAgentProcess } from "./driver.js";
 export { FakeGitHubPort } from "./github.js";
 export type { IssueSeed, MilestoneSeed, PullRequestSeed, CheckRunSeed, CommitStatusSeed, Reaction } from "./github.js";
@@ -9,6 +10,7 @@ export { sdkMessages } from "./sdk-messages.js";
 
 import type { Ports } from "../ports/index.js";
 import { FakeClock } from "./clock.js";
+import { FakeDiskPort } from "./disk.js";
 import { FakeDriverPort } from "./driver.js";
 import { FakeGitHubPort } from "./github.js";
 import { FakeProcessPort } from "./process.js";
@@ -20,6 +22,7 @@ export type FakePorts = Ports & {
   worktree: FakeWorktreePort;
   clock: FakeClock;
   processes: FakeProcessPort;
+  disk: FakeDiskPort;
 };
 
 // One set of fakes sharing a clock, ready to be handed to the Orchestrator and the server.
@@ -31,5 +34,6 @@ export function createFakePorts(): FakePorts {
     worktree: new FakeWorktreePort(),
     clock,
     processes: new FakeProcessPort(),
+    disk: new FakeDiskPort(),
   };
 }

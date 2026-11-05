@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { AgentStore } from "./agents.js";
 import { migrations, type Migration } from "./migrations.js";
 import { IntentStore } from "./intents.js";
+import { LimitSampleStore } from "./limit-samples.js";
 import { TaskStore, TransitionStore } from "./tasks.js";
 
 export const IN_MEMORY = ":memory:";
@@ -42,6 +43,7 @@ export class RuntimeIndex {
   readonly tasks: TaskStore;
   readonly transitions: TransitionStore;
   readonly intents: IntentStore;
+  readonly limitSamples: LimitSampleStore;
 
   constructor(readonly db: DatabaseSync) {
     this.installation = new InstallationStore(db);
@@ -49,6 +51,7 @@ export class RuntimeIndex {
     this.tasks = new TaskStore(db);
     this.transitions = new TransitionStore(db);
     this.intents = new IntentStore(db);
+    this.limitSamples = new LimitSampleStore(db);
   }
 
   // Runs `fn` inside one SQLite transaction; a thrown error rolls everything back.
