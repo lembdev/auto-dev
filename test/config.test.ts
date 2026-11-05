@@ -28,6 +28,16 @@ describe("config", () => {
     expect(config.values.GITHUB_TOKEN).toBe("ghp_x");
   });
 
+  it("parses GITHUB_REPO as owner/name together with GITHUB_TOKEN", () => {
+    const config = loadConfig({ env: { GITHUB_TOKEN: "ghp_x", GITHUB_REPO: "acme/product" }, readFile: () => undefined });
+    expect(config.github).toEqual({ token: "ghp_x", owner: "acme", repo: "product" });
+    expect(loadConfig({ env: {}, readFile: () => undefined }).github).toBeUndefined();
+    expect(loadConfig({ env: { GITHUB_TOKEN: "ghp_x" }, readFile: () => undefined }).github).toBeUndefined();
+    expect(() => loadConfig({ env: { GITHUB_TOKEN: "ghp_x", GITHUB_REPO: "https://github.com/acme/product" }, readFile: () => undefined })).toThrow(
+      'GITHUB_REPO must be "owner/name"',
+    );
+  });
+
   it.each(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"])("refuses to start with %s in the environment", (key) => {
     expect(() => loadConfig({ env: { [key]: "sk-ant" }, readFile: () => undefined })).toThrow(ForbiddenEnvKeyError);
     expect(() => loadConfig({ env: { [key]: "sk-ant" }, readFile: () => undefined })).toThrow(

@@ -19,8 +19,16 @@ export type Config = {
   host: string;
   port: number;
   logLevel: LogLevel;
+  // GitHub access of the Installation; both are set by the first-run wizard, so they may be missing.
+  github: GitHubConfig | undefined;
   // Merged values: env file first, then the process environment on top.
   values: Readonly<Record<string, string>>;
+};
+
+export type GitHubConfig = {
+  token: string;
+  owner: string;
+  repo: string;
 };
 
 export class ConfigError extends Error {
@@ -97,6 +105,7 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
   const dataDir = values.AUTO_DEV_DATA_DIR ?? DEFAULT_DATA_DIR;
   const port = parsePort(values.AUTO_DEV_PORT);
   const logLevel = parseLogLevel(values.LOG_LEVEL);
+  const github = parseGitHub(values.GITHUB_TOKEN, values.GITHUB_REPO);
 
   return {
     envFile,
@@ -106,9 +115,19 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     host: values.AUTO_DEV_HOST ?? DEFAULT_HOST,
     port,
     logLevel,
+    github,
     values,
   };
 }
+
+// `GITHUB_REPO` is `owner/name`. The wizard stores the values one step at a time, so a half-filled
+// pair is not an error: the Orchestrator just stays idle until both are there.
+const parseGitHub = (token: string | undefined, repo: string | undefined): GitHubConfig | undefined => {
+  if (!token || !repo) return undefined;
+  const match = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/.exec(repo.trim());
+  if (!match) throw new ConfigError(`GITHUB_REPO must be "owner/name", got "${repo}"`);
+  return { token, owner: match[1] as string, repo: match[2] as string };
+};
 
 const parsePort = (raw: string | undefined): number => {
   if (raw === undefined || raw === "") return DEFAULT_PORT;
