@@ -19,7 +19,7 @@ describe("GET /api/tasks", () => {
 
   it("is empty before the first poll", async () => {
     testApp = createTestApp();
-    expect(await tasks()).toEqual({ slots: { used: 0, max: 2 }, inProgress: [], ready: [], stuck: [] });
+    expect(await tasks()).toEqual({ slots: { used: 0, max: 2 }, maxQaRounds: 3, inProgress: [], ready: [], stuck: [] });
   });
 
   it("shows Tasks in progress, the Ready queue in order and the Slots", async () => {
@@ -37,6 +37,7 @@ describe("GET /api/tasks", () => {
 
     expect(await tasks()).toEqual({
       slots: { used: 2, max: 2 },
+      maxQaRounds: 3,
       inProgress: [
         {
           issueNumber: 1,

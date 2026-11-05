@@ -41,8 +41,8 @@ npm start         # node dist/main.js
 | `GITHUB_REPO`       | не задан              | Продукт в виде `owner/name`; без него и токена Оркестратор не стартует и только отдаёт API |
 
 Настройки, которые меняются на ходу, лежат в таблице `installation` Рантайм-индекса:
-`max_parallel_tasks` (Слоты, по умолчанию 2), курсоры опроса `poll.issues.since`, `poll.issues.etag`,
-`poll.comments.since`, `poll.comments.etag`.
+`max_parallel_tasks` (Слоты, по умолчанию 2), `max_qa_rounds` (лимит Кругов QA, по умолчанию 3), курсоры опроса
+`poll.issues.since`, `poll.issues.etag`, `poll.comments.since`, `poll.comments.etag`.
 
 Логи: pino JSON в stdout.
 
@@ -51,7 +51,7 @@ npm start         # node dist/main.js
 ```
 AUTO_DEV_DATA_DIR=./.data AUTO_DEV_ENV_FILE=./.data/env AUTO_DEV_PORT=8080 npm run dev
 curl http://127.0.0.1:8080/api/health
-curl http://127.0.0.1:8080/api/tasks   # Задачи в работе (ветка, PR, worktree), очередь Готовых, Тупики, Слоты
+curl http://127.0.0.1:8080/api/tasks   # Задачи в работе (Стадия, Круг, ветка, PR, worktree), очередь Готовых, Тупики с причиной, Слоты, лимит Кругов
 ```
 
 ## Драйвер Агентов
@@ -101,6 +101,17 @@ npm run smoke:driver -- idle                       # AgentRunner гасит пр
   Слот занимает Задача в активной Стадии, чей Агент работает или idle (только что взятая без Агента тоже);
   ждущий и остановленный Слот не занимают. `epic.ts`: родительская issue (sub-issue или `Part of #N`)
   и её чек-лист критериев.
+  `qa.ts`: Стадия QA: на каждый Круг новый QA-Агент с чистой Сессией в worktree (промпт `qa` с прошлым
+  вердиктом); Круг стартует сразу после Хода Реализатора и на каждом цикле опроса для Задач в `qa` без
+  Круга (рестарт, снятая Пауза), но не пока `Orchestrator.canStartTurn()` ложен. Вердикт (`verdict.ts`):
+  ровно один JSON `{approved, summary, blockers:[{where, what}]}` в последнем сообщении, `approved` только
+  при пустых `blockers`. Blockers уходят в живую Сессию Реализатора (`qa -> implement`, `round + 1`),
+  approved переводит в `merge`. Нераспарсенный вердикт: просьба выдать только JSON в ту же QA-Сессию
+  (она уже сделала проверку), второй провал подряд = Тупик; Ход QA с ошибкой = новая Сессия, вторая ошибка
+  подряд = Тупик. Круг `round + 1 >= max_qa_rounds` с blockers = Тупик (`stuck`): `ready-for-human`,
+  снятый assignee и комментарий-причина с маркером `stuck:<attempt>` одним намерением `dead-end`, Агенты
+  остановлены, Слот свободен, worktree и ветка остаются. Прошлый вердикт и текущий Круг живут в памяти:
+  после рестарта Задача в `qa` получает свежий Круг без прошлого вердикта.
 - `prompts/`: промпты Стадий текстом (`common.md` плюс `implement.md`, `qa.md`, `merge.md`, `plan.md`);
   `src/prompts/` собирает общую часть и часть Стадии с подстановками `{{issue_number}}`, `{{issue_title}}`,
   `{{issue_body}}`, `{{epic}}`, `{{pull_number}}`, `{{branch}}`, `{{worktree}}`, `{{round}}`,
