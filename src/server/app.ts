@@ -2,7 +2,7 @@ import { upgradeWebSocket } from "@hono/node-server";
 import { Hono } from "hono";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Logger } from "../log.js";
-import type { Task } from "../index/tasks.js";
+import type { Task, Transition } from "../index/tasks.js";
 import type { Orchestrator } from "../orchestrator/orchestrator.js";
 import type { Ports } from "../ports/index.js";
 
@@ -21,8 +21,10 @@ export type HealthResponse = {
   uptimeMs: number;
 };
 
-export type TaskView = Task & { htmlUrl: string | null; pullUrl: string | null };
-export type StuckTaskView = TaskView & { reason: string | null };
+export type TaskView = Task & { htmlUrl: string | null; pullUrl: string | null; transitions: Transition[] };
+// A Task that left the Pipeline, with the reason of its last transition.
+export type FinishedTaskView = TaskView & { reason: string | null };
+export type StuckTaskView = FinishedTaskView;
 export type ReadyTaskView = {
   issueNumber: number;
   title: string;
@@ -37,6 +39,7 @@ export type TasksResponse = {
   inProgress: TaskView[];
   ready: ReadyTaskView[];
   stuck: StuckTaskView[];
+  cancelled: FinishedTaskView[];
 };
 
 // Events pushed to the UI over `/ws`; later tickets extend the union.
@@ -79,7 +82,11 @@ export function createApp(deps: AppDeps): App {
     const ready = deps.orchestrator.readyQueue();
     const view = (task: Task): TaskView => {
       const htmlUrl = deps.orchestrator.findIssue(task.issueNumber)?.htmlUrl ?? null;
-      return { ...task, htmlUrl, pullUrl: pullUrlOf(htmlUrl, task.pullNumber) };
+      return { ...task, htmlUrl, pullUrl: pullUrlOf(htmlUrl, task.pullNumber), transitions: deps.index.transitions.listFor(task.issueNumber) };
+    };
+    const finished = (task: Task): FinishedTaskView => {
+      const viewed = view(task);
+      return { ...viewed, reason: viewed.transitions.at(-1)?.reason ?? null };
     };
     const body: TasksResponse = {
       slots: deps.orchestrator.slots(),
@@ -91,10 +98,8 @@ export function createApp(deps: AppDeps): App {
         milestone: issue.milestone ? { number: issue.milestone.number, title: issue.milestone.title } : null,
         htmlUrl: issue.htmlUrl,
       })),
-      stuck: deps.index.tasks.listByStage(["stuck"]).map((task) => ({
-        ...view(task),
-        reason: deps.index.transitions.listFor(task.issueNumber).at(-1)?.reason ?? null,
-      })),
+      stuck: deps.index.tasks.listByStage(["stuck"]).map(finished),
+      cancelled: deps.index.tasks.listByStage(["cancelled"]).map(finished),
     };
     return c.json(body);
   });

@@ -34,3 +34,5 @@ export { Implementation, ImplementerNotStartedError, WorkspaceNotReadyError, typ
 export { findEpic, epicOf, parseChecklist, parentNumberOf, type Epic, type ChecklistItem } from "./epic.js";
 export { QaStage, DEAD_END, DEFAULT_MAX_QA_ROUNDS, MAX_QA_ROUNDS_KEY, VERDICT_RETRY_PROMPT, type QaStageOptions } from "./qa.js";
 export { parseVerdict, formatVerdict, formatBlockers, type Verdict, type Blocker } from "./verdict.js";
+export { WorkspaceCleanup, CLEANUP_WORKSPACE, cleanupWorkspace, type CleanupPayload, type CleanupResult, type CleanupDeps } from "./cleanup.js";
+export { Reconciler, CANCELLED_REASON, type ReconcilerOptions } from "./reconcile.js";
