@@ -5,15 +5,19 @@ import type { Logger } from "../log.js";
 import type { GitHubPort, Ports } from "../ports/index.js";
 import { agentEnvSourceFrom } from "./agent-env.js";
 import { SystemClock } from "./clock.js";
+import { NodeDiskPort } from "./disk.js";
 import { SdkDriver } from "./driver.js";
 import { GitHubRestAdapter } from "./github.js";
 import { notImplemented } from "./not-implemented.js";
 import { NodeProcessPort } from "./process.js";
+import { statusLineSettings } from "./statusline.js";
 import { GitWorktreeAdapter } from "./worktree.js";
 
 export { SystemClock } from "./clock.js";
 export { GitHubRestAdapter, GITHUB_API_VERSION, type GitHubRestOptions } from "./github.js";
 export { NodeProcessPort } from "./process.js";
+export { NodeDiskPort } from "./disk.js";
+export { statusLineSettings, statusLineWriterArgs, type StatusLineOptions } from "./statusline.js";
 export { SdkDriver, RootUserError, ClaudeNotFoundError, ProcessNotRunningError, findClaudeExecutable } from "./driver.js";
 export type { SdkDriverOptions } from "./driver.js";
 export { buildAgentEnv, agentEnvSourceFrom, AGENT_ENV_KEYS, AgentEnvError } from "./agent-env.js";
@@ -50,6 +54,7 @@ export function createSystemPorts(options: SystemPortsOptions): Ports {
     claudePath: options.config.claudePath,
     askHumanServerArgs: askHumanServerArgs(),
     isRoot: () => processes.isRoot(),
+    settings: statusLineSettings({ dataDir: options.config.dataDir }),
     log: options.log,
   });
   return {
@@ -60,5 +65,6 @@ export function createSystemPorts(options: SystemPortsOptions): Ports {
     worktree: new GitWorktreeAdapter(options.config.github ? { token: options.config.github.token } : {}),
     clock,
     processes,
+    disk: new NodeDiskPort(),
   };
 }

@@ -8,6 +8,7 @@ import {
   type SDKMessage,
   type SDKUserMessage,
   type SessionMessage,
+  type Settings,
   type SpawnOptions,
   type SpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -47,6 +48,9 @@ export type SdkDriverOptions = {
   log: Logger;
   // Absolute path of the system `claude`; resolved from the Agent PATH when omitted.
   claudePath?: string | undefined;
+  // Settings every Agent process gets as its "flag settings" layer (statusline and the like);
+  // they live only in the process, never in the Product's files.
+  settings?: Settings;
   isRoot?: () => boolean;
   // Seams for tests: the real SDK, child_process and `claude --version` otherwise.
   query?: QueryFn;
@@ -338,6 +342,7 @@ export class SdkDriver implements DriverPort {
       },
       ...(launch.resume ? { resume: launch.resume } : {}),
       ...(launch.model ? { model: launch.model } : {}),
+      ...(this._options.settings ? { settings: structuredClone(this._options.settings) } : {}),
     };
 
     if (launch.prompt !== undefined) input.push(userMessage(launch.prompt, launch.resume));
