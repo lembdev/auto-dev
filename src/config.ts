@@ -16,6 +16,8 @@ export type Config = {
   envFileExists: boolean;
   dataDir: string;
   runtimeDbPath: string;
+  // Clone of the Product; worktrees of Tasks live inside it.
+  repoPath: string;
   host: string;
   port: number;
   logLevel: LogLevel;
@@ -30,6 +32,8 @@ export type GitHubConfig = {
   owner: string;
   repo: string;
 };
+
+export const cloneUrlOf = (github: GitHubConfig): string => `https://github.com/${github.owner}/${github.repo}.git`;
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -112,6 +116,7 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     envFileExists: fileContent !== undefined,
     dataDir,
     runtimeDbPath: path.join(dataDir, "runtime.db"),
+    repoPath: path.join(dataDir, "repo"),
     host: values.AUTO_DEV_HOST ?? DEFAULT_HOST,
     port,
     logLevel,

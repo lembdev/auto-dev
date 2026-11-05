@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { createSystemPorts } from "./adapters/index.js";
-import { ConfigError, loadConfig } from "./config.js";
+import { cloneUrlOf, ConfigError, loadConfig } from "./config.js";
 import { openRuntimeIndex } from "./index/runtime-index.js";
 import { createLogger } from "./log.js";
 import { Orchestrator } from "./orchestrator/orchestrator.js";
@@ -28,7 +28,8 @@ async function main(): Promise<void> {
   log.info({ path: config.runtimeDbPath, schemaVersion: index.schemaVersion() }, "runtime index ready");
 
   const ports = createSystemPorts(config.github ? { github: config.github, version: VERSION } : { version: VERSION });
-  const orchestrator = new Orchestrator({ ports, index, log });
+  const product = config.github ? { repoPath: config.repoPath, cloneUrl: cloneUrlOf(config.github) } : { repoPath: config.repoPath };
+  const orchestrator = new Orchestrator({ ports, index, log, product });
   const app = createApp({ ports, index, log, version: VERSION, orchestrator });
   const server = await startServer({ app, host: config.host, port: config.port, log });
 
