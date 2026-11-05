@@ -50,7 +50,7 @@ describe("workspace of a taken Task", () => {
     const pull = github.pull(1);
     expect(pull).toMatchObject({ title: "WIP: Add login", head: { ref: "worktree-issue-42" }, base: { ref: "main" }, state: "open" });
     expect(s.index.tasks.get(42 as IssueNumber)).toMatchObject({
-      stage: "taken",
+      stage: "implement",
       attempt: 1,
       branch: "worktree-issue-42",
       worktreePath: path,
@@ -110,7 +110,7 @@ describe("workspace of a taken Task", () => {
     expect(worktree.pushes.at(-1)).toEqual({ cwd: path, branch: "worktree-issue-7-r2" });
     expect(github.pull(2)).toMatchObject({ title: "WIP: Flaky", head: { ref: "worktree-issue-7-r2" } });
     expect(s.index.tasks.get(7 as IssueNumber)).toMatchObject({
-      stage: "taken",
+      stage: "implement",
       attempt: 2,
       round: 0,
       branch: "worktree-issue-7-r2",
@@ -119,8 +119,10 @@ describe("workspace of a taken Task", () => {
     });
     expect(s.index.transitions.listFor(7 as IssueNumber).map((t) => [t.from, t.to])).toEqual([
       [null, "taken"],
-      ["taken", "stuck"],
+      ["taken", "implement"],
+      ["implement", "stuck"],
       ["stuck", "taken"],
+      ["taken", "implement"],
     ]);
   });
 

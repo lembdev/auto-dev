@@ -1,6 +1,8 @@
 import path from "node:path";
+import { AgentRunner } from "../agents/agent-runner.js";
 import { DEFAULT_DATA_DIR } from "../config.js";
 import type { CommentId, IssueNumber } from "../ids.js";
+import type { AgentRecord } from "../index/agents.js";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import { isActiveStage, type Task, type TaskStage } from "../index/tasks.js";
 import type { Logger } from "../log.js";
@@ -8,7 +10,9 @@ import type { TimerHandle } from "../ports/clock.js";
 import { GitHubNotFoundError, type Issue, type IssueComment, type PollQuery, type PollResult } from "../ports/github.js";
 import type { Ports } from "../ports/index.js";
 import { Comments } from "./comments.js";
+import { Implementation, type AskHumanHandler } from "./implementation.js";
 import { IntentJournal } from "./intents.js";
+import type { StagePrompts } from "../prompts/index.js";
 import { READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
 import { Workspace, type Product } from "./workspace.js";
 
@@ -28,8 +32,8 @@ export const INSTALLATION_KEYS = {
 const FIRST_SINCE_MARGIN_MS = 60_000;
 
 export type OrchestratorHooks = {
-  // Runs once a Ready task is taken and its workspace is ready: assignee set, label removed, worktree,
-  // branch and the `WIP:` pull request created, `tasks` and `transitions` written. The Implementer starts here.
+  // Runs once a Ready task is taken and its Implementer started: assignee set, label removed, worktree,
+  // branch and the `WIP:` pull request created, `tasks`, `transitions` and `agents` written.
   afterTake?(task: Task, issue: Issue): Promise<void>;
   // Every issue comment updated since the last poll, oldest first.
   onIssueComments?(comments: IssueComment[]): Promise<void>;
@@ -45,6 +49,10 @@ export type OrchestratorOptions = {
   hooks?: OrchestratorHooks;
   // Where the Product is cloned; defaults to `<dataDir>/repo` of a standard Installation.
   product?: Product;
+  prompts?: StagePrompts;
+  // How long an Agent process outlives its Turn before the runner stops it.
+  idleTimeoutMs?: number;
+  onAskHuman?: AskHumanHandler;
 };
 
 export type Slots = { used: number; max: number };
@@ -59,6 +67,8 @@ export class Orchestrator {
   private readonly _intents: IntentJournal;
   private readonly _workspace: Workspace;
   private readonly _comments: Comments;
+  private readonly _agents: AgentRunner;
+  private readonly _implementation: Implementation;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
   private readonly _seenComments = new Map<CommentId, string>();
@@ -85,6 +95,31 @@ export class Orchestrator {
       product: options.product ?? { repoPath: path.join(DEFAULT_DATA_DIR, "repo") },
     });
     this._comments = new Comments({ github: this._ports.github, journal: this._intents });
+    this._agents = new AgentRunner({
+      driver: this._ports.driver,
+      clock: this._ports.clock,
+      agents: this._index.agents,
+      log: this._log,
+      ...(options.idleTimeoutMs !== undefined ? { idleTimeoutMs: options.idleTimeoutMs } : {}),
+    });
+    this._implementation = new Implementation({
+      github: this._ports.github,
+      runner: this._agents,
+      index: this._index,
+      log: this._log,
+      transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
+      ...(options.prompts ? { prompts: options.prompts } : {}),
+      ...(options.onAskHuman ? { onAskHuman: options.onAskHuman } : {}),
+    });
+  }
+
+  // Runner of every Agent of the Installation; the UI and later Stages subscribe to it.
+  get agents(): AgentRunner {
+    return this._agents;
+  }
+
+  get implementation(): Implementation {
+    return this._implementation;
   }
 
   // Journal of external actions; other parts of the pipeline register their own intent kinds here.
@@ -110,6 +145,13 @@ export class Orchestrator {
       this._ports.clock.clear(this._timer);
       this._timer = undefined;
     }
+  }
+
+  // Stops polling and terminates every live Agent process; Sessions survive for the next start.
+  async shutdown(): Promise<void> {
+    this.stop();
+    await this._cycle;
+    await this._agents.shutdown();
   }
 
   get running(): boolean {
@@ -140,7 +182,8 @@ export class Orchestrator {
   }
 
   slots(): Slots {
-    return { used: this._index.tasks.listActive().filter(occupiesSlot).length, max: this.maxParallelTasks() };
+    const used = this._index.tasks.listActive().filter((task) => this._occupiesSlot(task)).length;
+    return { used, max: this.maxParallelTasks() };
   }
 
   maxParallelTasks(): number {
@@ -163,6 +206,15 @@ export class Orchestrator {
 
   // Internals
 
+  // A Slot is held by a Task whose Agent of the current attempt is running or idle. A Task without any
+  // Agent yet (just taken) holds one too; a waiting or stopped Agent frees it.
+  private _occupiesSlot(task: Task): boolean {
+    if (!isActiveStage(task.stage)) return false;
+    const agents = this._index.agents.listByIssue(task.issueNumber).filter((agent) => agent.createdAt >= task.takenAt);
+    if (agents.length === 0) return true;
+    return agents.some(isWorking);
+  }
+
   private async _tick(): Promise<void> {
     try {
       await this.pollOnce();
@@ -184,7 +236,21 @@ export class Orchestrator {
     await this._recoverIntents();
     await this._pollIssues();
     await this._pollComments();
+    await this._startImplementers();
     await this._fillSlots();
+  }
+
+  // Tasks taken but left without an Implementer (a failed launch, a crash in between) get one now.
+  private async _startImplementers(): Promise<void> {
+    for (const task of this._index.tasks.listByStage(["taken"])) {
+      if (task.pullNumber === null) continue;
+      const issue = this._issues.get(task.issueNumber) ?? (await this._ports.github.getIssue(task.issueNumber));
+      try {
+        await this._implementation.start(task, structuredClone(issue));
+      } catch (error) {
+        this._log.error({ err: error, issue: task.issueNumber }, "implementer not started");
+      }
+    }
   }
 
   // Open issues are listed once at start; after that only changes arrive through polling.
@@ -299,7 +365,14 @@ export class Orchestrator {
       return;
     }
     try {
-      await this._hooks.afterTake?.(prepared, structuredClone(issue));
+      await this._implementation.start(prepared, structuredClone(issue));
+    } catch (error) {
+      // The Task stays taken; the next cycle tries to start the Implementer again.
+      this._log.error({ err: error, issue: issue.number }, "implementer not started");
+      return;
+    }
+    try {
+      await this._hooks.afterTake?.(this._index.tasks.get(issue.number), structuredClone(issue));
     } catch (error) {
       this._log.error({ err: error, issue: issue.number }, "after-take hook failed");
     }
@@ -343,5 +416,4 @@ export class Orchestrator {
   }
 }
 
-// A Slot is held by every Task in an active Stage; later tickets release it while the Agent waits for a human.
-const occupiesSlot = (task: Task): boolean => isActiveStage(task.stage);
+const isWorking = (agent: AgentRecord): boolean => agent.state === "running" || agent.state === "idle";

@@ -116,7 +116,7 @@ describe("taking Ready tasks", () => {
       issueNumber: 42,
       title: "Add login",
       milestone: { number: 4, title: "Эпик 4" },
-      stage: "taken",
+      stage: "implement",
       round: 0,
       attempt: 1,
       pullNumber: 1,
@@ -127,6 +127,7 @@ describe("taking Ready tasks", () => {
     });
     expect(s.index.transitions.listFor(42 as IssueNumber)).toEqual([
       { id: 1, issueNumber: 42, from: null, to: "taken", reason: null, at: takenAt },
+      { id: 2, issueNumber: 42, from: "taken", to: "implement", reason: "implementer started", at: takenAt },
     ]);
     expect(afterTake).toHaveLength(1);
     expect(afterTake[0]?.task).toMatchObject({ issueNumber: 42, pullNumber: 1, branch: "worktree-issue-42" });
@@ -188,7 +189,7 @@ describe("taking Ready tasks", () => {
     github.seedIssue({ number: 1, labels: ["ready-for-agent"], assignees: ["auto-dev-bot"] });
     await s.orchestrator.pollOnce();
     expect(s.mutations().map((call) => call.method)).toEqual(["addAssignees", "removeLabel"]);
-    expect(s.index.tasks.find(1 as IssueNumber)?.stage).toBe("taken");
+    expect(s.index.tasks.find(1 as IssueNumber)?.stage).toBe("implement");
   });
 
   it("reacts to issues that become Ready after start", async () => {

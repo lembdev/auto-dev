@@ -47,9 +47,10 @@ async function main(): Promise<void> {
     if (stopping) return;
     stopping = true;
     log.info({ signal }, "shutting down");
-    orchestrator.stop();
-    server
-      .close()
+    orchestrator
+      .shutdown()
+      .catch((error: unknown) => log.error({ err: error }, "agent shutdown failed"))
+      .then(() => server.close())
       .catch((error: unknown) => log.error({ err: error }, "server close failed"))
       .finally(() => {
         index.close();

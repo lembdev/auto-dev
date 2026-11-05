@@ -111,7 +111,13 @@ export class AgentRunner {
       createdAt: this._iso(),
     });
     const options = sessionOptions(spec);
-    return this._launch(record, { cwd: record.cwd, prompt: spec.prompt, ...launchOptions(options) }, options);
+    try {
+      return this._launch(record, { cwd: record.cwd, prompt: spec.prompt, ...launchOptions(options) }, options);
+    } catch (error) {
+      // A Session that never started leaves no trace; the caller retries from scratch.
+      this._deps.agents.delete(record.id);
+      throw error;
+    }
   }
 
   // Existing Session: a fresh process continues it, with or without a new message.

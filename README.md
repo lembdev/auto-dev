@@ -95,6 +95,18 @@ npm run smoke:driver -- idle                       # AgentRunner гасит пр
   после; незавершённые досовершаются на каждом цикле опроса идемпотентно (обработчик сам проверяет,
   что уже есть: worktree, ветка, PR по head-ветке, комментарий с маркером `<!-- auto-dev -->`).
   `comments.ts`: комментарии Оркестратора с маркером, по одному на ключ.
+  `implementation.ts`: Стадия Реализации: после подготовки workspace Реализатор стартует через `AgentRunner`
+  в worktree Задачи (`taken -> implement`), одна Сессия на всю попытку, следующие сообщения (`send`) идут в
+  живой процесс или через `resume` того же session id; конец Хода без `tool_deferred` переводит Задачу в `qa`.
+  Слот занимает Задача в активной Стадии, чей Агент работает или idle (только что взятая без Агента тоже);
+  ждущий и остановленный Слот не занимают. `epic.ts`: родительская issue (sub-issue или `Part of #N`)
+  и её чек-лист критериев.
+- `prompts/`: промпты Стадий текстом (`common.md` плюс `implement.md`, `qa.md`, `merge.md`, `plan.md`);
+  `src/prompts/` собирает общую часть и часть Стадии с подстановками `{{issue_number}}`, `{{issue_title}}`,
+  `{{issue_body}}`, `{{epic}}`, `{{pull_number}}`, `{{branch}}`, `{{worktree}}`, `{{round}}`,
+  `{{previous_verdict}}`, `{{stage}}`. Каталог читается из корня пакета и в dev, и из `dist/`, поэтому
+  в сборку ничего копировать не нужно; Продукт промпты не переопределяет, а влияет через свои `CLAUDE.md`,
+  `GLOSSARY.md`, `docs/agents` и `docs/adr`, которые промпт обязывает прочитать.
 - `src/index/`: Рантайм-индекс (SQLite через `node:sqlite`), миграции только вперёд; таблицы `installation`,
   `tasks`, `transitions`, `agents`, `intents`.
 - `src/server/`: Hono + `ws` на одном http-сервере, `createApp(deps)` для тестов на фейках.

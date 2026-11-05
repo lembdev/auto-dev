@@ -42,7 +42,7 @@ describe("GET /api/tasks", () => {
           issueNumber: 1,
           title: "First",
           milestone: { number: 1, title: "Эпик 1" },
-          stage: "taken",
+          stage: "implement",
           round: 0,
           attempt: 1,
           pullNumber: 1,
@@ -53,7 +53,7 @@ describe("GET /api/tasks", () => {
           htmlUrl: "https://github.com/example/product/issues/1",
           pullUrl: "https://github.com/example/product/pull/1",
         },
-        expect.objectContaining({ issueNumber: 2, title: "Second", stage: "taken", pullNumber: 2, pullUrl: "https://github.com/example/product/pull/2" }),
+        expect.objectContaining({ issueNumber: 2, title: "Second", stage: "implement", pullNumber: 2, pullUrl: "https://github.com/example/product/pull/2" }),
       ],
       ready: [
         { issueNumber: 4, title: "Fourth", milestone: { number: 1, title: "Эпик 1" }, htmlUrl: "https://github.com/example/product/issues/4" },
