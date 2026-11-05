@@ -75,18 +75,18 @@ describe("auto-dev process", () => {
     expect(existsSync(path.join(dataDir, "runtime.db"))).toBe(true);
     const health = await fetch(`${url}/api/health`);
     expect(health.status).toBe(200);
-    expect(await health.json()).toMatchObject({ status: "ok", schemaVersion: 1 });
+    expect(await health.json()).toMatchObject({ status: "ok", schemaVersion: 2 });
 
     first.child.kill("SIGTERM");
     expect(await first.exited).toEqual({ code: 0, signal: null });
     const lines = logLines(first.stdout);
-    expect(lines.find((entry) => entry.msg === "runtime index ready")).toMatchObject({ level: 30, schemaVersion: 1 });
+    expect(lines.find((entry) => entry.msg === "runtime index ready")).toMatchObject({ level: 30, schemaVersion: 2 });
     expect(lines.find((entry) => entry.msg === "shutting down")).toMatchObject({ signal: "SIGTERM" });
 
     const second = start(env);
     running.push(second);
     const secondUrl = await waitForUrl(second);
-    expect(await (await fetch(`${secondUrl}/api/health`)).json()).toMatchObject({ status: "ok", schemaVersion: 1 });
+    expect(await (await fetch(`${secondUrl}/api/health`)).json()).toMatchObject({ status: "ok", schemaVersion: 2 });
     second.child.kill("SIGTERM");
     expect((await second.exited).code).toBe(0);
   });

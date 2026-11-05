@@ -102,6 +102,12 @@ export class Orchestrator {
     );
   }
 
+  // Last polled state of an issue, if it has been seen since start.
+  findIssue(number: IssueNumber): Issue | undefined {
+    const issue = this._issues.get(number);
+    return issue ? structuredClone(issue) : undefined;
+  }
+
   slots(): Slots {
     return { used: this._index.tasks.listActive().filter(occupiesSlot).length, max: this.maxParallelTasks() };
   }
