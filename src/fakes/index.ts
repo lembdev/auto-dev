@@ -1,0 +1,35 @@
+export { CallLog, type Call } from "./call-log.js";
+export { FakeClock } from "./clock.js";
+export { FakeDriverPort, FakeAgentProcess } from "./driver.js";
+export { FakeGitHubPort } from "./github.js";
+export type { IssueSeed, MilestoneSeed, PullRequestSeed, CheckRunSeed, CommitStatusSeed, Reaction } from "./github.js";
+export { FakeProcessPort, type FakeProcessSpec, type SignalRecord } from "./process.js";
+export { FakeWorktreePort } from "./worktree.js";
+export { sdkMessages } from "./sdk-messages.js";
+
+import type { Ports } from "../ports/index.js";
+import { FakeClock } from "./clock.js";
+import { FakeDriverPort } from "./driver.js";
+import { FakeGitHubPort } from "./github.js";
+import { FakeProcessPort } from "./process.js";
+import { FakeWorktreePort } from "./worktree.js";
+
+export type FakePorts = Ports & {
+  github: FakeGitHubPort;
+  driver: FakeDriverPort;
+  worktree: FakeWorktreePort;
+  clock: FakeClock;
+  processes: FakeProcessPort;
+};
+
+// One set of fakes sharing a clock, ready to be handed to the Orchestrator and the server.
+export function createFakePorts(): FakePorts {
+  const clock = new FakeClock();
+  return {
+    github: new FakeGitHubPort({ now: () => clock.now() }),
+    driver: new FakeDriverPort(),
+    worktree: new FakeWorktreePort(),
+    clock,
+    processes: new FakeProcessPort(),
+  };
+}
