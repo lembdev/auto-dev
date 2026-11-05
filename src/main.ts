@@ -22,12 +22,14 @@ async function main(): Promise<void> {
 
   const log = createLogger({ level: config.logLevel });
   log.info({ version: VERSION, envFile: config.envFile, envFileExists: config.envFileExists, dataDir: config.dataDir }, "starting");
+  // The SDK's session helpers look up transcripts under the config dir of this process.
+  process.env.CLAUDE_CONFIG_DIR ??= config.claudeConfigDir;
 
   mkdirSync(config.dataDir, { recursive: true });
   const index = openRuntimeIndex(config.runtimeDbPath);
   log.info({ path: config.runtimeDbPath, schemaVersion: index.schemaVersion() }, "runtime index ready");
 
-  const ports = createSystemPorts(config.github ? { github: config.github, version: VERSION } : { version: VERSION });
+  const ports = createSystemPorts({ config, log, version: VERSION });
   const product = config.github ? { repoPath: config.repoPath, cloneUrl: cloneUrlOf(config.github) } : { repoPath: config.repoPath };
   const orchestrator = new Orchestrator({ ports, index, log, product });
   const app = createApp({ ports, index, log, version: VERSION, orchestrator });

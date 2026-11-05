@@ -7,6 +7,7 @@ import type {
   AskHumanDecision,
   DriverPort,
   ProcessExit,
+  SessionHistoryOptions,
 } from "../ports/driver.js";
 import { CallLog } from "./call-log.js";
 
@@ -142,8 +143,8 @@ export class FakeDriverPort implements DriverPort {
     return process;
   }
 
-  async getSessionHistory(sessionId: SessionId): Promise<SDKMessage[]> {
-    this.log.record("getSessionHistory", sessionId);
+  async getSessionHistory(sessionId: SessionId, options?: SessionHistoryOptions): Promise<SDKMessage[]> {
+    this.log.record("getSessionHistory", sessionId, ...(options ? [options] : []));
     return [...(this.histories.get(sessionId) ?? [])];
   }
 

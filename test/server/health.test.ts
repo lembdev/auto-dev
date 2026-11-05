@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { migrations } from "../../src/index/migrations.js";
 import { startServer, type RunningServer } from "../../src/server/server.js";
 import { createTestApp, type TestApp } from "../helpers/test-app.js";
 import { WsClient } from "../helpers/ws-client.js";
@@ -17,7 +18,7 @@ describe("GET /api/health", () => {
     testApp = createTestApp({ version: "1.2.3" });
     const response = await testApp.app.request("/api/health");
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: "ok", version: "1.2.3", schemaVersion: 3, uptimeMs: 0 });
+    expect(await response.json()).toEqual({ status: "ok", version: "1.2.3", schemaVersion: migrations.at(-1)?.version, uptimeMs: 0 });
   });
 
   it("reports uptime from the clock port", async () => {

@@ -11,7 +11,8 @@ export type AskHumanCall = {
 
 // What the Orchestrator tells the Agent process when it asks a human:
 // `defer` ends the Turn with `tool_deferred`, `allow` resumes it with the Answer.
-export type AskHumanDecision = { kind: "defer" } | { kind: "allow"; answer: string };
+// `source` is the one line "who and from where" the Agent sees next to the Answer.
+export type AskHumanDecision = { kind: "defer" } | { kind: "allow"; answer: string; source?: string };
 
 export type AgentLaunch = {
   cwd: string;
@@ -21,6 +22,8 @@ export type AgentLaunch = {
   resumeInterruptedTurn?: boolean;
   // Extra environment on top of what the adapter builds for every Agent.
   env?: Record<string, string>;
+  // Model alias or id; the CLI default otherwise.
+  model?: string;
   onAskHuman?: (call: AskHumanCall) => Promise<AskHumanDecision>;
 };
 
@@ -43,8 +46,14 @@ export interface AgentProcess {
   exited(): Promise<ProcessExit>;
 }
 
+export type SessionHistoryOptions = {
+  // Directory the Session ran in; narrows the lookup to that project.
+  cwd?: string;
+};
+
 export interface DriverPort {
   launch(launch: AgentLaunch): AgentProcess;
-  getSessionHistory(sessionId: SessionId): Promise<SDKMessage[]>;
+  // Transcript of a Session as user and assistant messages, oldest first.
+  getSessionHistory(sessionId: SessionId, options?: SessionHistoryOptions): Promise<SDKMessage[]>;
   getClaudeVersion(): Promise<string>;
 }

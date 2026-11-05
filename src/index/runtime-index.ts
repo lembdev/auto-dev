@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { AgentStore } from "./agents.js";
 import { migrations, type Migration } from "./migrations.js";
 import { IntentStore } from "./intents.js";
 import { TaskStore, TransitionStore } from "./tasks.js";
@@ -37,12 +38,14 @@ export class InstallationStore {
 
 export class RuntimeIndex {
   readonly installation: InstallationStore;
+  readonly agents: AgentStore;
   readonly tasks: TaskStore;
   readonly transitions: TransitionStore;
   readonly intents: IntentStore;
 
   constructor(readonly db: DatabaseSync) {
     this.installation = new InstallationStore(db);
+    this.agents = new AgentStore(db);
     this.tasks = new TaskStore(db);
     this.transitions = new TransitionStore(db);
     this.intents = new IntentStore(db);

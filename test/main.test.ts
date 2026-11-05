@@ -3,6 +3,9 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { migrations } from "../src/index/migrations.js";
+
+const schemaVersion = migrations.at(-1)?.version;
 
 const root = path.resolve(import.meta.dirname, "..");
 const tsx = path.join(root, "node_modules", "tsx", "dist", "cli.mjs");
@@ -75,18 +78,18 @@ describe("auto-dev process", () => {
     expect(existsSync(path.join(dataDir, "runtime.db"))).toBe(true);
     const health = await fetch(`${url}/api/health`);
     expect(health.status).toBe(200);
-    expect(await health.json()).toMatchObject({ status: "ok", schemaVersion: 3 });
+    expect(await health.json()).toMatchObject({ status: "ok", schemaVersion });
 
     first.child.kill("SIGTERM");
     expect(await first.exited).toEqual({ code: 0, signal: null });
     const lines = logLines(first.stdout);
-    expect(lines.find((entry) => entry.msg === "runtime index ready")).toMatchObject({ level: 30, schemaVersion: 3 });
+    expect(lines.find((entry) => entry.msg === "runtime index ready")).toMatchObject({ level: 30, schemaVersion });
     expect(lines.find((entry) => entry.msg === "shutting down")).toMatchObject({ signal: "SIGTERM" });
 
     const second = start(env);
     running.push(second);
     const secondUrl = await waitForUrl(second);
-    expect(await (await fetch(`${secondUrl}/api/health`)).json()).toMatchObject({ status: "ok", schemaVersion: 3 });
+    expect(await (await fetch(`${secondUrl}/api/health`)).json()).toMatchObject({ status: "ok", schemaVersion });
     second.child.kill("SIGTERM");
     expect((await second.exited).code).toBe(0);
   });

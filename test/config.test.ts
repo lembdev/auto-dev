@@ -11,6 +11,8 @@ describe("config", () => {
       envFileExists: false,
       dataDir: "/var/lib/auto-dev",
       runtimeDbPath: "/var/lib/auto-dev/runtime.db",
+      claudeConfigDir: "/var/lib/auto-dev/claude",
+      claudePath: undefined,
       host: "0.0.0.0",
       port: 8080,
       logLevel: "info",
@@ -26,6 +28,15 @@ describe("config", () => {
     expect(config.logLevel).toBe("debug");
     expect(config.port).toBe(9090);
     expect(config.values.GITHUB_TOKEN).toBe("ghp_x");
+  });
+
+  it("takes the Claude config dir and the claude path from the environment", () => {
+    const config = loadConfig({
+      env: { CLAUDE_CONFIG_DIR: "/home/dev/.claude", AUTO_DEV_CLAUDE_PATH: "/usr/local/bin/claude" },
+      readFile: () => undefined,
+    });
+    expect(config.claudeConfigDir).toBe("/home/dev/.claude");
+    expect(config.claudePath).toBe("/usr/local/bin/claude");
   });
 
   it("parses GITHUB_REPO as owner/name together with GITHUB_TOKEN", () => {

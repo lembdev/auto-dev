@@ -18,6 +18,10 @@ export type Config = {
   runtimeDbPath: string;
   // Clone of the Product; worktrees of Tasks live inside it.
   repoPath: string;
+  // CLAUDE_CONFIG_DIR of the Installation: Agent sessions, credentials and settings live here.
+  claudeConfigDir: string;
+  // Explicit path of the system `claude`; resolved from PATH when absent.
+  claudePath: string | undefined;
   host: string;
   port: number;
   logLevel: LogLevel;
@@ -117,6 +121,8 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     dataDir,
     runtimeDbPath: path.join(dataDir, "runtime.db"),
     repoPath: path.join(dataDir, "repo"),
+    claudeConfigDir: values.CLAUDE_CONFIG_DIR ?? path.join(dataDir, "claude"),
+    claudePath: values.AUTO_DEV_CLAUDE_PATH || undefined,
     host: values.AUTO_DEV_HOST ?? DEFAULT_HOST,
     port,
     logLevel,
