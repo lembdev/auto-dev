@@ -61,6 +61,7 @@ export {
   type MergeStageOptions,
   type MergePullResult,
 } from "./merge.js";
+export { Merger, MERGER_STARTED_REASON, EXTRA_ROUND_REASON, redChecksMessage, type MergerOptions } from "./merger.js";
 export { QaStage, DEFAULT_MAX_QA_ROUNDS, MAX_QA_ROUNDS_KEY, VERDICT_RETRY_PROMPT, type QaStageOptions } from "./qa.js";
 export { parseVerdict, formatVerdict, formatBlockers, type Verdict, type Blocker } from "./verdict.js";
 export { WorkspaceCleanup, CLEANUP_WORKSPACE, cleanupWorkspace, type CleanupPayload, type CleanupResult, type CleanupDeps } from "./cleanup.js";

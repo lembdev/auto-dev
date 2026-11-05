@@ -33,6 +33,8 @@ export type StageContext = {
   worktree: string;
   round: number;
   previousVerdict?: string;
+  // Branch the pull request targets; the Merger merges it into the Task branch.
+  baseBranch?: string;
 };
 
 export class PromptTemplateError extends Error {
@@ -60,6 +62,8 @@ export function renderTemplate(name: string, template: string, vars: Readonly<Re
   });
 }
 
+export const DEFAULT_BASE_BRANCH_NAME = "main";
+
 export const NO_EPIC_TEXT = "Задача не входит в Epic: критериев Epic нет.";
 export const NO_VERDICT_TEXT = "Прошлого вердикта нет: это первый Круг.";
 
@@ -86,6 +90,7 @@ export function templateVars(context: StageContext): Record<string, string> {
     worktree: context.worktree,
     round: String(context.round),
     previous_verdict: context.previousVerdict ?? NO_VERDICT_TEXT,
+    base_branch: context.baseBranch ?? DEFAULT_BASE_BRANCH_NAME,
   };
 }
 
