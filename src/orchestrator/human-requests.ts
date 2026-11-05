@@ -165,7 +165,7 @@ export class HumanRequests {
     const text = this._requestText(issueNumber, deferred);
     this._lastCalls.delete(issueNumber);
     const existing = this._index.humanRequests.findByToolUse(toolUseId);
-    if (existing?.commentId !== null && existing !== undefined) return;
+    if (existing && existing.commentId !== null) return;
     const request = existing ?? this._index.humanRequests.create({ agentId: agent.id, issueNumber, toolUseId, createdAt: this._iso() });
     if (!text) {
       this._log.error({ issue: issueNumber, request: request.id, toolUseId }, "deferred call without its question; the Request stays unpublished");
