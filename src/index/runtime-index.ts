@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { AgentStore } from "./agents.js";
+import { AppliedAnswerStore, HumanRequestStore } from "./human-requests.js";
 import { migrations, type Migration } from "./migrations.js";
 import { IntentStore } from "./intents.js";
 import { TaskStore, TransitionStore } from "./tasks.js";
@@ -42,6 +43,8 @@ export class RuntimeIndex {
   readonly tasks: TaskStore;
   readonly transitions: TransitionStore;
   readonly intents: IntentStore;
+  readonly humanRequests: HumanRequestStore;
+  readonly appliedAnswers: AppliedAnswerStore;
 
   constructor(readonly db: DatabaseSync) {
     this.installation = new InstallationStore(db);
@@ -49,6 +52,8 @@ export class RuntimeIndex {
     this.tasks = new TaskStore(db);
     this.transitions = new TransitionStore(db);
     this.intents = new IntentStore(db);
+    this.humanRequests = new HumanRequestStore(db);
+    this.appliedAnswers = new AppliedAnswerStore(db);
   }
 
   // Runs `fn` inside one SQLite transaction; a thrown error rolls everything back.

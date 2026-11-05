@@ -10,6 +10,7 @@ import type { TimerHandle } from "../ports/clock.js";
 import { GitHubNotFoundError, type Issue, type IssueComment, type PollQuery, type PollResult } from "../ports/github.js";
 import type { Ports } from "../ports/index.js";
 import { Comments } from "./comments.js";
+import { HumanRequests } from "./human-requests.js";
 import { Implementation, type AskHumanHandler } from "./implementation.js";
 import { IntentJournal } from "./intents.js";
 import type { StagePrompts } from "../prompts/index.js";
@@ -68,6 +69,7 @@ export class Orchestrator {
   private readonly _workspace: Workspace;
   private readonly _comments: Comments;
   private readonly _agents: AgentRunner;
+  private readonly _humanRequests: HumanRequests;
   private readonly _implementation: Implementation;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
@@ -102,6 +104,15 @@ export class Orchestrator {
       log: this._log,
       ...(options.idleTimeoutMs !== undefined ? { idleTimeoutMs: options.idleTimeoutMs } : {}),
     });
+    this._humanRequests = new HumanRequests({
+      github: this._ports.github,
+      runner: this._agents,
+      index: this._index,
+      log: this._log,
+      clock: this._ports.clock,
+      comments: this._comments,
+      journal: this._intents,
+    });
     this._implementation = new Implementation({
       github: this._ports.github,
       runner: this._agents,
@@ -109,7 +120,7 @@ export class Orchestrator {
       log: this._log,
       transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
       ...(options.prompts ? { prompts: options.prompts } : {}),
-      ...(options.onAskHuman ? { onAskHuman: options.onAskHuman } : {}),
+      onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
     });
   }
 
@@ -120,6 +131,11 @@ export class Orchestrator {
 
   get implementation(): Implementation {
     return this._implementation;
+  }
+
+  // Questions of Agents to the human and the Answers from GitHub.
+  get humanRequests(): HumanRequests {
+    return this._humanRequests;
   }
 
   // Journal of external actions; other parts of the pipeline register their own intent kinds here.
@@ -236,6 +252,7 @@ export class Orchestrator {
     await this._recoverIntents();
     await this._pollIssues();
     await this._pollComments();
+    await this._humanRequests.deliver();
     await this._startImplementers();
     await this._fillSlots();
   }
@@ -301,6 +318,7 @@ export class Orchestrator {
     const fresh = polled.filter((comment) => this._seenComments.get(comment.id) !== comment.updatedAt);
     for (const comment of fresh) this._seenComments.set(comment.id, comment.updatedAt);
     if (fresh.length === 0) return;
+    await this._humanRequests.onIssueComments(fresh);
     await this._hooks.onIssueComments?.(fresh);
   }
 

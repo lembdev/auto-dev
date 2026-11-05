@@ -10,3 +10,5 @@ export type SessionId = string & { __brand: "SessionId" };
 export type Pid = number & { __brand: "Pid" };
 export type AgentId = number & { __brand: "AgentId" };
 export type IntentId = number & { __brand: "IntentId" };
+export type HumanRequestId = number & { __brand: "HumanRequestId" };
+export type AppliedAnswerId = number & { __brand: "AppliedAnswerId" };
