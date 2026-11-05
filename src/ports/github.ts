@@ -211,6 +211,7 @@ export interface GitHubPort {
   addCommentReaction(id: CommentId, content: ReactionContent): Promise<void>;
 
   listMilestones(state: IssueState | "all"): Promise<Milestone[]>;
+  getMilestone(number: MilestoneNumber): Promise<Milestone>;
   updateMilestone(number: MilestoneNumber, patch: { state: IssueState }): Promise<Milestone>;
 
   createPullRequest(input: CreatePullRequestInput): Promise<PullRequest>;

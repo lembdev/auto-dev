@@ -12,6 +12,7 @@ import type { Ports } from "../ports/index.js";
 import { WorkspaceCleanup } from "./cleanup.js";
 import { Comments } from "./comments.js";
 import { DeadEnds } from "./dead-end.js";
+import { EpicClosure } from "./epic-closure.js";
 import { HumanRequests } from "./human-requests.js";
 import { Implementation, type AskHumanHandler } from "./implementation.js";
 import { InstallationState } from "./installation-state.js";
@@ -84,6 +85,7 @@ export class Orchestrator {
   private readonly _installation: InstallationState;
   private readonly _cleanup: WorkspaceCleanup;
   private readonly _reconciler: Reconciler;
+  private readonly _epicClosure: EpicClosure;
   private readonly _merge: MergeStage;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
@@ -185,6 +187,14 @@ export class Orchestrator {
       transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
       login: () => this._login ?? "",
     });
+    this._epicClosure = new EpicClosure({
+      github: this._ports.github,
+      index: this._index,
+      log: this._log,
+      journal: this._intents,
+      postComment: (issueNumber, key, text) => this.postComment(issueNumber, key, text),
+      findIssue: (issueNumber) => this._issueOf(issueNumber),
+    });
     this._merge = new MergeStage({
       github: this._ports.github,
       index: this._index,
@@ -195,6 +205,7 @@ export class Orchestrator {
       implementation: this._implementation,
       cleanup: this._cleanup,
       deadEnds: this._deadEnds,
+      epicClosure: this._epicClosure,
       transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
       postComment: (issueNumber, key, text) => this.postComment(issueNumber, key, text),
       baseBranch: this._workspace.baseBranch,
@@ -231,6 +242,11 @@ export class Orchestrator {
 
   get merge(): MergeStage {
     return this._merge;
+  }
+
+  // Criteria of the Epic and closure of the milestone after a merge.
+  get epicClosure(): EpicClosure {
+    return this._epicClosure;
   }
 
   // Dead ends of any Stage: the Task leaves the Pipeline, the human gets the issue back with the reason.
