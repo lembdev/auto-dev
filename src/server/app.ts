@@ -2,6 +2,8 @@ import { upgradeWebSocket } from "@hono/node-server";
 import { Hono } from "hono";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Logger } from "../log.js";
+import type { Task } from "../index/tasks.js";
+import type { Orchestrator } from "../orchestrator/orchestrator.js";
 import type { Ports } from "../ports/index.js";
 
 export type AppDeps = {
@@ -9,6 +11,7 @@ export type AppDeps = {
   index: RuntimeIndex;
   log: Logger;
   version: string;
+  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue">;
 };
 
 export type HealthResponse = {
@@ -16,6 +19,22 @@ export type HealthResponse = {
   version: string;
   schemaVersion: number;
   uptimeMs: number;
+};
+
+export type TaskView = Task & { htmlUrl: string | null };
+export type StuckTaskView = TaskView & { reason: string | null };
+export type ReadyTaskView = {
+  issueNumber: number;
+  title: string;
+  milestone: { number: number; title: string } | null;
+  htmlUrl: string;
+};
+
+export type TasksResponse = {
+  slots: { used: number; max: number };
+  inProgress: TaskView[];
+  ready: ReadyTaskView[];
+  stuck: StuckTaskView[];
 };
 
 // Events pushed to the UI over `/ws`; later tickets extend the union.
@@ -46,6 +65,29 @@ export function createApp(deps: AppDeps): App {
       version: deps.version,
       schemaVersion: deps.index.schemaVersion(),
       uptimeMs: deps.ports.clock.now() - startedAt,
+    };
+    return c.json(body);
+  });
+
+  app.get("/api/tasks", (c) => {
+    const ready = deps.orchestrator.readyQueue();
+    const view = (task: Task): TaskView => ({
+      ...task,
+      htmlUrl: deps.orchestrator.findIssue(task.issueNumber)?.htmlUrl ?? null,
+    });
+    const body: TasksResponse = {
+      slots: deps.orchestrator.slots(),
+      inProgress: deps.index.tasks.listActive().map(view),
+      ready: ready.map((issue) => ({
+        issueNumber: issue.number,
+        title: issue.title,
+        milestone: issue.milestone ? { number: issue.milestone.number, title: issue.milestone.title } : null,
+        htmlUrl: issue.htmlUrl,
+      })),
+      stuck: deps.index.tasks.listByStage(["stuck"]).map((task) => ({
+        ...view(task),
+        reason: deps.index.transitions.listFor(task.issueNumber).at(-1)?.reason ?? null,
+      })),
     };
     return c.json(body);
   });

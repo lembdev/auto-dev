@@ -4,6 +4,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrations, type Migration } from "../../src/index/migrations.js";
 import { IN_MEMORY, SchemaVersionError, openRuntimeIndex } from "../../src/index/runtime-index.js";
+import { TaskNotFoundError } from "../../src/index/tasks.js";
+import type { IssueNumber, MilestoneNumber } from "../../src/ids.js";
 
 const tableNames = (db: { prepare(sql: string): { all(): unknown[] } }): string[] =>
   (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[]).map(
@@ -25,7 +27,57 @@ describe("runtime index", () => {
   it("creates the schema version table and the installation table in memory", () => {
     const index = openRuntimeIndex(IN_MEMORY);
     expect(index.schemaVersion()).toBe(migrations.at(-1)?.version);
-    expect(tableNames(index.db)).toEqual(["agents", "installation", "schema_version", "sqlite_sequence"]);
+    expect(tableNames(index.db)).toEqual(["agents", "installation", "schema_version", "sqlite_sequence", "tasks", "transitions"]);
+    index.close();
+  });
+
+  it("keeps tasks and their transitions", () => {
+    const index = openRuntimeIndex(IN_MEMORY);
+    const issue = 42 as IssueNumber;
+    const milestone = { number: 1 as MilestoneNumber, title: "Эпик 1" };
+    expect(index.tasks.find(issue)).toBeUndefined();
+    expect(() => index.tasks.get(issue)).toThrow(TaskNotFoundError);
+
+    index.transaction(() => {
+      index.tasks.insert({ issueNumber: issue, title: "Add login", milestone, stage: "taken", takenAt: "t0" }, "t0");
+      index.transitions.append({ issueNumber: issue, from: null, to: "taken", reason: null, at: "t0" });
+    });
+    expect(index.tasks.get(issue)).toEqual({
+      issueNumber: 42,
+      title: "Add login",
+      milestone,
+      stage: "taken",
+      round: 0,
+      attempt: 1,
+      pullNumber: null,
+      branch: null,
+      worktreePath: null,
+      takenAt: "t0",
+      updatedAt: "t0",
+    });
+
+    index.tasks.update(issue, { stage: "implement", branch: "worktree-issue-42" }, "t1");
+    index.transitions.append({ issueNumber: issue, from: "taken", to: "implement", reason: null, at: "t1" });
+    expect(index.tasks.listActive().map((task) => task.stage)).toEqual(["implement"]);
+
+    index.tasks.update(issue, { stage: "done" }, "t2");
+    expect(index.tasks.listActive()).toEqual([]);
+    expect(index.transitions.listFor(issue).map((t) => [t.from, t.to, t.at])).toEqual([
+      [null, "taken", "t0"],
+      ["taken", "implement", "t1"],
+    ]);
+    index.close();
+  });
+
+  it("rolls a failed transaction back", () => {
+    const index = openRuntimeIndex(IN_MEMORY);
+    expect(() =>
+      index.transaction(() => {
+        index.tasks.insert({ issueNumber: 1 as IssueNumber, title: "a", milestone: null, stage: "taken", takenAt: "t" }, "t");
+        throw new Error("boom");
+      }),
+    ).toThrow("boom");
+    expect(index.tasks.list()).toEqual([]);
     index.close();
   });
 

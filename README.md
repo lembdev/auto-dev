@@ -37,6 +37,12 @@ npm start         # node dist/main.js
 | `AUTO_DEV_CLAUDE_PATH` | ищется в `PATH`    | путь к системному `claude`                   |
 | `CLAUDE_CODE_OAUTH_TOKEN` |                 | токен подписки из `claude setup-token`, уходит Агентам |
 | `GH_TOKEN`          |                       | токен GitHub, уходит Агентам для `gh`        |
+| `GITHUB_TOKEN`      | не задан              | fine-grained PAT Установки (Issues RW, Pull requests RW, Contents RW, Checks R, Commit statuses R, Metadata R) |
+| `GITHUB_REPO`       | не задан              | Продукт в виде `owner/name`; без него и токена Оркестратор не стартует и только отдаёт API |
+
+Настройки, которые меняются на ходу, лежат в таблице `installation` Рантайм-индекса:
+`max_parallel_tasks` (Слоты, по умолчанию 2), курсоры опроса `poll.issues.since`, `poll.issues.etag`,
+`poll.comments.since`, `poll.comments.etag`.
 
 Логи: pino JSON в stdout.
 
@@ -45,6 +51,7 @@ npm start         # node dist/main.js
 ```
 AUTO_DEV_DATA_DIR=./.data AUTO_DEV_ENV_FILE=./.data/env AUTO_DEV_PORT=8080 npm run dev
 curl http://127.0.0.1:8080/api/health
+curl http://127.0.0.1:8080/api/tasks   # Задачи в работе, очередь Готовых, Тупики, Слоты
 ```
 
 ## Драйвер Агентов
@@ -77,8 +84,11 @@ npm run smoke:driver -- idle                       # AgentRunner гасит пр
 - `src/ports/`: интерфейсы внешних зависимостей Оркестратора (GitHub, Драйвер, worktree, часы, процессы).
   Это единственный шов тестирования.
 - `src/fakes/`: in-memory фейки портов с журналом вызовов `calls` и helpers `seed*` / `human*`.
-- `src/adapters/`: реальные адаптеры Установки (Драйвер на Agent SDK, stdio-сервер `ask_human`, часы, процессы).
+- `src/adapters/`: реальные адаптеры Установки (GitHub REST, Драйвер на Agent SDK, stdio-сервер `ask_human`, часы, процессы).
 - `src/agents/`: жизненный цикл процессов Агентов поверх порта Драйвера и таблица `agents`.
-- `src/index/`: Рантайм-индекс (SQLite через `node:sqlite`), миграции только вперёд.
+- `src/orchestrator/`: Оркестратор: опрос GitHub (issues и комментарии с `since` и ETag каждые 15 с),
+  выбор Готовых Задач, взятие в Слоты, переходы Стадий; хуки `afterTake`, `onIssuesUpdated`, `onIssueComments`.
+- `src/index/`: Рантайм-индекс (SQLite через `node:sqlite`), миграции только вперёд; таблицы `installation`,
+  `tasks`, `transitions`, `agents`.
 - `src/server/`: Hono + `ws` на одном http-сервере, `createApp(deps)` для тестов на фейках.
 - `test/`: vitest, `test/helpers/test-app.ts` поднимает сервер на фейках.

@@ -3,6 +3,7 @@ import { createSystemPorts } from "./adapters/index.js";
 import { ConfigError, loadConfig } from "./config.js";
 import { openRuntimeIndex } from "./index/runtime-index.js";
 import { createLogger } from "./log.js";
+import { Orchestrator } from "./orchestrator/orchestrator.js";
 import { createApp } from "./server/app.js";
 import { startServer } from "./server/server.js";
 import { VERSION } from "./version.js";
@@ -28,15 +29,24 @@ async function main(): Promise<void> {
   const index = openRuntimeIndex(config.runtimeDbPath);
   log.info({ path: config.runtimeDbPath, schemaVersion: index.schemaVersion() }, "runtime index ready");
 
-  const ports = createSystemPorts({ config, log });
-  const app = createApp({ ports, index, log, version: VERSION });
+  const ports = createSystemPorts({ config, log, version: VERSION });
+  const orchestrator = new Orchestrator({ ports, index, log });
+  const app = createApp({ ports, index, log, version: VERSION, orchestrator });
   const server = await startServer({ app, host: config.host, port: config.port, log });
+
+  if (config.github) {
+    log.info({ repo: `${config.github.owner}/${config.github.repo}` }, "orchestrator starting");
+    void orchestrator.start();
+  } else {
+    log.warn("GITHUB_TOKEN and GITHUB_REPO are not set; the orchestrator stays idle");
+  }
 
   let stopping = false;
   const shutdown = (signal: NodeJS.Signals) => {
     if (stopping) return;
     stopping = true;
     log.info({ signal }, "shutting down");
+    orchestrator.stop();
     server
       .close()
       .catch((error: unknown) => log.error({ err: error }, "server close failed"))

@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { AgentStore } from "./agents.js";
 import { migrations, type Migration } from "./migrations.js";
+import { TaskStore, TransitionStore } from "./tasks.js";
 
 export const IN_MEMORY = ":memory:";
 
@@ -37,10 +38,27 @@ export class InstallationStore {
 export class RuntimeIndex {
   readonly installation: InstallationStore;
   readonly agents: AgentStore;
+  readonly tasks: TaskStore;
+  readonly transitions: TransitionStore;
 
   constructor(readonly db: DatabaseSync) {
     this.installation = new InstallationStore(db);
     this.agents = new AgentStore(db);
+    this.tasks = new TaskStore(db);
+    this.transitions = new TransitionStore(db);
+  }
+
+  // Runs `fn` inside one SQLite transaction; a thrown error rolls everything back.
+  transaction<T>(fn: () => T): T {
+    this.db.exec("BEGIN");
+    try {
+      const result = fn();
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   schemaVersion(): number {
