@@ -4,6 +4,7 @@ import type { FakeAgentProcess } from "../../src/fakes/driver.js";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
 import type { IssueNumber, SessionId } from "../../src/ids.js";
 import { isMarkedComment } from "../../src/orchestrator/comments.js";
+import { parseRequestComment, requestCommentText } from "../../src/orchestrator/human-requests.js";
 import { Orchestrator } from "../../src/orchestrator/orchestrator.js";
 import type { AskHumanCall } from "../../src/ports/driver.js";
 import { createTestApp, TEST_REPO_PATH, type TestApp } from "../helpers/test-app.js";
@@ -23,6 +24,15 @@ const deferredResult = (call: AskHumanCall) =>
     terminal_reason: "tool_deferred",
     deferred_tool_use: { id: call.toolUseId, name: ASK_HUMAN_TOOL_NAME, input: { question: call.question, options: call.options } },
   });
+
+describe("the Request comment text", () => {
+  it("is parsed back into the question and the options", () => {
+    const text = { question: "Which colour?\n\nThe old one is red.", options: ["red", "blue"] };
+    expect(parseRequestComment(`${requestCommentText("qa", text)}\n\n<!-- auto-dev -->\n<!-- auto-dev:request:x -->`)).toEqual(text);
+    expect(parseRequestComment(requestCommentText("implementer", { question: "Go?", options: undefined }))).toEqual({ question: "Go?", options: undefined });
+    expect(parseRequestComment("just a human comment")).toBeUndefined();
+  });
+});
 
 describe("Human requests through ask_human", () => {
   const open: TestApp[] = [];

@@ -30,6 +30,18 @@ describe("config", () => {
     expect(config.values.GITHUB_TOKEN).toBe("ghp_x");
   });
 
+  it("reads the password hash and the extra allowed hosts for the UI", () => {
+    const config = loadConfig({
+      env: { AUTO_DEV_PASSWORD_HASH: "$argon2id$v=19$m=65536,t=3,p=4$abc$def", AUTO_DEV_ALLOWED_HOSTS: "auto-dev.example.com:8080, Box.Home " },
+      readFile: () => undefined,
+    });
+    expect(config.passwordHash).toBe("$argon2id$v=19$m=65536,t=3,p=4$abc$def");
+    expect(config.allowedHosts).toEqual(["auto-dev.example.com:8080", "box.home"]);
+    const bare = loadConfig({ env: { AUTO_DEV_PASSWORD_HASH: "" }, readFile: () => undefined });
+    expect(bare.passwordHash).toBeUndefined();
+    expect(bare.allowedHosts).toEqual([]);
+  });
+
   it("takes the Claude config dir and the claude path from the environment", () => {
     const config = loadConfig({
       env: { CLAUDE_CONFIG_DIR: "/home/dev/.claude", AUTO_DEV_CLAUDE_PATH: "/usr/local/bin/claude" },

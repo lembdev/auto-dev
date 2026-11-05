@@ -69,7 +69,7 @@ describe("QA Stage", () => {
     return qa;
   };
 
-  const tasks = async (s: TestApp): Promise<TasksResponse> => (await s.app.request("/api/tasks")).json() as Promise<TasksResponse>;
+  const tasks = async (s: TestApp): Promise<TasksResponse> => (await s.request("/api/tasks")).json() as Promise<TasksResponse>;
 
   it("starts a new QA Session in the worktree when the Task enters qa, with the issue, Epic and pull request in the prompt", async () => {
     const s = await implemented();

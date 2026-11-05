@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { IssueNumber, MilestoneNumber, PullNumber } from "../ids.js";
 import type { MilestoneRef } from "../ports/github.js";
+import { Listeners } from "./listeners.js";
 
 // Pipeline position of a Task. The Stage itself lives only here and in the UI, never in GitHub labels.
 export type TaskStage = "taken" | "implement" | "qa" | "merge" | "done" | "stuck" | "cancelled";
@@ -83,7 +84,14 @@ const TASK_COLUMNS =
 
 // One row per Task: what the Orchestrator knows about an issue it has taken.
 export class TaskStore {
+  private readonly _changes = new Listeners<Task>();
+
   constructor(private readonly _db: DatabaseSync) {}
+
+  // Called after every insert or update with the new row.
+  onChange(listener: (task: Task) => void): () => void {
+    return this._changes.add(listener);
+  }
 
   insert(task: NewTask, now: string): Task {
     const full: Task = {
@@ -111,6 +119,7 @@ export class TaskStore {
         full.takenAt,
         full.updatedAt,
       );
+    this._changes.emit(full);
     return full;
   }
 
@@ -163,6 +172,7 @@ export class TaskStore {
         next.updatedAt,
         issueNumber,
       );
+    this._changes.emit(next);
     return next;
   }
 
@@ -191,13 +201,29 @@ const toTransition = (row: TransitionRow): Transition => ({
 
 // Append-only history of Stage changes; statistics and notifications are built on it.
 export class TransitionStore {
+  private readonly _appends = new Listeners<Transition>();
+
   constructor(private readonly _db: DatabaseSync) {}
+
+  onAppend(listener: (transition: Transition) => void): () => void {
+    return this._appends.add(listener);
+  }
 
   append(entry: Omit<Transition, "id">): Transition {
     const result = this._db
       .prepare("INSERT INTO transitions (issue_number, from_stage, to_stage, reason, at) VALUES (?, ?, ?, ?, ?)")
       .run(entry.issueNumber, entry.from, entry.to, entry.reason, entry.at);
-    return { id: Number(result.lastInsertRowid), ...entry };
+    const transition = { id: Number(result.lastInsertRowid), ...entry };
+    this._appends.emit(transition);
+    return transition;
+  }
+
+  // Transitions strictly after `since` (ISO), oldest first.
+  listSince(since: string): Transition[] {
+    const rows = this._db
+      .prepare("SELECT id, issue_number, from_stage, to_stage, reason, at FROM transitions WHERE at > ? ORDER BY id")
+      .all(since) as TransitionRow[];
+    return rows.map(toTransition);
   }
 
   listFor(issueNumber: IssueNumber): Transition[] {

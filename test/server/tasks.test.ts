@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { IssueNumber } from "../../src/ids.js";
+import { ASK_HUMAN_TOOL_NAME } from "../../src/adapters/ask-human.js";
+import { sdkMessages } from "../../src/fakes/sdk-messages.js";
+import type { IssueNumber, SessionId } from "../../src/ids.js";
 import { INSTALLATION_KEYS } from "../../src/orchestrator/orchestrator.js";
 import type { TasksResponse } from "../../src/server/app.js";
 import { createTestApp, type TestApp } from "../helpers/test-app.js";
+
+const SESSION = "44444444-4444-4444-8444-444444444444" as SessionId;
 
 describe("GET /api/tasks", () => {
   let testApp: TestApp;
@@ -12,7 +16,7 @@ describe("GET /api/tasks", () => {
   });
 
   const tasks = async (): Promise<TasksResponse> => {
-    const response = await testApp.app.request("/api/tasks");
+    const response = await testApp.request("/api/tasks");
     expect(response.status).toBe(200);
     return (await response.json()) as TasksResponse;
   };
@@ -53,6 +57,8 @@ describe("GET /api/tasks", () => {
           updatedAt: takenAt,
           htmlUrl: "https://github.com/example/product/issues/1",
           pullUrl: "https://github.com/example/product/pull/1",
+          agent: { id: 1, role: "implementer", state: "running", lastTurnAt: null, createdAt: takenAt },
+          request: null,
         },
         expect.objectContaining({ issueNumber: 2, title: "Second", stage: "implement", pullNumber: 2, pullUrl: "https://github.com/example/product/pull/2" }),
       ],
@@ -79,5 +85,50 @@ describe("GET /api/tasks", () => {
     expect(body.slots).toEqual({ used: 1, max: 3 });
     expect(body.inProgress.map((task) => task.issueNumber)).toEqual([3]);
     expect(body.stuck.map((task) => [task.issueNumber, task.reason])).toEqual([[2, "QA failed twice"]]);
+  });
+});
+
+describe("GET /api/tasks with a waiting Agent", () => {
+  it("shows the Agent state and the open Request of the Task", async () => {
+    const testApp = createTestApp();
+    try {
+      const { github, driver } = testApp.ports;
+      github.seedIssue({ number: 5, title: "Five", labels: ["ready-for-agent"] });
+      await testApp.orchestrator.pollOnce();
+      const process = driver.lastLaunch();
+      process.emit(sdkMessages.init(SESSION));
+      process.emit(
+        sdkMessages.resultSuccess(SESSION, "", {
+          stop_reason: "tool_deferred",
+          terminal_reason: "tool_deferred",
+          deferred_tool_use: { id: "toolu_5", name: ASK_HUMAN_TOOL_NAME, input: { question: "Which database?\nPostgres is already there.", options: ["postgres", "sqlite"] } },
+        }),
+      );
+      process.end();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const askedAt = new Date(testApp.ports.clock.now()).toISOString();
+
+      const body = (await (await testApp.request("/api/tasks")).json()) as TasksResponse;
+      expect(body.slots).toEqual({ used: 0, max: 2 });
+      expect(body.inProgress).toEqual([
+        expect.objectContaining({
+          issueNumber: 5,
+          stage: "implement",
+          agent: { id: 1, role: "implementer", state: "waiting", lastTurnAt: askedAt, createdAt: askedAt },
+          request: {
+            id: 1,
+            agentId: 1,
+            commentId: github.commentsOf(5)[0]!.id,
+            commentUrl: `https://github.com/example/product/issues/5#issuecomment-${github.commentsOf(5)[0]!.id}`,
+            createdAt: askedAt,
+            question: "Which database?\nPostgres is already there.",
+            options: ["postgres", "sqlite"],
+          },
+        }),
+      ]);
+    } finally {
+      await testApp.orchestrator.shutdown();
+      testApp.close();
+    }
   });
 });
