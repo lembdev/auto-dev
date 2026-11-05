@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { AgentStore } from "./agents.js";
 import { migrations, type Migration } from "./migrations.js";
 
 export const IN_MEMORY = ":memory:";
@@ -35,9 +36,11 @@ export class InstallationStore {
 
 export class RuntimeIndex {
   readonly installation: InstallationStore;
+  readonly agents: AgentStore;
 
   constructor(readonly db: DatabaseSync) {
     this.installation = new InstallationStore(db);
+    this.agents = new AgentStore(db);
   }
 
   schemaVersion(): number {
