@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@theme {
+  --color-wait: #fff7e6;
+  --color-wait-border: #f0b429;
+  --color-wait-dark: #2a2410;
+  --color-wait-border-dark: #d9a12d;
+}
+
+html,
+body {
+  @apply bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100;
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}

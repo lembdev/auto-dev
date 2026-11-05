@@ -9,13 +9,14 @@
   },
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.build.json && vite build client",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
     "test": "vitest run",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
     "smoke:driver": "tsx scripts/smoke-driver.ts",
-    "password-hash": "tsx scripts/password-hash.ts"
+    "password-hash": "tsx scripts/password-hash.ts",
+    "dev:client": "vite client"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.318",
