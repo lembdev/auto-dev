@@ -231,4 +231,44 @@ describe("Human requests through ask_human", () => {
     expect(await driver.lastLaunch().askHuman(CALL)).toMatchObject({ kind: "allow", answer: "blue" });
     expect(s.index.humanRequests.listOpen()).toEqual([]);
   });
+
+  it("keeps an Answer that arrives during a Pause and resumes the Session with it once new Turns may start", async () => {
+    const s = await waiting();
+    const { github, driver } = s.ports;
+    s.orchestrator.installation.pause("human", "lunch");
+    const answer = github.humanComment(42, "blue, please", "bob");
+    await s.orchestrator.pollOnce();
+
+    expect(github.reactions).toEqual([{ commentId: answer.id, content: "rocket", user: github.login }]);
+    expect(driver.launches).toHaveLength(1);
+    expect(s.index.agents.listByIssue(ISSUE)[0]?.state).toBe("waiting");
+    await s.orchestrator.pollOnce();
+    expect(driver.launches).toHaveLength(1);
+
+    s.orchestrator.installation.unpause();
+    await s.orchestrator.pollOnce();
+    expect(driver.launches).toHaveLength(2);
+    const resumed = driver.lastLaunch();
+    expect(resumed.launch).toMatchObject({ resume: SESSION });
+    expect(await resumed.askHuman(CALL)).toEqual({ kind: "allow", answer: "blue, please", source: `bob in GitHub comment ${answer.htmlUrl}` });
+  });
+
+  it("resumes a waiting Agent with its Answer even when every Slot is busy: started Tasks come first", async () => {
+    const s = await waiting();
+    const { github, driver } = s.ports;
+    s.index.installation.set("max_parallel_tasks", "1");
+    seedTask(s, 43);
+    await s.orchestrator.pollOnce();
+    expect(s.orchestrator.slots()).toEqual({ used: 1, max: 1 });
+
+    github.humanComment(42, "blue, please", "bob");
+    await s.orchestrator.pollOnce();
+    expect(driver.launches).toHaveLength(3);
+    expect(driver.lastLaunch().launch).toMatchObject({ resume: SESSION });
+    expect(s.orchestrator.slots()).toEqual({ used: 2, max: 1 });
+
+    seedTask(s, 44);
+    await s.orchestrator.pollOnce();
+    expect(s.index.tasks.find(44 as IssueNumber)).toBeUndefined();
+  });
 });

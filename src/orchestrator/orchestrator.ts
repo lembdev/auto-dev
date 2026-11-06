@@ -145,6 +145,7 @@ export class Orchestrator {
       clock: this._ports.clock,
       comments: this._comments,
       journal: this._intents,
+      canStartTurn: () => this.canStartTurn(),
     });
     this._deadEnds = new DeadEnds({
       github: this._ports.github,

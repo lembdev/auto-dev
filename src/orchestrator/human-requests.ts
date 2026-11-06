@@ -92,6 +92,8 @@ export type HumanRequestsOptions = {
   clock: Clock;
   comments: Comments;
   journal: IntentJournal;
+  // False while paused, at the limit or pre-armed: an accepted Answer waits in memory for `deliver()`.
+  canStartTurn?: () => boolean;
 };
 
 type Deferred = Extract<SDKMessage, { type: "result"; subtype: "success" }>;
@@ -122,6 +124,7 @@ export class HumanRequests {
   // Texts of Requests published by this process; after a restart they are read back from the comments.
   private readonly _texts = new Map<HumanRequestId, RequestText>();
   private _openChecked = false;
+  private readonly _canStartTurn: () => boolean;
 
   constructor(options: HumanRequestsOptions) {
     this._github = options.github;
@@ -131,6 +134,7 @@ export class HumanRequests {
     this._clock = options.clock;
     this._comments = options.comments;
     this._journal = options.journal;
+    this._canStartTurn = options.canStartTurn ?? (() => true);
     this._journal.handle(REACT_TO_ANSWER, (payload) => this._react(payload.commentId));
     this._runner.onMessage((agent, message) => {
       if (isDeferred(message)) void this._publish(agent, message);
@@ -377,9 +381,15 @@ export class HumanRequests {
     }
   }
 
+  // Slots are not checked: a Task already started comes before a new one, so a waiting Agent takes its
+  // Slot back even above `max_parallel_tasks`, and new takes wait until the count drops.
   private async _resume(request: HumanRequest): Promise<void> {
     if (this._runner.isLive(request.agentId)) return;
     const issueNumber = request.issueNumber;
+    if (!this._canStartTurn()) {
+      this._log.debug({ issue: issueNumber, request: request.id }, "answer waits: no new turns now");
+      return;
+    }
     try {
       this._runner.resume(request.agentId, { onAskHuman: (call) => this.askHuman(this._index.tasks.get(issueNumber), call) });
       this._log.info({ issue: issueNumber, agent: request.agentId, request: request.id }, "session resumed with the Answer");
