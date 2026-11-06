@@ -62,6 +62,20 @@ export {
   type MergePullResult,
 } from "./merge.js";
 export { Merger, MERGER_STARTED_REASON, EXTRA_ROUND_REASON, redChecksMessage, type MergerOptions } from "./merger.js";
+export {
+  EpicClosure,
+  SETTLE_EPIC,
+  EPIC_CRITERIA_HEADING,
+  EPIC_TYPE,
+  SPEC_TYPE,
+  criteriaOfPullBody,
+  tickCriteria,
+  type EpicClosureOptions,
+  type SettleEpicPayload,
+  type SettleEpicResult,
+  type MilestoneOutcome,
+  type TickResult,
+} from "./epic-closure.js";
 export { QaStage, DEFAULT_MAX_QA_ROUNDS, MAX_QA_ROUNDS_KEY, VERDICT_RETRY_PROMPT, type QaStageOptions } from "./qa.js";
 export { parseVerdict, formatVerdict, formatBlockers, type Verdict, type Blocker } from "./verdict.js";
 export { WorkspaceCleanup, CLEANUP_WORKSPACE, cleanupWorkspace, type CleanupPayload, type CleanupResult, type CleanupDeps } from "./cleanup.js";

@@ -383,6 +383,11 @@ export class GitHubRestAdapter implements GitHubPort {
     return raw.map(toMilestone).sort((a, b) => a.number - b.number);
   }
 
+  async getMilestone(number: MilestoneNumber): Promise<Milestone> {
+    const reply = await this._request("GET", this._repoPath(`/milestones/${number}`));
+    return toMilestone(reply.json as RawMilestone);
+  }
+
   updateMilestone(number: MilestoneNumber, patch: { state: IssueState }): Promise<Milestone> {
     return this._mutate(async () => {
       const reply = await this._request("PATCH", this._repoPath(`/milestones/${number}`), { body: patch });

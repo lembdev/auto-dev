@@ -362,6 +362,11 @@ export class FakeGitHubPort implements GitHubPort {
       .map(clone);
   }
 
+  async getMilestone(number: MilestoneNumber): Promise<Milestone> {
+    this.log.record("getMilestone", number);
+    return clone(this._milestone(number));
+  }
+
   async updateMilestone(number: MilestoneNumber, patch: { state: IssueState }): Promise<Milestone> {
     this.log.record("updateMilestone", number, patch);
     const milestone = this._milestone(number);

@@ -8,6 +8,7 @@ import type { Clock, TimerHandle } from "../ports/clock.js";
 import type { CheckRun, CheckRunConclusion, CommitStatus, GitHubPort, IssueComment, PullRequest } from "../ports/github.js";
 import type { WorkspaceCleanup } from "./cleanup.js";
 import type { DeadEnds } from "./dead-end.js";
+import type { EpicClosure } from "./epic-closure.js";
 import type { Implementation } from "./implementation.js";
 import { defineIntent, type IntentJournal } from "./intents.js";
 import { stopAgentsOf } from "./stop-agents.js";
@@ -71,6 +72,7 @@ export type MergeStageOptions = {
   implementation: Implementation;
   cleanup: WorkspaceCleanup;
   deadEnds: DeadEnds;
+  epicClosure: EpicClosure;
   transition: (issueNumber: IssueNumber, to: TaskStage, reason?: string) => Task;
   postComment: (issueNumber: IssueNumber, key: string, text: string) => Promise<IssueComment>;
   baseBranch: string;
@@ -102,6 +104,7 @@ export class MergeStage {
   private readonly _implementation: Implementation;
   private readonly _cleanup: WorkspaceCleanup;
   private readonly _deadEnds: DeadEnds;
+  private readonly _epicClosure: EpicClosure;
   private readonly _transition: MergeStageOptions["transition"];
   private readonly _postComment: MergeStageOptions["postComment"];
   private readonly _baseBranch: string;
@@ -123,6 +126,7 @@ export class MergeStage {
     this._implementation = options.implementation;
     this._cleanup = options.cleanup;
     this._deadEnds = options.deadEnds;
+    this._epicClosure = options.epicClosure;
     this._transition = options.transition;
     this._postComment = options.postComment;
     this._baseBranch = options.baseBranch;
@@ -236,6 +240,7 @@ export class MergeStage {
       await this._journal.run(DELETE_REMOTE_BRANCH, task.issueNumber, { pullNumber, branch: task.branch });
     }
     if (!done.has(CLOSE_ISSUE.name)) await this._journal.run(CLOSE_ISSUE, task.issueNumber, { pullNumber });
+    await this._epicClosure.settle(task, pull);
     const session = this._implementation.findImplementer(task)?.sessionId ?? null;
     await this._postComment(task.issueNumber, `done:${task.attempt}`, finalComment(pull, title, sha, session, this._baseBranch));
     await stopAgentsOf(this._runner, this._index.agents, task.issueNumber);
