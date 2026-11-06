@@ -63,6 +63,15 @@ API Режима разработки: `GET /api/tasks` (В работе с со
 завершённые Задачи и Тупики после `since`; отметку визита клиент хранит в localStorage). `GET /ws` шлёт события
 `transition`, `task`, `agent`, `request`, `installation` при изменениях индекса; клиент по ним перечитывает данные.
 
+Панель Агента: `GET /api/tasks/:issue/agent/history` отдаёт транскрипт Сессии Агента текущей попытки (из
+`getSessionMessages` SDK, только `user`/`assistant`) и `cursor`: номер последнего сообщения в памяти Оркестратора,
+которое история уже содержит. Клиент шлёт в `/ws` кадр `{type: "subscribe", agentId, after: cursor}` и получает
+события `agent-message` `{agentId, seq, message}` с `seq > after`: сначала хвост из буфера (последние 4000 сообщений
+каждого Агента, включая `stream_event`), затем живой поток без дублей и пропусков; `{type: "unsubscribe", agentId}`
+снимает подписку. `POST /api/tasks/:issue/agent/interrupt` прерывает Ход работающего Агента (`interrupt()`, Сессия
+остаётся; у idle/waiting/stopped 409). `POST /api/tasks/:issue/cancel` закрывает issue (`not_planned`) и сразу
+применяет Отмену, не дожидаясь опроса (у Задачи вне Конвейера и не в Тупике 409).
+
 ## Локальный запуск
 
 ```
