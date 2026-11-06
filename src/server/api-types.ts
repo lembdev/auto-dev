@@ -1,5 +1,6 @@
 // Wire types of the HTTP and WebSocket API, shared with the client bundle (type-only imports there).
 import type { AgentRole, AgentState } from "../index/agents.js";
+import type { LimitSample } from "../index/limit-samples.js";
 import type { Task, TaskStage, Transition } from "../index/tasks.js";
 import type { InstallationSnapshot, PauseSource } from "../orchestrator/installation-state.js";
 
@@ -107,3 +108,42 @@ export type ServerEvent =
   | { type: "agent"; agentId: number; issueNumber: number | null; role: AgentRole; state: AgentState; previous: AgentState }
   | { type: "request"; requestId: number; issueNumber: number; open: boolean }
   | { type: "installation"; installation: InstallationResponse };
+
+// Statistics page
+
+export type StatsPeriodDays = 7 | 30;
+
+export type StageTimeView = {
+  stage: "implement" | "qa" | "merge";
+  count: number;
+  meanMs: number | null;
+  medianMs: number | null;
+};
+
+export type RoundsBucketView = { rounds: number; tasks: number };
+
+// Aggregates over `transitions` for the last `days`: takes, merges, dead ends, Stage times and QA Rounds.
+export type StatsResponse = {
+  days: StatsPeriodDays;
+  since: string;
+  taken: number;
+  done: number;
+  stuck: number;
+  stages: StageTimeView[];
+  rounds: { tasks: number; mean: number | null; buckets: RoundsBucketView[] };
+};
+
+export type LimitHistoryResponse = {
+  days: StatsPeriodDays;
+  since: string;
+  samples: LimitSample[];
+};
+
+// One line of the Orchestrator journal; `raw` is the full JSON line for the expanded view.
+export type LogEntryView = { at: string | null; level: string | null; msg: string; raw: string };
+
+export type LogsResponse = {
+  lines: number;
+  source: "journal" | "buffer";
+  entries: LogEntryView[];
+};
