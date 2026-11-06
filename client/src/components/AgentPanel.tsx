@@ -1,10 +1,13 @@
 import { useState, type ReactNode } from "react";
 import type { TaskView } from "../../../src/server/api-types.js";
 import { useAgentFeed } from "../agent-feed.js";
+import { useDialogueOutbox } from "../dialogue.js";
 import type { FeedState } from "../feed.js";
 import { AGENT_LABELS, stageLabel } from "../format.js";
 import { useCancelTask, useInterrupt } from "../queries.js";
 import { AgentFeed } from "./AgentFeed.js";
+import { DialogueBox } from "./DialogueBox.js";
+import { RequestBlock } from "./RequestBlock.js";
 
 export type AgentPanelProps = {
   task: TaskView;
@@ -12,17 +15,31 @@ export type AgentPanelProps = {
   // True when opened by the "Ответить" button: the Request block gets the focus once it exists.
   answering: boolean;
   onClose: () => void;
-  // The Request block above the feed and the Dialogue input in the footer; the panel leaves them room.
+  // The Request block above the feed and the Dialogue input in the footer; by default the open
+  // Request of the Task and its Dialogue, both over the outbox of the tab.
   requestSlot?: ReactNode;
   dialogueSlot?: ReactNode;
 };
 
-// The drawer of one Agent: the Session feed, then the buttons. Data and actions come from the hooks;
-// `AgentPanelView` below is the part the tests render.
+// The drawer of one Agent: the Request if there is one, the Session feed, the Dialogue, the buttons.
+// Data and actions come from the hooks; `AgentPanelView` below is the part the tests render.
 export function AgentPanel({ task, maxQaRounds, answering, onClose, requestSlot, dialogueSlot }: AgentPanelProps) {
   const feed = useAgentFeed(task.issueNumber, task.agent?.id ?? null);
   const interrupt = useInterrupt();
   const cancel = useCancelTask();
+  const outbox = useDialogueOutbox(task.issueNumber);
+  const request = task.request;
+  const requestBlock =
+    requestSlot ??
+    (request ? (
+      <RequestBlock
+        key={request.id}
+        request={request}
+        autoFocus={answering}
+        onAnswer={(text) => outbox.send({ kind: "answer", issueNumber: task.issueNumber, requestId: request.id }, text)}
+      />
+    ) : undefined);
+  const dialogueBox = dialogueSlot ?? <DialogueBox issueNumber={task.issueNumber} outbox={outbox} />;
   return (
     <AgentPanelView
       task={task}
@@ -38,8 +55,8 @@ export function AgentPanel({ task, maxQaRounds, answering, onClose, requestSlot,
       onCancel={() => cancel.mutate(task.issueNumber, { onSuccess: onClose })}
       cancelPending={cancel.isPending}
       cancelError={cancel.error?.message ?? null}
-      {...(requestSlot !== undefined ? { requestSlot } : {})}
-      {...(dialogueSlot !== undefined ? { dialogueSlot } : {})}
+      {...(requestBlock !== undefined ? { requestSlot: requestBlock } : {})}
+      dialogueSlot={dialogueBox}
     />
   );
 }
@@ -57,7 +74,7 @@ export type AgentPanelViewProps = AgentPanelProps & {
 };
 
 export function AgentPanelView(props: AgentPanelViewProps) {
-  const { task, maxQaRounds, answering, onClose } = props;
+  const { task, maxQaRounds, onClose } = props;
   const [confirming, setConfirming] = useState(false);
   const running = task.agent?.state === "running";
 
@@ -78,25 +95,7 @@ export function AgentPanelView(props: AgentPanelViewProps) {
           </a>
         )}
       </div>
-      {props.requestSlot ??
-        (answering && task.request && (
-          <div className="mx-3.5 mt-3 rounded-lg border border-wait-border bg-wait p-3 text-sm dark:border-wait-border-dark dark:bg-wait-dark">
-            <div className="text-xs text-neutral-500">
-              Запрос к человеку
-              {task.request.commentUrl && (
-                <>
-                  {" · "}
-                  <a href={task.request.commentUrl} target="_blank" rel="noreferrer" className="text-blue-600">
-                    комментарий в issue
-                  </a>
-                </>
-              )}
-            </div>
-            <div className="mt-1 whitespace-pre-wrap font-semibold">{task.request.question ?? "текст Запроса в комментарии issue"}</div>
-            {task.request.options.length > 0 && <div className="mt-1 text-xs text-neutral-500">Варианты: {task.request.options.join(" · ")}</div>}
-            <div className="mt-2 text-xs text-neutral-500">Ответ из UI появится в следующем тикете; пока ответьте комментарием в issue.</div>
-          </div>
-        ))}
+      {props.requestSlot}
       <AgentFeed feed={props.feed} status={props.feedStatus} error={props.feedError} />
       <div className="flex flex-col gap-2 border-t border-neutral-300 px-3.5 py-2.5 text-sm dark:border-neutral-700">
         {props.dialogueSlot}

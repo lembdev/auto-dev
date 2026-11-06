@@ -2,12 +2,14 @@ import { QueryCache, QueryClient, useMutation, useQuery, useQueryClient } from "
 import type {
   AgentHistoryResponse,
   CancelResponse,
+  DialogueResponse,
   DigestResponse,
   InstallationResponse,
   InterruptResponse,
   LimitHistoryResponse,
   LogsResponse,
   PauseRequest,
+  RemoveDialogueResponse,
   SessionResponse,
   SettingsRequest,
   SettingsResponse,
@@ -30,6 +32,7 @@ export const KEYS = {
   stats: (days: StatsPeriodDays) => ["stats", days] as const,
   limitHistory: (days: StatsPeriodDays) => ["stats", "limits", days] as const,
   logs: ["logs"] as const,
+  dialogue: (issueNumber: number) => ["dialogue", issueNumber] as const,
 };
 
 // A 401 from any query means the session is gone: the login screen takes over without a reload.
@@ -170,5 +173,18 @@ export function useCancelTask() {
       void queryClient.invalidateQueries({ queryKey: KEYS.tasks });
       void queryClient.invalidateQueries({ queryKey: KEYS.installation });
     },
+  });
+}
+
+// The lines of the Dialogue of a Task still on their way to the Session; the `dialogue` event refetches it.
+export const useDialogueQueue = (issueNumber: number) =>
+  useQuery({ queryKey: KEYS.dialogue(issueNumber), queryFn: () => api<DialogueResponse>(`/api/tasks/${issueNumber}/dialogue`), refetchInterval: 30_000 });
+
+// "удалить" next to a line: it never reaches the Session.
+export function useRemoveDialogueMessage(issueNumber: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api<RemoveDialogueResponse>(`/api/tasks/${issueNumber}/dialogue/${id}`, { method: "DELETE" }),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: KEYS.dialogue(issueNumber) }),
   });
 }

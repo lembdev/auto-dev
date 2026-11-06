@@ -44,13 +44,20 @@ import {
 import { isPublicSetupRequest, registerSetupRoutes } from "./setup-routes.js";
 import { registerSettingsRoutes } from "./settings-routes.js";
 import { agentRoutes, agentView, currentAgentOf } from "./routes/agent.js";
+import { dialogueRoutes, parseDialogueFrame } from "./routes/dialogue.js";
 
 export type {
+  AckEvent,
+  AckOutcome,
   AgentFeedEntry,
   AgentHistoryResponse,
   AgentView,
+  AnswerFrame,
   CancelResponse,
   ClientMessage,
+  DialogueFrame,
+  DialogueMessageView,
+  DialogueResponse,
   DigestResponse,
   InterruptResponse,
   FinishedTaskView,
@@ -62,6 +69,7 @@ export type {
   PauseRequest,
   ProductView,
   ReadyTaskView,
+  RemoveDialogueResponse,
   RequestView,
   ServerEvent,
   SessionResponse,
@@ -87,7 +95,7 @@ export type AppDeps = {
   index: RuntimeIndex;
   log: Logger;
   version: string;
-  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests" | "reconcile" | "updates">;
+  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests" | "reconcile" | "dialogue" | "updates">;
   // Live configuration: the password hash and the Product come from here on every request.
   config: ConfigStore;
   setup: Setup;
@@ -123,7 +131,9 @@ export type App = Hono & {
 
 type Socket = { send(data: string): void; subscriptions: Map<number, () => void> };
 
-const parseClientMessage = (raw: unknown): ClientMessage | undefined => {
+type FeedMessage = Exclude<ClientMessage, { type: "dialogue" | "answer" }>;
+
+const parseClientMessage = (raw: unknown): FeedMessage | undefined => {
   if (typeof raw !== "object" || raw === null) return undefined;
   const message = raw as Record<string, unknown>;
   if (typeof message.agentId !== "number" || !Number.isInteger(message.agentId)) return undefined;
@@ -326,6 +336,7 @@ export function createApp(deps: AppDeps): App {
   });
 
   app.route("/api/tasks", agentRoutes({ ports: deps.ports, index: deps.index, log: deps.log, orchestrator: deps.orchestrator }));
+  app.route("/api/tasks", dialogueRoutes({ index: deps.index, log: deps.log, orchestrator: deps.orchestrator }));
   registerStatsRoutes(app, { index: deps.index, clock: deps.ports.clock, logs: deps.logs ?? new LogBuffer() });
 
   app.put("/api/installation/pause", async (c) => {
@@ -405,6 +416,11 @@ export function createApp(deps: AppDeps): App {
         } catch {
           return;
         }
+        const dialogue = parseDialogueFrame(raw);
+        if (dialogue) {
+          void acknowledge(socket, dialogue);
+          return;
+        }
         const message = parseClientMessage(raw);
         if (!message) {
           deps.log.debug({ frame: event.data.slice(0, 200) }, "ws frame ignored");
@@ -426,6 +442,27 @@ export function createApp(deps: AppDeps): App {
       },
     })),
   );
+
+  // Every frame of the Dialogue gets its ACK on the socket it came from, whatever became of it.
+  async function acknowledge(socket: Socket, parsed: NonNullable<ReturnType<typeof parseDialogueFrame>>): Promise<void> {
+    let ack: ServerEvent;
+    if (parsed.ok) {
+      try {
+        ack = { type: "ack", ...(await deps.orchestrator.dialogue.receive(parsed.frame)) };
+      } catch (error) {
+        // Not refused for good: the client sends the frame again after its timeout.
+        deps.log.error({ err: error, client: parsed.frame.clientId, seq: parsed.frame.seq }, "dialogue frame failed");
+        return;
+      }
+    } else {
+      ack = { type: "ack", clientId: parsed.clientId, seq: parsed.seq, watermark: deps.index.dialogue.watermark(parsed.clientId), outcome: "rejected", reason: parsed.reason };
+    }
+    try {
+      socket.send(JSON.stringify(ack));
+    } catch (error) {
+      deps.log.warn({ err: error, client: ack.clientId, seq: ack.seq }, "ws send failed");
+    }
+  }
 
   // The buffered tail after `after` goes out first, then every new message; the watermark keeps
   // the two from overlapping. Pushes come from the Agent process in later ticks, never in between.
@@ -456,6 +493,9 @@ export function createApp(deps: AppDeps): App {
   deps.index.humanRequests.onChange((request) =>
     app.broadcast({ type: "request", requestId: request.id, issueNumber: request.issueNumber, open: request.answeredAt === null }),
   );
+  deps.index.dialogue.onChange(({ kind, message }) => {
+    if (message.requestId === null) app.broadcast({ type: "dialogue", issueNumber: message.issueNumber, messageId: message.id, state: kind });
+  });
   deps.index.installation.onChange((key) => {
     if (isUiInstallationKey(key)) app.broadcast({ type: "installation", installation: installationView() });
   });

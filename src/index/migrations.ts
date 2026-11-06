@@ -139,4 +139,30 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 7,
+    up(db) {
+      db.exec(`
+        CREATE TABLE pending_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          issue_number INTEGER NOT NULL,
+          agent_id INTEGER,
+          request_id INTEGER,
+          client_id TEXT NOT NULL,
+          seq INTEGER NOT NULL,
+          text TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          delivered_at TEXT
+        ) STRICT;
+        CREATE UNIQUE INDEX pending_messages_identity ON pending_messages (client_id, seq);
+        CREATE INDEX pending_messages_issue ON pending_messages (issue_number, id);
+        CREATE INDEX pending_messages_undelivered ON pending_messages (delivered_at, id);
+
+        CREATE TABLE dialogue_clients (
+          client_id TEXT PRIMARY KEY,
+          watermark INTEGER NOT NULL
+        ) STRICT;
+      `);
+    },
+  },
 ];

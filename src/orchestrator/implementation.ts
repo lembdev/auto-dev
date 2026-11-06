@@ -91,7 +91,7 @@ export class Implementation {
       role: "implementer",
       cwd: task.worktreePath,
       prompt,
-      ...(this._onAskHuman ? { onAskHuman: (call: AskHumanCall) => this._onAskHuman!(this._index.tasks.get(task.issueNumber), call) } : {}),
+      ...this._askHuman(task.issueNumber),
     });
     this._log.info({ issue: task.issueNumber, agent: agent.id, epic: epic?.number ?? null, cwd: task.worktreePath }, "implementer started");
     if (task.stage === "taken") this._transition(task.issueNumber, "implement", "implementer started");
@@ -105,8 +105,14 @@ export class Implementation {
     const agent = this.findImplementer(task);
     if (!agent) throw new ImplementerNotStartedError(issueNumber);
     if (task.stage !== "implement") this._transition(issueNumber, "implement", "message to the implementer");
-    await this._runner.send(agent.id, text);
+    await this._runner.send(agent.id, text, this._askHuman(issueNumber));
     return this._index.agents.get(agent.id);
+  }
+
+  // The ask_human handler bound to the Task, for a launch and for a resume after a restart.
+  private _askHuman(issueNumber: IssueNumber): { onAskHuman?: (call: AskHumanCall) => Promise<AskHumanDecision> } {
+    const handler = this._onAskHuman;
+    return handler ? { onAskHuman: (call) => handler(this._index.tasks.get(issueNumber), call) } : {};
   }
 
   private _observe(agent: AgentRecord, message: SDKMessage): void {

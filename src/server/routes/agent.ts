@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 import type { AgentRunner } from "../../agents/agent-runner.js";
 import type { IssueNumber } from "../../ids.js";
-import type { AgentRecord, AgentStore } from "../../index/agents.js";
+import type { AgentRecord } from "../../index/agents.js";
 import type { RuntimeIndex } from "../../index/runtime-index.js";
 import { isActiveStage, type Task } from "../../index/tasks.js";
 import type { Logger } from "../../log.js";
 import type { Orchestrator } from "../../orchestrator/orchestrator.js";
 import type { Ports } from "../../ports/index.js";
 import type { AgentHistoryResponse, AgentView, CancelResponse, InterruptResponse } from "../api-types.js";
+import { currentAgentOf } from "../../orchestrator/current-agent.js";
 
 export type AgentRoutesDeps = {
   ports: Ports;
@@ -16,12 +17,7 @@ export type AgentRoutesDeps = {
   orchestrator: Pick<Orchestrator, "agents" | "reconcile">;
 };
 
-// The latest Agent of the current attempt: the one the card and the panel are about.
-export const currentAgentOf = (agents: AgentStore, task: Task): AgentRecord | undefined =>
-  agents
-    .listByIssue(task.issueNumber)
-    .filter((candidate) => candidate.createdAt >= task.takenAt)
-    .at(-1);
+export { currentAgentOf } from "../../orchestrator/current-agent.js";
 
 export const agentView = (agent: AgentRecord): AgentView => ({
   id: agent.id,

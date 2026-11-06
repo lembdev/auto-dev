@@ -12,6 +12,7 @@ import type { Ports } from "../ports/index.js";
 import { WorkspaceCleanup } from "./cleanup.js";
 import { Comments } from "./comments.js";
 import { DeadEnds } from "./dead-end.js";
+import { Dialogue } from "./dialogue.js";
 import { EpicClosure } from "./epic-closure.js";
 import { HumanRequests } from "./human-requests.js";
 import { Implementation, type AskHumanHandler } from "./implementation.js";
@@ -85,6 +86,7 @@ export class Orchestrator {
   private readonly _agents: AgentRunner;
   private readonly _humanRequests: HumanRequests;
   private readonly _implementation: Implementation;
+  private readonly _dialogue: Dialogue;
   private readonly _deadEnds: DeadEnds;
   private readonly _qa: QaStage;
   private readonly _installation: InstallationState;
@@ -168,6 +170,16 @@ export class Orchestrator {
       canStartRound: () => this.canStartTurn(),
       ...(options.prompts ? { prompts: options.prompts } : {}),
       onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
+    });
+    this._dialogue = new Dialogue({
+      index: this._index,
+      runner: this._agents,
+      log: this._log,
+      clock: this._ports.clock,
+      humanRequests: this._humanRequests,
+      implementation: this._implementation,
+      qa: this._qa,
+      canStartTurn: () => this.canStartTurn(),
     });
     this._installation = new InstallationState({
       index: this._index,
@@ -296,6 +308,11 @@ export class Orchestrator {
   // Questions of Agents to the human and the Answers from GitHub.
   get humanRequests(): HumanRequests {
     return this._humanRequests;
+  }
+
+  // Lines of the human to an Agent from the UI and from comments after an Answer; the queue per Task.
+  get dialogue(): Dialogue {
+    return this._dialogue;
   }
 
   get qa(): QaStage {
@@ -462,6 +479,7 @@ export class Orchestrator {
     await this._pollIssues();
     await this._pollComments();
     await this._humanRequests.deliver();
+    await this._dialogue.deliver();
     await this._startImplementers();
     await this._qa.startRounds();
     await this._merge.startMerges();
@@ -540,6 +558,7 @@ export class Orchestrator {
     for (const comment of fresh) this._seenComments.set(comment.id, comment.updatedAt);
     if (fresh.length === 0) return;
     await this._humanRequests.onIssueComments(fresh);
+    await this._dialogue.onIssueComments(fresh);
     await this._hooks.onIssueComments?.(fresh);
   }
 
