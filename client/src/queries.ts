@@ -1,5 +1,14 @@
 import { QueryCache, QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { DigestResponse, InstallationResponse, PauseRequest, SessionResponse, TasksResponse } from "../../src/server/api-types.js";
+import type {
+  AgentHistoryResponse,
+  CancelResponse,
+  DigestResponse,
+  InstallationResponse,
+  InterruptResponse,
+  PauseRequest,
+  SessionResponse,
+  TasksResponse,
+} from "../../src/server/api-types.js";
 import { api, ApiError } from "./api.js";
 
 export const KEYS = {
@@ -64,5 +73,24 @@ export function usePauseToggle() {
   return useMutation({
     mutationFn: (request: PauseRequest) => api<InstallationResponse>("/api/installation/pause", { method: "PUT", json: request }),
     onSuccess: (installation) => queryClient.setQueryData(KEYS.installation, installation),
+  });
+}
+
+export const fetchAgentHistory = (issueNumber: number) => api<AgentHistoryResponse>(`/api/tasks/${issueNumber}/agent/history`);
+
+// "Остановить ход": the Turn is interrupted, the Session stays; the card follows the `agent` event.
+export function useInterrupt() {
+  return useMutation({ mutationFn: (issueNumber: number) => api<InterruptResponse>(`/api/tasks/${issueNumber}/agent/interrupt`, { method: "POST" }) });
+}
+
+// "Отменить задачу": the issue is closed and the Task leaves the list of Tasks in progress.
+export function useCancelTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (issueNumber: number) => api<CancelResponse>(`/api/tasks/${issueNumber}/cancel`, { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: KEYS.tasks });
+      void queryClient.invalidateQueries({ queryKey: KEYS.installation });
+    },
   });
 }
