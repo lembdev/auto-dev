@@ -13,6 +13,7 @@ import {
   type SpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
 import { execFile, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { accessSync, constants, statSync } from "node:fs";
 import path from "node:path";
 import type { Readable } from "node:stream";
@@ -153,11 +154,14 @@ class InputStream implements AsyncIterable<SDKUserMessage> {
   }
 }
 
+// The uuid becomes the uuid of the message in the Session transcript, so its echo in the feed and the
+// same message read back from history are one message.
 const userMessage = (text: string, sessionId: SessionId | undefined): SDKUserMessage => ({
   type: "user",
   message: { role: "user", content: text },
   parent_tool_use_id: null,
   ...(sessionId ? { session_id: sessionId } : {}),
+  uuid: randomUUID(),
 });
 
 const isDeferredResult = (message: SDKMessage): boolean =>
@@ -203,6 +207,8 @@ class SdkAgentProcess implements AgentProcess {
   private _sessionId: SessionId | undefined;
   private _turnActive: boolean;
   private _streamEnded = false;
+  // What was sent and not yet echoed: the CLI does not repeat its input, the feed still shows it.
+  private readonly _echoes: SDKUserMessage[] = [];
 
   constructor(
     private readonly _query: Query,
@@ -214,12 +220,15 @@ class SdkAgentProcess implements AgentProcess {
   ) {
     this._sessionId = launch.resume;
     this._turnActive = launch.prompt !== undefined || launch.resume !== undefined;
+    if (launch.prompt !== undefined) this._push(launch.prompt);
   }
 
   async *messages(): AsyncIterable<SDKMessage> {
     let lastWasResult = false;
     try {
       for await (const message of this._query) {
+        if ("session_id" in message && typeof message.session_id === "string") this._sessionId = message.session_id as SessionId;
+        for (const echo of this._echoes.splice(0)) yield { ...echo, session_id: echo.session_id ?? this._sessionId ?? "" } as SDKMessage;
         if ("session_id" in message && typeof message.session_id === "string") this._sessionId = message.session_id as SessionId;
         if (message.type === "result") this._turnActive = false;
         if (isDeferredResult(message)) this._input.close();
@@ -249,7 +258,13 @@ class SdkAgentProcess implements AgentProcess {
   async send(text: string): Promise<void> {
     if (this._child.exit || this._streamEnded) throw new ProcessNotRunningError();
     this._turnActive = true;
-    this._input.push(userMessage(text, this._sessionId));
+    this._push(text);
+  }
+
+  private _push(text: string): void {
+    const message = userMessage(text, this._sessionId);
+    this._input.push(message);
+    this._echoes.push(message);
   }
 
   async interrupt(): Promise<void> {
@@ -414,7 +429,6 @@ export class SdkDriver implements DriverPort {
       settings: { ...structuredClone(this._options.settings ?? {}), ...NO_ATTRIBUTION },
     };
 
-    if (launch.prompt !== undefined) input.push(userMessage(launch.prompt, launch.resume));
     const query = this._query({ prompt: input, options });
     void child.exited.then((exit) => log.info({ ...exit }, "claude process exited"));
     return new SdkAgentProcess(query, input, child, log, this._timeouts, launch);

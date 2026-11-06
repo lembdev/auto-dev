@@ -23,6 +23,21 @@ describe("the feed built from SDK messages", () => {
     expect(feed.items.map((item) => [item.kind, (item as { text?: string }).text, (item as { streaming?: boolean }).streaming])).toEqual([["text", "Reading the issue.", false]]);
   });
 
+  it("keeps one row when the complete message arrives before its block stops streaming, as the CLI sends it", () => {
+    const feed = applyMessages(emptyFeed(), [
+      sdkMessages.messageStart(S, "msg_1"),
+      sdkMessages.contentBlockStart(S, 0, { type: "thinking", thinking: "" }),
+      sdkMessages.contentBlockStop(S, 0),
+      sdkMessages.contentBlockStart(S, 1, { type: "text", text: "" }),
+      sdkMessages.textDelta(S, 1, "The plan."),
+      sdkMessages.assistantText(S, "The plan.", { message: { id: "msg_1" } as never }),
+      sdkMessages.contentBlockStop(S, 1),
+      sdkMessages.messageStop(S),
+    ]);
+    expect(feed.items.filter((item) => item.kind === "text").map((item) => [(item as { text: string }).text, (item as { streaming: boolean }).streaming])).toEqual([["The plan.", false]]);
+    expect(feed.items.filter((item) => item.kind === "thinking")).toHaveLength(1);
+  });
+
   it("links a tool call with its result by id and shows the head of the input", () => {
     const feed = applyMessages(emptyFeed(), [
       sdkMessages.assistantToolUse(S, "toolu_1", "Bash", { command: "npm test\n--silent" }),
@@ -58,12 +73,22 @@ describe("the feed built from SDK messages", () => {
       sdkMessages.resultError(S, ["boom"]),
     ]);
     expect(feed.items.map((item) => [item.kind, (item as { level?: string }).level, (item as { text: string }).text])).toEqual([
-      ["system", "info", "процесс запущен · claude-sonnet-4-5"],
+      ["system", "info", "Ход начат · claude-sonnet-4-5"],
       ["system", "info", "контекст сжат (auto): 150k -> 20k токенов"],
       ["system", "info", "лимит подписки: allowed_warning · five_hour · 85 %"],
       ["system", "warn", "повтор запроса к API: попытка 2 из 3 через 2 с (server_error, 500)"],
       ["system", "info", "Ход завершён (end_turn)"],
       ["system", "warn", "Ход завершился ошибкой (error_during_execution): boom"],
+    ]);
+  });
+
+  it("shows a stopped Turn as stopped, not as a failed Turn", () => {
+    const feed = applyMessages(emptyFeed(), [
+      sdkMessages.userText(S, "[Request interrupted by user for tool use]"),
+      sdkMessages.resultError(S, ["[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use"]),
+    ]);
+    expect(feed.items.map((item) => [item.kind, (item as { level?: string }).level, (item as { text: string }).text])).toEqual([
+      ["system", "info", "Ход остановлен"],
     ]);
   });
 

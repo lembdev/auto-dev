@@ -89,7 +89,8 @@ export function applyMessage(previous: FeedState, message: SDKMessage): FeedStat
       if (message.subtype === "success") {
         const deferred = message.stop_reason === "tool_deferred";
         pushSystem(state, uuid ?? `result:${state.items.length}`, null, deferred ? "Ход завершён: Запрос к человеку, Агент ждёт Ответа" : `Ход завершён (${message.stop_reason ?? "end_turn"})`, message.is_error ? "warn" : "info");
-      } else {
+      } else if (!(message.subtype === "error_during_execution" && state.items.at(-1)?.id.startsWith(INTERRUPT_PREFIX))) {
+        // An interrupted Turn ends with this error; the stop row above already says what happened.
         pushSystem(state, uuid ?? `result:${state.items.length}`, null, `Ход завершился ошибкой (${message.subtype}): ${errorsOf(message)}`, "warn");
       }
       return state;
@@ -129,12 +130,16 @@ function applyAssistant(state: FeedState, message: Extract<SDKMessage, { type: "
   const parent = message.parent_tool_use_id;
   const api = message.message;
   const blocks = blocksOf(api.content);
-  // The streamed version of a finished block goes; the complete block takes its place.
-  const stoppedPending = [...state.pending.entries()].filter(([, pending]) => pending.messageId === api.id && pending.stopped);
-  for (const [id] of stoppedPending) {
-    const index = findIndex(state, id);
+  // The streamed version of a block goes and the complete block takes its place. The CLI sends the
+  // complete block before its `content_block_stop`, so a block still streaming is matched too: the
+  // oldest streamed row of the same kind in the same API message.
+  for (const block of blocks) {
+    if (block.type !== "text" && block.type !== "thinking") continue;
+    const streamed = [...state.pending.entries()].find(([id, pending]) => pending.messageId === api.id && state.items[findIndex(state, id)]?.kind === block.type);
+    if (!streamed) continue;
+    const index = findIndex(state, streamed[0]);
     if (index >= 0) state.items.splice(index, 1);
-    state.pending.delete(id);
+    state.pending.delete(streamed[0]);
   }
   blocks.forEach((block, i) => {
     const id = `${message.uuid}:${i}`;
@@ -170,10 +175,19 @@ function applyAssistant(state: FeedState, message: Extract<SDKMessage, { type: "
   });
 }
 
+// The CLI marks a Turn the human stopped with a user message of its own.
+const INTERRUPT_MARK = "[Request interrupted by user";
+const INTERRUPT_PREFIX = "interrupt:";
+
 function applyUser(state: FeedState, message: Extract<SDKMessage, { type: "user" }>): void {
   const parent = message.parent_tool_use_id;
   const content = message.message.content;
   const id = message.uuid ?? `user:${state.items.length}`;
+  const text = typeof content === "string" ? content : blocksOf(content).find((block) => block.type === "text")?.text;
+  if (typeof text === "string" && text.trimStart().startsWith(INTERRUPT_MARK)) {
+    pushSystem(state, `${INTERRUPT_PREFIX}${id}`, parent, "Ход остановлен", "info");
+    return;
+  }
   if (typeof content === "string") {
     if (content.trim() !== "") state.items.push({ kind: "user", id, parent, text: content });
     return;
@@ -275,7 +289,7 @@ function applySystem(state: FeedState, message: Extract<SDKMessage, { type: "sys
   const id = uuid ?? `system:${state.items.length}`;
   switch (message.subtype) {
     case "init":
-      pushSystem(state, id, null, `процесс запущен · ${message.model}`, "info");
+      pushSystem(state, id, null, `Ход начат · ${message.model}`, "info");
       return;
     case "compact_boundary": {
       const meta = message.compact_metadata;

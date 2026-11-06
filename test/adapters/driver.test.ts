@@ -74,7 +74,7 @@ describe("SdkDriver.launch", () => {
       human: { type: "stdio", command: globalThis.process.execPath, args: ["/opt/auto-dev/current/dist/adapters/ask-human-mcp.js"], alwaysLoad: true },
     });
     expect(call.options.hooks?.PreToolUse?.[0]?.matcher).toBe(ASK_HUMAN_TOOL_NAME);
-    expect(call.inputs).toEqual([{ type: "user", message: { role: "user", content: "implement the issue" }, parent_tool_use_id: null }]);
+    expect(call.inputs).toEqual([{ type: "user", message: { role: "user", content: "implement the issue" }, parent_tool_use_id: null, uuid: expect.any(String) }]);
     expect(call.inputClosed).toBe(false);
     expect(process.pid()).toBe(4242);
     expect(process.sessionId()).toBeUndefined();
@@ -153,7 +153,7 @@ describe("SdkDriver process", () => {
     expect(process.sessionId()).toBe(SESSION);
 
     call.end({ code: 0, signal: null });
-    expect((await received).map((message) => message.type)).toEqual(["system", "assistant", "result"]);
+    expect((await received).map((message) => message.type)).toEqual(["user", "system", "assistant", "result"]);
     expect(await process.exited()).toEqual({ code: 0, signal: null });
     expect(process.pid()).toBeUndefined();
   });
@@ -175,6 +175,27 @@ describe("SdkDriver process", () => {
     call.end();
     await process.exited();
     await expect(process.send("too late")).rejects.toThrow(ProcessNotRunningError);
+  });
+
+  it("echoes the prompt and every sent message into the stream, since the CLI does not, with the uuid it was sent with", async () => {
+    const { driver, sdk } = createDriver();
+    const process = driver.launch({ cwd: "/w", prompt: "go" });
+    const received = collect(process.messages());
+    const call = sdk.lastCall();
+    call.emit(sdkMessages.init(SESSION));
+    call.emit(sdkMessages.resultSuccess(SESSION, "done"));
+    await tick();
+    await process.send("add JSDoc");
+    await tick();
+    call.emit(sdkMessages.init(SESSION));
+    call.end({ code: 0, signal: null });
+
+    const messages = await received;
+    expect(messages.map((message) => message.type)).toEqual(["user", "system", "result", "user", "system"]);
+    const echoes = messages.filter((message) => message.type === "user");
+    expect(echoes.map((message) => message.message.content)).toEqual(["go", "add JSDoc"]);
+    expect(echoes.map((message) => message.uuid)).toEqual(call.inputs.map((input) => input.uuid));
+    expect(echoes[1]?.session_id).toBe(SESSION);
   });
 
   it("stops a running Turn with interrupt, closes stdin and lets the CLI exit", async () => {
@@ -217,7 +238,7 @@ describe("SdkDriver process", () => {
     call.emit(sdkMessages.resultError(SESSION, ["Not logged in"]));
     await tick();
     call.fail(new Error("Claude Code returned an error result: Not logged in"));
-    expect((await received).map((message) => message.type)).toEqual(["system", "result"]);
+    expect((await received).map((message) => message.type)).toEqual(["user", "system", "result"]);
     expect(await process.exited()).toEqual({ code: 1, signal: null });
 
     const broken = driver.launch({ cwd: "/w", prompt: "go" });
@@ -242,7 +263,7 @@ describe("SdkDriver process", () => {
     await tick();
     expect(call.inputClosed).toBe(true);
     expect(await process.exited()).toEqual({ code: 0, signal: null });
-    expect(await received).toHaveLength(2);
+    expect(await received).toHaveLength(3);
   });
 });
 
