@@ -131,7 +131,9 @@ export class QaStage {
     if (!task || task.stage !== "qa" || this._starting.has(issueNumber)) return undefined;
     const current = this._rounds.get(issueNumber);
     if (current && current.attempt === task.attempt && current.round === task.round) {
-      if (current.settling || this._runner.isLive(current.agentId)) return this._index.agents.find(current.agentId);
+      const agent = this._index.agents.find(current.agentId);
+      // A QA Agent in Waiting asked a human: its Answer resumes the same Session, which gives the verdict.
+      if (current.settling || this._runner.isLive(current.agentId) || agent?.state === "waiting") return agent;
       // The process is gone without a verdict (crash, orphan after a restart): the round starts over.
       this._log.warn({ issue: issueNumber, agent: current.agentId }, "qa process gone without a verdict");
       this._rounds.delete(issueNumber);

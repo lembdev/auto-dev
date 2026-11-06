@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FakeAgentProcess } from "../../src/fakes/driver.js";
+import { ASK_HUMAN_TOOL_NAME } from "../../src/adapters/ask-human.js";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
-import type { IssueNumber, SessionId } from "../../src/ids.js";
+import type { IssueNumber, SessionId, ToolUseId } from "../../src/ids.js";
 import { isMarkedComment } from "../../src/orchestrator/comments.js";
 import { MAX_QA_ROUNDS_KEY, VERDICT_RETRY_PROMPT } from "../../src/orchestrator/qa.js";
 import type { TasksResponse } from "../../src/server/app.js";
@@ -276,5 +277,46 @@ describe("QA Stage", () => {
     await flush();
     expect(s.index.tasks.get(ISSUE).stage).toBe("stuck");
     expect(s.index.transitions.listFor(ISSUE).at(-1)?.reason).toBe("qa turn failed twice");
+  });
+
+  it("keeps the waiting QA Agent through a Request: no new round starts, the Answer resumes it and its verdict moves the Task on", async () => {
+    const s = await implemented();
+    const { driver, github, clock } = s.ports;
+    const qa = driver.lastLaunch();
+    const session = qaSession();
+    const call = { toolUseId: "toolu_qa" as ToolUseId, question: "Is the old form still needed?", options: undefined };
+    qa.emit(sdkMessages.init(session));
+    expect(await qa.askHuman(call)).toEqual({ kind: "defer" });
+    qa.emit(
+      sdkMessages.resultSuccess(session, "", {
+        stop_reason: "tool_deferred",
+        terminal_reason: "tool_deferred",
+        deferred_tool_use: { id: call.toolUseId, name: ASK_HUMAN_TOOL_NAME, input: { question: call.question } },
+      }),
+    );
+    qa.end();
+    await flush();
+    const qaAgent = s.index.agents.listByIssue(ISSUE).find((agent) => agent.role === "qa")!;
+    expect(qaAgent.state).toBe("waiting");
+
+    await s.orchestrator.pollOnce();
+    await clock.advance(60_000);
+    await s.orchestrator.pollOnce();
+    expect(driver.launches).toHaveLength(2);
+    expect(s.index.agents.listByIssue(ISSUE).filter((agent) => agent.role === "qa")).toHaveLength(1);
+
+    github.humanComment(42, "no, drop it");
+    await s.orchestrator.pollOnce();
+    await flush();
+    expect(driver.launches).toHaveLength(3);
+    const resumed = driver.lastLaunch();
+    expect(resumed.launch.resume).toBe(session);
+    resumed.emit(sdkMessages.init(session));
+    resumed.emit(sdkMessages.assistantText(session, approved));
+    resumed.emit(sdkMessages.resultSuccess(session, approved));
+    await flush();
+
+    expect(s.index.tasks.get(ISSUE).stage).toBe("merge");
+    expect(s.index.agents.listByIssue(ISSUE).filter((agent) => agent.role === "qa")).toHaveLength(1);
   });
 });
