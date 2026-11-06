@@ -79,3 +79,20 @@ export { QaStage, DEFAULT_MAX_QA_ROUNDS, MAX_QA_ROUNDS_KEY, VERDICT_RETRY_PROMPT
 export { parseVerdict, formatVerdict, formatBlockers, type Verdict, type Blocker } from "./verdict.js";
 export { WorkspaceCleanup, CLEANUP_WORKSPACE, cleanupWorkspace, type CleanupPayload, type CleanupResult, type CleanupDeps } from "./cleanup.js";
 export { Reconciler, CANCELLED_REASON, type ReconcilerOptions } from "./reconcile.js";
+export {
+  Recovery,
+  RECOVERY_KEYS,
+  ORPHAN_GRACE_MS,
+  FOREIGN_SWEEP_INTERVAL_MS,
+  CLAUDE_COMMAND,
+  INSTALLATION_USER,
+  MAX_RESUME_FAILURES,
+  HANG_TIMEOUT_MS,
+  MAX_HANGS,
+  CONTINUE_PROMPT,
+  MERGED_WHILE_DOWN_REASON,
+  resumeFailedReason,
+  hungReason,
+  type RecoveryOptions,
+} from "./recovery.js";
+export { isTurnEnd, isDeferred, isAborted, isResult } from "./turns.js";

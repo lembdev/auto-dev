@@ -22,6 +22,7 @@ import type { StagePrompts } from "../prompts/index.js";
 import { QaStage } from "./qa.js";
 import { HUMAN_LABEL, READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
 import { Reconciler } from "./reconcile.js";
+import { Recovery } from "./recovery.js";
 import { Workspace, type Product } from "./workspace.js";
 
 export const DEFAULT_POLL_INTERVAL_MS = 15_000;
@@ -87,6 +88,7 @@ export class Orchestrator {
   private readonly _reconciler: Reconciler;
   private readonly _epicClosure: EpicClosure;
   private readonly _merge: MergeStage;
+  private readonly _recovery: Recovery;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
   private readonly _seenComments = new Map<CommentId, string>();
@@ -210,6 +212,25 @@ export class Orchestrator {
       postComment: (issueNumber, key, text) => this.postComment(issueNumber, key, text),
       baseBranch: this._workspace.baseBranch,
     });
+    this._recovery = new Recovery({
+      github: this._ports.github,
+      processes: this._ports.processes,
+      clock: this._ports.clock,
+      runner: this._agents,
+      index: this._index,
+      log: this._log,
+      reconciler: this._reconciler,
+      deadEnds: this._deadEnds,
+      transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
+      canStartTurn: () => this.canStartTurn(),
+      onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
+      rememberIssue: (issue) => this._issues.set(issue.number, issue),
+    });
+  }
+
+  // Restart safety: orphans, foreign processes, the index against GitHub, resumed and hung Agents.
+  get recovery(): Recovery {
+    return this._recovery;
   }
 
   // Cleanup of worktrees, branches and pull requests: after a merge, a cancellation and before a retake.
@@ -280,6 +301,7 @@ export class Orchestrator {
 
   stop(): void {
     this._running = false;
+    this._recovery.stop();
     this._merge.stop();
     this._installation.stop();
     if (this._timer !== undefined) {
@@ -292,6 +314,8 @@ export class Orchestrator {
   async shutdown(): Promise<void> {
     this.stop();
     await this._cycle;
+    // The Turns running now continue in their Sessions after the next start.
+    this._recovery.rememberRunning();
     await this._agents.shutdown();
   }
 
@@ -374,8 +398,11 @@ export class Orchestrator {
       this._login = (await this._ports.github.getAuthenticatedUser()).login;
     }
     if (!this._bootstrapped) await this._bootstrap();
+    await this._recovery.start();
     await this._recoverIntents();
     await this._installation.check();
+    await this._recovery.resumeInterrupted();
+    await this._recovery.checkHangs();
     await this._pollIssues();
     await this._pollComments();
     await this._humanRequests.deliver();
