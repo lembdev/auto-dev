@@ -35,11 +35,11 @@ describe("GET /api/logs", () => {
 
     const body = await logs();
     expect(body.source).toBe("buffer");
-    expect(body.entries.map((entry) => entry.msg)).toEqual(["task taken", "poll failed"]);
-    expect(body.entries[0]).toMatchObject({ level: "info", msg: "task taken" });
-    expect(body.entries[1]).toMatchObject({ level: "warn" });
-    expect(typeof body.entries[0]?.at).toBe("string");
-    expect(JSON.parse(body.entries[0]!.raw)).toMatchObject({ issue: 7, msg: "task taken" });
+    expect(body.entries.map((entry) => entry.msg)).toEqual(["login accepted", "task taken", "poll failed"]);
+    expect(body.entries[1]).toMatchObject({ level: "info", msg: "task taken" });
+    expect(body.entries[2]).toMatchObject({ level: "warn" });
+    expect(typeof body.entries[1]?.at).toBe("string");
+    expect(JSON.parse(body.entries[1]!.raw)).toMatchObject({ issue: 7, msg: "task taken" });
   });
 
   it("keeps only the requested tail and caps the request at 500 lines", async () => {
