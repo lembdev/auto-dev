@@ -5,6 +5,7 @@
 //   npx tsx scripts/smoke-driver.ts resume <sessionId> <answer> # open stream, hook allows with the Answer
 //   npx tsx scripts/smoke-driver.ts interrupt                  # stop() mid-Turn: interrupt, then SIGTERM
 //   npx tsx scripts/smoke-driver.ts idle                       # AgentRunner stops the process after the idle timeout
+//   npx tsx scripts/smoke-driver.ts smoke                      # DriverPort.smokeQuery as the wizard runs it
 //
 // Env: AUTO_DEV_SMOKE_MODEL (default haiku), AUTO_DEV_SMOKE_IDLE_MS (default 5000), AUTO_DEV_SMOKE_CWD (default a temp dir),
 // CLAUDE_CONFIG_DIR / CLAUDE_CODE_OAUTH_TOKEN / GH_TOKEN as for the Installation. A macOS Keychain login works without
@@ -159,7 +160,14 @@ async function idle(): Promise<void> {
   index.close();
 }
 
-const modes: Record<string, () => Promise<void>> = { start, ask, resume, interrupt, idle };
+async function smoke(): Promise<void> {
+  say(`smoke query in ${cwd}`);
+  const result = await driver.smokeQuery({ cwd, env: extraEnv });
+  say(`  ${JSON.stringify(result)}`);
+  if (!result.ok) process.exitCode = 1;
+}
+
+const modes: Record<string, () => Promise<void>> = { start, ask, resume, interrupt, idle, smoke };
 const run = modes[mode];
 if (!run) {
   say(`unknown mode "${mode}"; one of ${Object.keys(modes).join(", ")}`);
