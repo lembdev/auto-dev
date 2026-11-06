@@ -3,6 +3,7 @@ import type { InstallationResponse } from "../../../src/server/api-types.js";
 import { clockTime, limitLevel, type LimitLevel } from "../format.js";
 
 export type Mode = "development" | "planning";
+export type Page = "dashboard" | "settings";
 
 export type HeaderProps = {
   installation: InstallationResponse | undefined;
@@ -13,6 +14,9 @@ export type HeaderProps = {
   connected: boolean;
   now: number;
   onLogout: () => void;
+  // Which page is open; absent means the dashboard without navigation.
+  page?: Page;
+  onPage?: (page: Page) => void;
 };
 
 const LEVEL_BAR: Record<LimitLevel, string> = { ok: "bg-green-600", warn: "bg-amber-500", danger: "bg-red-600" };
@@ -98,7 +102,9 @@ export function Header(props: HeaderProps) {
       </button>
       <span className="flex-1" />
       <nav className="flex gap-3 text-xs text-neutral-500">
-        <span title="Появится в следующих тикетах">Настройки</span>
+        <button type="button" className={props.page === "settings" ? "font-semibold text-neutral-900 dark:text-neutral-100" : "underline"} onClick={() => props.onPage?.(props.page === "settings" ? "dashboard" : "settings")}>
+          Настройки
+        </button>
         <span title="Появится в следующих тикетах">Статистика</span>
         <span title={props.connected ? "живые события подключены" : "нет связи с сервером, данные обновляются опросом"} data-testid="connection" data-connected={props.connected}>
           {props.connected ? "● live" : "○ offline"}

@@ -1,9 +1,22 @@
 import { QueryCache, QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { DigestResponse, InstallationResponse, PauseRequest, SessionResponse, TasksResponse } from "../../src/server/api-types.js";
+import type {
+  DigestResponse,
+  InstallationResponse,
+  PauseRequest,
+  SessionResponse,
+  SettingsRequest,
+  SettingsResponse,
+  SetupAccessResponse,
+  SetupSmokeResponse,
+  SetupStatus,
+  TasksResponse,
+} from "../../src/server/api-types.js";
 import { api, ApiError } from "./api.js";
 
 export const KEYS = {
   session: ["session"] as const,
+  setup: ["setup"] as const,
+  settings: ["settings"] as const,
   installation: ["installation"] as const,
   tasks: ["tasks"] as const,
   digest: (since: string) => ["digest", since] as const,
@@ -55,6 +68,52 @@ export function useLogout() {
       queryClient.setQueryData(KEYS.session, session);
       queryClient.removeQueries({ queryKey: KEYS.tasks });
       queryClient.removeQueries({ queryKey: KEYS.installation });
+    },
+  });
+}
+
+// The wizard status is public: it decides whether the login screen or the wizard shows first.
+export const useSetup = () => useQuery({ queryKey: KEYS.setup, queryFn: () => api<SetupStatus>("/api/setup"), staleTime: Infinity });
+
+// One mutation per wizard step; each answers with the status that follows it.
+export function useSetupStep<TVariables>(run: (variables: TVariables) => Promise<SetupStatus>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSuccess: (status) => {
+      queryClient.setQueryData(KEYS.setup, status);
+      // The password step logs the human in; the session query must learn that.
+      void queryClient.invalidateQueries({ queryKey: KEYS.session });
+    },
+  });
+}
+
+export const setupPassword = (password: string) => api<SetupStatus>("/api/setup/password", { method: "POST", json: { password } });
+export const setupRepository = (input: { repo: string; token: string }) => api<SetupStatus>("/api/setup/repository", { method: "POST", json: input });
+export const setupOauth = (token: string) => api<SetupStatus>("/api/setup/oauth", { method: "POST", json: { token } });
+export const setupClone = () => api<SetupStatus>("/api/setup/clone", { method: "POST", json: {} });
+
+export function useSetupCheck<TResponse extends { status: SetupStatus }>(path: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<TResponse>(path, { method: "POST", json: {} }),
+    onSuccess: (response) => queryClient.setQueryData(KEYS.setup, response.status),
+  });
+}
+
+export const useSetupAccessCheck = () => useSetupCheck<SetupAccessResponse>("/api/setup/access");
+export const useSetupSmokeCheck = () => useSetupCheck<SetupSmokeResponse>("/api/setup/smoke");
+
+export const useSettings = (enabled: boolean) => useQuery({ queryKey: KEYS.settings, queryFn: () => api<SettingsResponse>("/api/settings"), enabled });
+
+export function useSettingsUpdate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: SettingsRequest) => api<SettingsResponse>("/api/settings", { method: "PUT", json: patch }),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(KEYS.settings, settings);
+      void queryClient.invalidateQueries({ queryKey: KEYS.installation });
+      void queryClient.invalidateQueries({ queryKey: KEYS.tasks });
     },
   });
 }
