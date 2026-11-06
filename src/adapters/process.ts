@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import os from "node:os";
 import { promisify } from "node:util";
 import type { Pid } from "../ids.js";
@@ -54,5 +54,16 @@ export class NodeProcessPort implements ProcessPort {
 
   isRoot(): boolean {
     return typeof process.getuid === "function" && process.getuid() === 0;
+  }
+
+  // Own session and no shared stdio: the child survives this process and the stop of its service.
+  async spawnDetached(command: string, args: readonly string[]): Promise<Pid> {
+    const child = spawn(command, args, { detached: true, stdio: "ignore" });
+    const pid = await new Promise<Pid>((resolve, reject) => {
+      child.once("spawn", () => resolve(child.pid as Pid));
+      child.once("error", reject);
+    });
+    child.unref();
+    return pid;
   }
 }

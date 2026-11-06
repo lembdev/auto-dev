@@ -4,7 +4,8 @@ export { FakeDiskPort } from "./disk.js";
 export { FakeDriverPort, FakeAgentProcess } from "./driver.js";
 export { FakeGitHubPort } from "./github.js";
 export type { IssueSeed, MilestoneSeed, PullRequestSeed, CheckRunSeed, CommitStatusSeed, Reaction } from "./github.js";
-export { FakeProcessPort, type FakeProcessSpec, type SignalRecord } from "./process.js";
+export { FakeProcessPort, type FakeProcessSpec, type SignalRecord, type SpawnRecord } from "./process.js";
+export { FakeReleasesPort } from "./releases.js";
 export { FakeWorktreePort } from "./worktree.js";
 export { sdkMessages } from "./sdk-messages.js";
 
@@ -14,6 +15,7 @@ import { FakeDiskPort } from "./disk.js";
 import { FakeDriverPort } from "./driver.js";
 import { FakeGitHubPort } from "./github.js";
 import { FakeProcessPort } from "./process.js";
+import { FakeReleasesPort } from "./releases.js";
 import { FakeWorktreePort } from "./worktree.js";
 
 export type FakePorts = Ports & {
@@ -23,6 +25,7 @@ export type FakePorts = Ports & {
   clock: FakeClock;
   processes: FakeProcessPort;
   disk: FakeDiskPort;
+  releases: FakeReleasesPort;
 };
 
 // One set of fakes sharing a clock, ready to be handed to the Orchestrator and the server.
@@ -35,5 +38,6 @@ export function createFakePorts(): FakePorts {
     clock,
     processes: new FakeProcessPort(),
     disk: new FakeDiskPort(),
+    releases: new FakeReleasesPort(),
   };
 }

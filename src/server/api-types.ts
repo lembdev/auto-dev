@@ -4,11 +4,12 @@ import type { AgentRole, AgentState } from "../index/agents.js";
 import type { LimitSample } from "../index/limit-samples.js";
 import type { Task, TaskStage, Transition } from "../index/tasks.js";
 import type { InstallationSnapshot, PauseSource } from "../orchestrator/installation-state.js";
+import type { UpdatePhase, UpdateView } from "../orchestrator/update-coordinator.js";
 import type { RepositoryAccess, RepositoryPermission } from "../ports/github.js";
 import type { SettingsPatch, SettingsView } from "../setup/settings.js";
 import type { SetupStatus, SetupStepId } from "../setup/setup.js";
 
-export type { SetupStatus, SetupStepId, RepositoryAccess, RepositoryPermission };
+export type { SetupStatus, SetupStepId, RepositoryAccess, RepositoryPermission, UpdatePhase, UpdateView };
 
 // Bodies of the wizard steps.
 export type SetupPasswordRequest = { password: string };
@@ -105,6 +106,8 @@ export type InstallationResponse = InstallationSnapshot & {
   slots: { used: number; max: number };
   product: ProductView | null;
   version: string;
+  // The daily release check and the phase of an update under way.
+  update: UpdateView;
 };
 
 // Body of `PUT /api/installation/pause`: a human pauses or resumes the Installation.

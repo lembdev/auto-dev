@@ -17,9 +17,15 @@ export type SignalRecord = {
   delivered: boolean;
 };
 
+export type SpawnRecord = { command: string; args: string[]; pid: Pid };
+
 export class FakeProcessPort implements ProcessPort {
   readonly log = new CallLog();
   readonly signals: SignalRecord[] = [];
+  // Commands started detached, in order; nothing runs, the test reads what would have.
+  readonly spawned: SpawnRecord[] = [];
+  // Set to make the next detached start fail the way a missing binary does.
+  spawnFailure: Error | undefined;
   user = "auto-dev";
   root = false;
   private readonly _processes = new Map<Pid, FakeProcessSpec>();
@@ -66,6 +72,14 @@ export class FakeProcessPort implements ProcessPort {
 
   isRoot(): boolean {
     return this.root;
+  }
+
+  async spawnDetached(command: string, args: readonly string[]): Promise<Pid> {
+    this.log.record("spawnDetached", command, [...args]);
+    if (this.spawnFailure) throw this.spawnFailure;
+    const pid = (50_000 + this.spawned.length) as Pid;
+    this.spawned.push({ command, args: [...args], pid });
+    return pid;
   }
 
   private _info(spec: FakeProcessSpec): ProcessInfo {

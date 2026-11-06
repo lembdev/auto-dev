@@ -1,6 +1,7 @@
 import { upgradeWebSocket } from "@hono/node-server";
+import { timingSafeEqual } from "node:crypto";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { ConfigStore } from "../config-store.js";
 import type { AgentId } from "../ids.js";
 import type { HumanRequest } from "../index/human-requests.js";
@@ -8,6 +9,7 @@ import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Task, Transition } from "../index/tasks.js";
 import { LogBuffer, type Logger, type LogSource } from "../log.js";
 import { PAUSE_SOURCES, type PauseSource } from "../orchestrator/installation-state.js";
+import { UpdateInProgressError } from "../orchestrator/update-coordinator.js";
 import type { Orchestrator } from "../orchestrator/orchestrator.js";
 import type { Ports } from "../ports/index.js";
 import type { Settings } from "../setup/settings.js";
@@ -76,6 +78,8 @@ export type {
   StuckTaskView,
   TaskView,
   TasksResponse,
+  UpdatePhase,
+  UpdateView,
 } from "./api-types.js";
 
 export type AppDeps = {
@@ -83,7 +87,7 @@ export type AppDeps = {
   index: RuntimeIndex;
   log: Logger;
   version: string;
-  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests" | "reconcile">;
+  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests" | "reconcile" | "updates">;
   // Live configuration: the password hash and the Product come from here on every request.
   config: ConfigStore;
   setup: Setup;
@@ -93,6 +97,8 @@ export type AppDeps = {
   clientDir?: string;
   // Where `GET /api/logs` reads the journal tail from; an empty buffer when nothing is wired.
   logs?: LogSource;
+  // Bearer token of the updater on the same host (`<dataDir>/update.token`); it stands in for a session.
+  localToken?: string;
 };
 
 export const DEFAULT_PAUSE_REASON = "paused from the UI";
@@ -161,8 +167,17 @@ export function createApp(deps: AppDeps): App {
     }
   };
 
+  const hasLocalToken = (c: Context): boolean => {
+    const token = deps.localToken;
+    const header = c.req.header("authorization");
+    if (token === undefined || header === undefined || !header.startsWith("Bearer ")) return false;
+    const given = Buffer.from(header.slice("Bearer ".length));
+    const expected = Buffer.from(token);
+    return given.length === expected.length && timingSafeEqual(given, expected);
+  };
+
   app.use("*", hostCheck(deps.auth.allowedHosts));
-  app.use("/api/*", sessionCheck(sessions, deps.auth.allowedHosts, { isPublic: (c) => isPublicSetupRequest(c, passwordHash) }));
+  app.use("/api/*", sessionCheck(sessions, deps.auth.allowedHosts, { isPublic: (c) => isPublicSetupRequest(c, passwordHash) || hasLocalToken(c) }));
   app.use("/ws", sessionCheck(sessions, deps.auth.allowedHosts));
 
   app.get("/api/health", (c) => {
@@ -281,9 +296,28 @@ export function createApp(deps: AppDeps): App {
     slots: deps.orchestrator.slots(),
     product: product(),
     version: deps.version,
+    update: deps.orchestrator.updates.view(),
   });
 
   app.get("/api/installation", (c) => c.json(installationView()));
+
+  // "Обновить": the updater starts detached; the answer comes before it does anything.
+  app.post("/api/installation/update", async (c) => {
+    try {
+      await deps.orchestrator.updates.request();
+    } catch (error) {
+      if (error instanceof UpdateInProgressError) return c.json({ error: error.message, ...installationView() }, 409);
+      throw error;
+    }
+    return c.json(installationView(), 202);
+  });
+
+  // The updater, before it stops the service: Pause and the wait for the running Turns start here;
+  // `update.phase` in `GET /api/installation` turns `ready` when the service may be stopped.
+  app.post("/api/installation/prepare-update", (c) => {
+    deps.orchestrator.updates.prepare().catch((error: unknown) => deps.log.error({ err: error }, "update preparation failed"));
+    return c.json(installationView(), 202);
+  });
 
   // A human asks for another smoke query on the current `claude`, e.g. after fixing it by hand.
   app.post("/api/installation/claude/recheck", async (c) => {

@@ -11,6 +11,7 @@ import { SdkDriver } from "./driver.js";
 import { GitHubRestAdapter } from "./github.js";
 import { createSwitchablePort } from "./switchable.js";
 import { NodeProcessPort } from "./process.js";
+import { GitHubReleasesAdapter } from "./releases.js";
 import { statusLineSettings } from "./statusline.js";
 import { GitWorktreeAdapter } from "./worktree.js";
 
@@ -18,6 +19,7 @@ export { SystemClock } from "./clock.js";
 export { GitHubRestAdapter, GITHUB_API_VERSION, type GitHubRestOptions } from "./github.js";
 export { NodeProcessPort } from "./process.js";
 export { NodeDiskPort } from "./disk.js";
+export { GitHubReleasesAdapter, ReleasesError, RELEASES_REPO, versionOfTag, type GitHubReleasesOptions } from "./releases.js";
 export { statusLineSettings, statusLineWriterArgs, type StatusLineOptions } from "./statusline.js";
 export { SdkDriver, RootUserError, ClaudeNotFoundError, ProcessNotRunningError, findClaudeExecutable } from "./driver.js";
 export type { SdkDriverOptions } from "./driver.js";
@@ -81,6 +83,7 @@ export function createSystemPorts(options: SystemPortsOptions): SystemPorts {
     clock,
     processes,
     disk: new NodeDiskPort(),
+    releases: new GitHubReleasesAdapter({ userAgent: `auto-dev/${options.version}` }),
     githubFor,
   };
 }

@@ -21,4 +21,6 @@ export interface ProcessPort {
   isAlive(pid: Pid): Promise<boolean>;
   currentUser(): string;
   isRoot(): boolean;
+  // Starts a command that outlives this process (the updater): nothing is waited for, the pid comes back.
+  spawnDetached(command: string, args: readonly string[]): Promise<Pid>;
 }

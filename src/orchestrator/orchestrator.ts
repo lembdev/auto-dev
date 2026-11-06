@@ -24,6 +24,7 @@ import { QaStage } from "./qa.js";
 import { HUMAN_LABEL, READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
 import { Reconciler } from "./reconcile.js";
 import { Recovery } from "./recovery.js";
+import { UpdateCoordinator } from "./update-coordinator.js";
 import { Workspace, type Product } from "./workspace.js";
 
 export const DEFAULT_POLL_INTERVAL_MS = 15_000;
@@ -65,6 +66,8 @@ export type OrchestratorOptions = {
   // How long an Agent process outlives its Turn before the runner stops it.
   idleTimeoutMs?: number;
   onAskHuman?: AskHumanHandler;
+  // Version of the running code; the update check compares the latest release with it.
+  version?: string;
 };
 
 export type Slots = { used: number; max: number };
@@ -91,6 +94,7 @@ export class Orchestrator {
   private readonly _merge: MergeStage;
   private readonly _merger: Merger;
   private readonly _recovery: Recovery;
+  private readonly _updates: UpdateCoordinator;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
   private readonly _seenComments = new Map<CommentId, string>();
@@ -247,6 +251,22 @@ export class Orchestrator {
       onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
       rememberIssue: (issue) => this._issues.set(issue.number, issue),
     });
+    this._updates = new UpdateCoordinator({
+      index: this._index,
+      clock: this._ports.clock,
+      runner: this._agents,
+      recovery: this._recovery,
+      installation: this._installation,
+      releases: this._ports.releases,
+      processes: this._ports.processes,
+      log: this._log,
+      version: options.version ?? "0.0.0",
+    });
+  }
+
+  // Updating the Installation: the daily release check, the updater button and the preparation before a stop.
+  get updates(): UpdateCoordinator {
+    return this._updates;
   }
 
   // Restart safety: orphans, foreign processes, the index against GitHub, resumed and hung Agents.
@@ -432,9 +452,11 @@ export class Orchestrator {
       this._login = (await this._ports.github.getAuthenticatedUser()).login;
     }
     if (!this._bootstrapped) await this._bootstrap();
+    this._updates.start();
     await this._recovery.start();
     await this._recoverIntents();
     await this._installation.check();
+    await this._updates.checkRelease();
     await this._recovery.resumeInterrupted();
     await this._recovery.checkHangs();
     await this._pollIssues();
