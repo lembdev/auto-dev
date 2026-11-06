@@ -1,6 +1,6 @@
 {
   "name": "auto-dev",
-  "version": "0.0.0",
+  "version": "0.9.0",
   "private": true,
   "description": "Autonomous development installation on top of Claude Code: orchestrator, driver and web UI",
   "type": "module",
