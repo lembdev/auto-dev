@@ -98,7 +98,7 @@ describe("access to the API", () => {
     expect(await (await testApp.app.request("/api/session", { headers: { host: TEST_HOST } })).json()).toEqual({ authenticated: false, passwordSet: false });
     const response = await testApp.app.request("/api/login", json({ password: TEST_PASSWORD }));
     expect(response.status).toBe(503);
-    expect(((await response.json()) as { error: string }).error).toContain("AUTO_DEV_PASSWORD_HASH");
+    expect(((await response.json()) as { error: string }).error).toContain("first-run wizard");
   });
 
   it("accepts only LAN-safe or listed Host values", async () => {

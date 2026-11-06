@@ -1,6 +1,7 @@
 import { upgradeWebSocket } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import type { ConfigStore } from "../config-store.js";
 import type { AgentId } from "../ids.js";
 import type { HumanRequest } from "../index/human-requests.js";
 import type { RuntimeIndex } from "../index/runtime-index.js";
@@ -9,6 +10,8 @@ import { LogBuffer, type Logger, type LogSource } from "../log.js";
 import { PAUSE_SOURCES, type PauseSource } from "../orchestrator/installation-state.js";
 import type { Orchestrator } from "../orchestrator/orchestrator.js";
 import type { Ports } from "../ports/index.js";
+import type { Settings } from "../setup/settings.js";
+import type { Setup } from "../setup/setup.js";
 import type {
   AgentView,
   ClientMessage,
@@ -35,8 +38,9 @@ import {
   SessionCookies,
   setSessionCookie,
   verifyPassword,
-  type AuthOptions,
 } from "./auth.js";
+import { isPublicSetupRequest, registerSetupRoutes } from "./setup-routes.js";
+import { registerSettingsRoutes } from "./settings-routes.js";
 import { agentRoutes, agentView, currentAgentOf } from "./routes/agent.js";
 import { dialogueRoutes, parseDialogueFrame } from "./routes/dialogue.js";
 
@@ -67,6 +71,15 @@ export type {
   RequestView,
   ServerEvent,
   SessionResponse,
+  SettingsRequest,
+  SettingsResponse,
+  SetupAccessResponse,
+  SetupOauthRequest,
+  SetupPasswordRequest,
+  SetupRepositoryRequest,
+  SetupSmokeResponse,
+  SetupStatus,
+  SetupStepId,
   StatsResponse,
   StuckTaskView,
   TaskView,
@@ -79,10 +92,13 @@ export type AppDeps = {
   log: Logger;
   version: string;
   orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests" | "reconcile" | "dialogue">;
-  auth: AuthOptions;
+  // Live configuration: the password hash and the Product come from here on every request.
+  config: ConfigStore;
+  setup: Setup;
+  settings: Settings;
+  auth: { allowedHosts: readonly string[] };
   // Built client bundle; without it the server answers only the API.
   clientDir?: string;
-  product?: ProductView;
   // Where `GET /api/logs` reads the journal tail from; an empty buffer when nothing is wired.
   logs?: LogSource;
 };
@@ -138,6 +154,11 @@ export function createApp(deps: AppDeps): App {
   const bySocket = new WeakMap<object, Socket>();
   const startedAt = deps.ports.clock.now();
   const sessions = new SessionCookies(deps.index.installation, deps.ports.clock);
+  const passwordHash = (): string | undefined => deps.config.current().passwordHash;
+  const product = (): ProductView | null => {
+    const github = deps.config.current().github;
+    return github ? { fullName: `${github.owner}/${github.repo}`, htmlUrl: `https://github.com/${github.owner}/${github.repo}` } : null;
+  };
 
   app.broadcast = (event) => {
     const data = JSON.stringify(event);
@@ -151,7 +172,7 @@ export function createApp(deps: AppDeps): App {
   };
 
   app.use("*", hostCheck(deps.auth.allowedHosts));
-  app.use("/api/*", sessionCheck(sessions, deps.auth.allowedHosts));
+  app.use("/api/*", sessionCheck(sessions, deps.auth.allowedHosts, { isPublic: (c) => isPublicSetupRequest(c, passwordHash) }));
   app.use("/ws", sessionCheck(sessions, deps.auth.allowedHosts));
 
   app.get("/api/health", (c) => {
@@ -165,12 +186,13 @@ export function createApp(deps: AppDeps): App {
   });
 
   app.get("/api/session", (c) => {
-    const body: SessionResponse = { authenticated: hasSession(c, sessions), passwordSet: deps.auth.passwordHash !== undefined };
+    const body: SessionResponse = { authenticated: hasSession(c, sessions), passwordSet: passwordHash() !== undefined };
     return c.json(body);
   });
 
   app.post("/api/login", async (c) => {
-    if (deps.auth.passwordHash === undefined) return c.json({ error: "password is not set; put an argon2 hash into AUTO_DEV_PASSWORD_HASH" }, 503);
+    const hash = passwordHash();
+    if (hash === undefined) return c.json({ error: "password is not set; finish the first-run wizard" }, 503);
     let body: unknown;
     try {
       body = await c.req.json();
@@ -179,7 +201,7 @@ export function createApp(deps: AppDeps): App {
     }
     const password = typeof body === "object" && body !== null ? (body as Record<string, unknown>).password : undefined;
     if (typeof password !== "string") return c.json({ error: "body must be JSON with a string `password`" }, 400);
-    if (!(await verifyPassword(deps.auth.passwordHash, password))) {
+    if (!(await verifyPassword(hash, password))) {
       deps.log.warn({ ip: c.req.header("x-forwarded-for") ?? null }, "login rejected");
       return c.json({ error: "wrong password" }, 401);
     }
@@ -191,9 +213,12 @@ export function createApp(deps: AppDeps): App {
 
   app.post("/api/logout", (c) => {
     clearSessionCookie(c);
-    const response: SessionResponse = { authenticated: false, passwordSet: deps.auth.passwordHash !== undefined };
+    const response: SessionResponse = { authenticated: false, passwordSet: passwordHash() !== undefined };
     return c.json(response);
   });
+
+  registerSetupRoutes(app, { setup: deps.setup, sessions, passwordHash, log: deps.log });
+  registerSettingsRoutes(app, { settings: deps.settings });
 
   // Views
 
@@ -264,11 +289,17 @@ export function createApp(deps: AppDeps): App {
   const installationView = (): InstallationResponse => ({
     ...deps.orchestrator.installation.snapshot(),
     slots: deps.orchestrator.slots(),
-    product: deps.product ?? null,
+    product: product(),
     version: deps.version,
   });
 
   app.get("/api/installation", (c) => c.json(installationView()));
+
+  // A human asks for another smoke query on the current `claude`, e.g. after fixing it by hand.
+  app.post("/api/installation/claude/recheck", async (c) => {
+    await deps.orchestrator.installation.claudeVersion.recheck();
+    return c.json(installationView());
+  });
 
   app.route("/api/tasks", agentRoutes({ ports: deps.ports, index: deps.index, log: deps.log, orchestrator: deps.orchestrator }));
   app.route("/api/tasks", dialogueRoutes({ index: deps.index, log: deps.log, orchestrator: deps.orchestrator }));
@@ -434,6 +465,8 @@ export function createApp(deps: AppDeps): App {
   deps.index.installation.onChange((key) => {
     if (isUiInstallationKey(key)) app.broadcast({ type: "installation", installation: installationView() });
   });
+  // A stored repository changes the Product in the header.
+  deps.config.onChange(() => app.broadcast({ type: "installation", installation: installationView() }));
 
   if (deps.clientDir !== undefined) {
     const clientDir = deps.clientDir;

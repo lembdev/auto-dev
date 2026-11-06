@@ -1,5 +1,5 @@
 export type * from "./github.js";
-export { GitHubError, GitHubNotFoundError } from "./github.js";
+export { GitHubError, GitHubNotFoundError, REPOSITORY_PERMISSIONS, missingPermissions } from "./github.js";
 export type * from "./driver.js";
 export type * from "./worktree.js";
 export type * from "./clock.js";

@@ -170,6 +170,20 @@ export type MergeInput = {
 
 export type MergeResult = { merged: true; sha: string } | { merged: false; reason: string };
 
+// What the Installation needs from its fine-grained token on the Product repository.
+export type RepositoryPermission = "metadataRead" | "contentsWrite" | "issuesWrite" | "pullRequestsWrite";
+
+export const REPOSITORY_PERMISSIONS: readonly RepositoryPermission[] = ["metadataRead", "contentsWrite", "issuesWrite", "pullRequestsWrite"];
+
+export type RepositoryAccess = {
+  fullName: string;
+  defaultBranch: string | null;
+  permissions: Record<RepositoryPermission, boolean>;
+};
+
+export const missingPermissions = (access: RepositoryAccess): RepositoryPermission[] =>
+  REPOSITORY_PERMISSIONS.filter((permission) => !access.permissions[permission]);
+
 export class GitHubError extends Error {
   constructor(
     readonly status: number,
@@ -191,6 +205,8 @@ export class GitHubNotFoundError extends GitHubError {
 // Adapters talk REST; fakes keep the same state in memory.
 export interface GitHubPort {
   getAuthenticatedUser(): Promise<{ login: string }>;
+  // Whether the token reaches the repository with every permission the Orchestrator needs.
+  checkAccess(): Promise<RepositoryAccess>;
 
   // Repository-level polling endpoints: sorted by update time, with `since` and ETag support.
   pollIssues(query: PollQuery): Promise<PollResult<Issue>>;

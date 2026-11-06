@@ -1,0 +1,3 @@
+# The auto-dev user has no sudo beyond these two commands: the updater and its own journal.
+auto-dev ALL=(root) NOPASSWD: /usr/bin/update
+auto-dev ALL=(root) NOPASSWD: /usr/bin/journalctl -u auto-dev *

@@ -20,6 +20,7 @@ import {
   type PullRequestFilter,
   type PullRequestPatch,
   type ReactionContent,
+  type RepositoryAccess,
 } from "../ports/github.js";
 import { CallLog } from "./call-log.js";
 
@@ -49,6 +50,12 @@ export class FakeGitHubPort implements GitHubPort {
   login = "auto-dev-bot";
   humanLogin = "alice";
   repoUrl = DEFAULT_REPO_URL;
+  // What `checkAccess` reports; tests take permissions away to play a weak token.
+  access: RepositoryAccess = {
+    fullName: "example/product",
+    defaultBranch: "main",
+    permissions: { metadataRead: true, contentsWrite: true, issuesWrite: true, pullRequestsWrite: true },
+  };
   private _nextIssueId = 100_000;
   private _nextCommentId = 1;
   private _nextPullNumber = 1;
@@ -258,6 +265,11 @@ export class FakeGitHubPort implements GitHubPort {
   async getAuthenticatedUser(): Promise<{ login: string }> {
     this.log.record("getAuthenticatedUser");
     return { login: this.login };
+  }
+
+  async checkAccess(): Promise<RepositoryAccess> {
+    this.log.record("checkAccess");
+    return structuredClone(this.access);
   }
 
   async pollIssues(query: PollQuery): Promise<PollResult<Issue>> {

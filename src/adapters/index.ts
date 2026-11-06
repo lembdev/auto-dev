@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Config } from "../config.js";
+import type { ConfigStore } from "../config-store.js";
+import type { Config, GitHubConfig } from "../config.js";
 import type { Logger } from "../log.js";
 import type { GitHubPort, Ports } from "../ports/index.js";
 import { agentEnvSourceFrom } from "./agent-env.js";
@@ -8,7 +9,7 @@ import { SystemClock } from "./clock.js";
 import { NodeDiskPort } from "./disk.js";
 import { SdkDriver } from "./driver.js";
 import { GitHubRestAdapter } from "./github.js";
-import { notImplemented } from "./not-implemented.js";
+import { createSwitchablePort } from "./switchable.js";
 import { NodeProcessPort } from "./process.js";
 import { statusLineSettings } from "./statusline.js";
 import { GitWorktreeAdapter } from "./worktree.js";
@@ -24,6 +25,7 @@ export { buildAgentEnv, agentEnvSourceFrom, AGENT_ENV_KEYS, AgentEnvError } from
 export type { AgentEnvSource } from "./agent-env.js";
 export { ASK_HUMAN_TOOL_NAME, ASK_HUMAN_SERVER, ASK_HUMAN_TOOL } from "./ask-human.js";
 export { notImplemented, NotImplementedError } from "./not-implemented.js";
+export { createSwitchablePort, PortNotConfiguredError, type SwitchablePort } from "./switchable.js";
 export { GitWorktreeAdapter, GitError, parseWorktreeList, type GitWorktreeOptions } from "./worktree.js";
 
 // The ask_human server next to this module: compiled JS under dist/, the TypeScript source under tsx in dev mode.
@@ -38,33 +40,50 @@ export function askHumanServerArgs(): string[] {
 }
 
 export type SystemPortsOptions = {
-  config: Config;
+  config: ConfigStore;
   log: Logger;
   version: string;
   processes?: NodeProcessPort;
 };
 
-// Real adapters of the Installation. GitHub stays a placeholder until the first-run wizard has
-// stored a token and a repository.
-export function createSystemPorts(options: SystemPortsOptions): Ports {
+export type SystemPorts = Ports & {
+  // A GitHub adapter for a token and repository that are not stored yet: the wizard checks access with it.
+  githubFor(github: GitHubConfig): GitHubPort;
+};
+
+// Real adapters of the Installation. They read the live configuration: the GitHub adapter is rebuilt
+// when the token or the repository changes, the Driver picks the Agent environment up per launch.
+export function createSystemPorts(options: SystemPortsOptions): SystemPorts {
   const clock = new SystemClock();
   const processes = options.processes ?? new NodeProcessPort();
+  const current = (): Config => options.config.current();
+  const githubFor = (github: GitHubConfig): GitHubPort =>
+    new GitHubRestAdapter({ ...github, clock, userAgent: `auto-dev/${options.version}` });
   const driver = new SdkDriver({
-    envSource: agentEnvSourceFrom(options.config.values, { claudeConfigDir: options.config.claudeConfigDir }),
-    claudePath: options.config.claudePath,
+    envSource: () => agentEnvSourceFrom(current().values, { claudeConfigDir: current().claudeConfigDir }),
+    claudePath: current().claudePath,
     askHumanServerArgs: askHumanServerArgs(),
     isRoot: () => processes.isRoot(),
-    settings: statusLineSettings({ dataDir: options.config.dataDir }),
+    settings: statusLineSettings({ dataDir: current().dataDir }),
     log: options.log,
   });
+  const github = createSwitchablePort<GitHubPort>("GitHubPort");
+  const applyGitHub = (config: Config, previous?: Config) => {
+    if (previous && sameGitHub(config.github, previous.github)) return;
+    github.use(config.github ? githubFor(config.github) : undefined);
+  };
+  applyGitHub(current());
+  options.config.onChange(applyGitHub);
   return {
-    github: options.config.github
-      ? new GitHubRestAdapter({ ...options.config.github, clock, userAgent: `auto-dev/${options.version}` })
-      : notImplemented<GitHubPort>("GitHubPort"),
+    github: github.port,
     driver,
-    worktree: new GitWorktreeAdapter(options.config.github ? { token: options.config.github.token } : {}),
+    worktree: new GitWorktreeAdapter({ token: () => current().github?.token }),
     clock,
     processes,
     disk: new NodeDiskPort(),
+    githubFor,
   };
 }
+
+const sameGitHub = (a: GitHubConfig | undefined, b: GitHubConfig | undefined): boolean =>
+  a === b || (a !== undefined && b !== undefined && a.token === b.token && a.owner === b.owner && a.repo === b.repo);

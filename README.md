@@ -4,7 +4,53 @@
 одного Продукта, ведёт их через Конвейер Реализация -> QA -> Merge и показывает всё в веб-UI.
 Термины: `GLOSSARY.md`. Контракт трекера и триажные метки: `docs/agents/`.
 
-## Требования
+## Установка на Proxmox VE
+
+Одна команда в shell хоста Proxmox VE (от root) создаёт unprivileged LXC Debian 13 с Установкой:
+
+```
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/lembdev/auto-dev/main/ct/auto-dev.sh)"
+```
+
+Требования: Proxmox VE 8.0+ или 9.x, root-shell на хосте, доступ в интернет во время установки, публичный
+релиз `lembdev/auto-dev` на GitHub (скрипт ставит последний). Контейнер по умолчанию: 4 vCPU, 8 GB RAM,
+40 GB диска, DHCP; всё это меняется в диалоге «Advanced Install» ct-скрипта. Движок установщика: Proxmox VE
+Community Scripts (`community-scripts/core`, MIT), запинен в `ct/auto-dev.sh` по SHA; наши скрипты
+`ct/auto-dev.sh` и `install/auto-dev-install.sh` берутся из `main` этого репозитория.
+
+Что делает установщик внутри контейнера:
+
+- ставит git, `gh` (из GitHub Releases `cli/cli`), Node 22 LTS (NodeSource), `sudo`, `jq`;
+- создаёт пользователя `auto-dev` (без sudo, кроме NOPASSWD на `/usr/bin/update` и `journalctl -u auto-dev`,
+  плюс группа `systemd-journal` для чтения журнала из UI) и ставит ему `claude` native installer
+  (`https://claude.ai/install.sh`), который обновляет себя сам;
+- раскладка: `/opt/auto-dev/releases/<версия>` плюс симлинк `/opt/auto-dev/current` (код, владелец root),
+  `/var/lib/auto-dev` (`runtime.db`, клон Продукта `repo/`, `claude/` как `CLAUDE_CONFIG_DIR`; владелец `auto-dev`),
+  `/etc/auto-dev` (владелец `auto-dev`, файл `env` 0600 создаёт мастер первого запуска);
+- systemd unit `auto-dev.service` из `deploy/auto-dev.service` (User=auto-dev, Restart=always, логи в journald,
+  `Environment=` для путей; секреты процесс читает из `/etc/auto-dev/env` сам), включён и запущен, так что
+  Установка поднимается после перезагрузки контейнера; sudo-правила из `deploy/auto-dev.sudoers`;
+- `/usr/bin/update` (генерирует движок): в консоли контейнера `update` или с хоста `pct exec <ctid> -- update`
+  скачивает свежий ct-скрипт и выполняет его `update_script()`: останавливает сервис, кладёт новый релиз в
+  `releases/<версия>`, переключает `current`, обновляет unit и sudo-правила, запускает сервис. Прошлый релиз
+  остаётся на диске.
+
+После установки откройте `http://<ip контейнера>:8080`: первый вход показывает мастер первого запуска (см. ниже),
+после него Оркестратор начинает брать Задачи. Логи: `journalctl -u auto-dev -f`.
+
+## Релизы
+
+Версия приложения живёт в `package.json` и отдаётся в `GET /api/health`. Релиз: поднять версию, закоммитить,
+поставить тег `vX.Y.Z` (ровно `v` + версия из `package.json`) и запушить его. Workflow
+`.github/workflows/release.yml` по тегу делает `npm ci`, typecheck, build, test, собирает архив
+`auto-dev-X.Y.Z.tar.gz` (`scripts/package-release.sh`: `dist/`, `prompts/`, `deploy/`, `package.json`,
+`package-lock.json`, `README.md` и production `node_modules` через `npm ci --omit=dev --omit=optional`) и
+публикует GitHub Release с этим архивом; тег с суффиксом (`v1.2.0-rc1`) публикуется как pre-release, установщик
+берёт только релиз, помеченный latest. Архив не зависит от платформы сборки: argon2 несёт prebuilds для linux
+x64 и arm64 внутри пакета, а платформенные бинарники `claude` из optional-зависимостей Agent SDK не нужны, потому
+что Установка запускает системный `claude`. Локально: `npm run build && scripts/package-release.sh --out release`.
+
+## Требования (локальная разработка)
 
 - Node 22.13+ (используется `node:sqlite`), npm.
 - Подписка Claude Max: Оркестратор отказывается стартовать, если в окружении или в файле env
@@ -23,10 +69,26 @@ npm start         # node dist/main.js
 npm run password-hash -- <пароль>  # argon2-хеш для AUTO_DEV_PASSWORD_HASH
 ```
 
+## Первый запуск и Настройки
+
+Пока файла env нет или в нём не хватает секретов, UI на `:8080` показывает мастер первого запуска:
+пароль -> репозиторий и GitHub token -> проверка доступа -> OAuth-токен Claude (`claude setup-token`
+на машине человека) -> smoke-query -> клон Продукта -> готово. Каждый шаг сразу пишется в файл env
+(права 0600), мастер возобновляется с недоделанного шага после рестарта, а по завершении Оркестратор
+начинает опрос без ручного рестарта. API мастера: `GET /api/setup` (публичный статус) и
+`POST /api/setup/{password,repository,access,oauth,smoke,clone}` (до появления пароля публичны).
+
+Страница «Настройки» (`GET/PUT /api/settings`) меняет `max_parallel_tasks`, пре-арм и лимит Кругов
+(значения в `installation`, применяются с ближайшего цикла) и секреты: GitHub token (после проверки
+доступа), OAuth-токен (после smoke-query; Пауза из-за истёкшего токена снимается) и пароль. Смена
+секрета переписывает файл env, новые процессы получают новый env, живые Агенты гасятся по концу Хода
+и поднимаются через resume при следующем сообщении.
+
 ## Конфигурация
 
 Файл env (`KEY=VALUE`, путь из `AUTO_DEV_ENV_FILE`, по умолчанию `/etc/auto-dev/env`) читается первым,
-переменные процесса перекрывают его.
+переменные процесса перекрывают его. Мастер и Настройки переписывают файл сами; руками его править
+не обязательно.
 
 | Переменная          | По умолчанию          | Назначение                                   |
 | ------------------- | --------------------- | -------------------------------------------- |
@@ -34,15 +96,15 @@ npm run password-hash -- <пароль>  # argon2-хеш для AUTO_DEV_PASSWOR
 | `AUTO_DEV_DATA_DIR` | `/var/lib/auto-dev`   | данные: `runtime.db`, клон Продукта `repo/` (клонируется на старте, если его нет) |
 | `AUTO_DEV_HOST`     | `0.0.0.0`             | адрес HTTP-сервера                           |
 | `AUTO_DEV_PORT`     | `8080`                | порт HTTP-сервера (`0` = свободный)          |
-| `AUTO_DEV_PASSWORD_HASH` | не задан         | argon2-хеш пароля Установки (`npm run password-hash`); без него в UI не войти. В файле env брать в одинарные кавычки: значение содержит `$` |
+| `AUTO_DEV_PASSWORD_HASH` | не задан         | argon2-хеш пароля Установки; задаётся мастером первого запуска (или `npm run password-hash`), без него UI ведёт в мастер |
 | `AUTO_DEV_ALLOWED_HOSTS` | пусто            | дополнительные значения `Host` (через запятую, порт не важен) кроме встроенных безопасных: IP-литералы, `localhost`, имена без точки, `*.local` |
 | `LOG_LEVEL`         | `info`                | уровень pino: fatal, error, warn, info, debug, trace, silent |
 | `CLAUDE_CONFIG_DIR` | `<data dir>/claude`   | каталог Claude Code Установки: сессии Агентов, credentials  |
 | `AUTO_DEV_CLAUDE_PATH` | ищется в `PATH`    | путь к системному `claude`                   |
 | `CLAUDE_CODE_OAUTH_TOKEN` |                 | токен подписки из `claude setup-token`, уходит Агентам |
-| `GH_TOKEN`          |                       | токен GitHub, уходит Агентам для `gh`        |
+| `GH_TOKEN`          | = `GITHUB_TOKEN`      | токен GitHub, уходит Агентам для `gh`        |
 | `GITHUB_TOKEN`      | не задан              | fine-grained PAT Установки (Issues RW, Pull requests RW, Contents RW, Checks R, Commit statuses R, Metadata R) |
-| `GITHUB_REPO`       | не задан              | Продукт в виде `owner/name`; без него и токена Оркестратор не стартует и только отдаёт API |
+| `GITHUB_REPO`       | не задан              | Продукт в виде `owner/name`; без него и токена Оркестратор не стартует, UI ведёт в мастер |
 
 Настройки, которые меняются на ходу, лежат в таблице `installation` Рантайм-индекса:
 `max_parallel_tasks` (Слоты, по умолчанию 2), `max_qa_rounds` (лимит Кругов QA, по умолчанию 3), курсоры опроса
@@ -59,7 +121,8 @@ cookie `auto_dev_session` на 30 дней (HttpOnly, SameSite=Lax; подпис
 `localhost`, именем без точки, `*.local` или значением из `AUTO_DEV_ALLOWED_HOSTS`; иначе 403.
 
 API Режима разработки: `GET /api/tasks` (В работе с состоянием Агента и открытым Запросом, Готовые, Тупики),
-`GET /api/installation` и `PUT /api/installation/pause`, `GET /api/digest?since=<ISO>` («С прошлого визита»: Запросы,
+`GET /api/installation`, `PUT /api/installation/pause` и `POST /api/installation/claude/recheck`,
+`GET /api/digest?since=<ISO>` («С прошлого визита»: Запросы,
 завершённые Задачи и Тупики после `since`; отметку визита клиент хранит в localStorage). `GET /ws` шлёт события
 `transition`, `task`, `agent`, `request`, `installation` при изменениях индекса; клиент по ним перечитывает данные.
 
@@ -116,6 +179,15 @@ input mode на процесс Агента, системный `claude`, `bypas
 `src/agents/agent-runner.ts` ведёт процессы поверх порта и таблицу `agents`: работает во время Хода,
 idle после него до таймаута 10 мин (затем процесс гасится, Сессия жива), ждёт после отложенного
 `ask_human`, остановлен без процесса. Сообщения и смены состояния уходят подписчикам.
+
+Дрейф версии `claude` (`src/orchestrator/claude-version.ts`): last-known-good версия лежит в `installation`
+(`claude.last_known_good`); на каждом цикле опроса, до старта любого нового Агента, версия читается один раз и при
+смене делает один smoke-query под OAuth Установки. Успех записывает версию, провал (`claude.smoke_failure`)
+запрещает новых Агентов (`blocker: claude_version`), живые Сессии не трогает и отдаёт в `GET /api/installation`
+поле `claudeVersion` с ошибкой и командой отката `claude install <lastKnownGood>`; повтор только при новой смене
+версии, по `POST /api/installation/claude/recheck` или после smoke-query с новым токеном в Настройках. Отклонённый
+OAuth-токен (`api_retry` с `authentication_failed`) включает Паузу с источником `token`; баннер в шапке ведёт в
+Настройки, где новый токен снимает её.
 
 Ручной smoke под подпиской Max (вне CI, запускает настоящий `claude`):
 
@@ -220,4 +292,8 @@ npm run smoke:driver -- idle                       # AgentRunner гасит пр
   `index.html`.
 - `client/`: SPA Режима разработки (React, Vite, TanStack Query, Tailwind): вход, шапка с лимитами, Слотами и Паузой,
   «С прошлого визита», карточки В работе / Готовые / Тупики, заглушка панели Агента; обновление по WS плюс опрос.
-- `test/`: vitest, `test/helpers/test-app.ts` поднимает сервер на фейках.
+- `test/`: vitest, `test/helpers/test-app.ts` поднимает сервер на фейках; `test/installer/` проверяет скрипты
+  установщика (`bash -n`, shellcheck, если он есть в PATH), unit и sudo-правила из `deploy/` и состав архива релиза.
+- `ct/`, `install/`: Установщик в стиле Proxmox VE Community Scripts (ct-скрипт с `update_script()` и install-скрипт,
+  который исполняется внутри контейнера); `deploy/`: systemd unit и sudo-правила, попадают в архив релиза;
+  `scripts/package-release.sh`: сборка архива; `.github/workflows/release.yml`: публикация релиза по тегу.

@@ -4,6 +4,36 @@ import type { AgentRole, AgentState } from "../index/agents.js";
 import type { LimitSample } from "../index/limit-samples.js";
 import type { Task, TaskStage, Transition } from "../index/tasks.js";
 import type { InstallationSnapshot, PauseSource } from "../orchestrator/installation-state.js";
+import type { RepositoryAccess, RepositoryPermission } from "../ports/github.js";
+import type { SettingsPatch, SettingsView } from "../setup/settings.js";
+import type { SetupStatus, SetupStepId } from "../setup/setup.js";
+
+export type { SetupStatus, SetupStepId, RepositoryAccess, RepositoryPermission };
+
+// Bodies of the wizard steps.
+export type SetupPasswordRequest = { password: string };
+export type SetupRepositoryRequest = { repo: string; token: string };
+export type SetupOauthRequest = { token: string };
+
+// Result of the access check with the status that follows it.
+export type SetupAccessResponse = {
+  ok: boolean;
+  error: string | null;
+  access: RepositoryAccess | null;
+  missing: RepositoryPermission[];
+  status: SetupStatus;
+};
+
+export type SetupSmokeResponse = {
+  ok: boolean;
+  error: string | null;
+  claudeVersion: string | null;
+  model: string | null;
+  status: SetupStatus;
+};
+
+export type SettingsResponse = SettingsView;
+export type SettingsRequest = SettingsPatch;
 
 export type HealthResponse = {
   status: "ok";

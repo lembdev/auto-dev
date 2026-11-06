@@ -1,11 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrations } from "../src/index/migrations.js";
 
 const schemaVersion = migrations.at(-1)?.version;
+// The release archive and the installer take the version from package.json; health must report the same one.
+const packageVersion = (JSON.parse(readFileSync(path.resolve(import.meta.dirname, "..", "package.json"), "utf8")) as { version: string }).version;
 
 const root = path.resolve(import.meta.dirname, "..");
 const tsx = path.join(root, "node_modules", "tsx", "dist", "cli.mjs");
@@ -78,7 +80,7 @@ describe("auto-dev process", () => {
     expect(existsSync(path.join(dataDir, "runtime.db"))).toBe(true);
     const health = await fetch(`${url}/api/health`);
     expect(health.status).toBe(200);
-    expect(await health.json()).toMatchObject({ status: "ok", schemaVersion });
+    expect(await health.json()).toMatchObject({ status: "ok", schemaVersion, version: packageVersion });
 
     first.child.kill("SIGTERM");
     expect(await first.exited).toEqual({ code: 0, signal: null });
@@ -121,5 +123,50 @@ describe("auto-dev process", () => {
     expect((await started.exited).code).toBe(1);
     expect(started.stderr.join("")).toContain(`ANTHROPIC_API_KEY is set in ${envFile}`);
     expect(existsSync(path.join(dir, "runtime.db"))).toBe(false);
+  });
+});
+
+describe("first-run wizard in the real process", () => {
+  const dirs: string[] = [];
+  const running: Started[] = [];
+  afterEach(async () => {
+    for (const started of running.splice(0)) {
+      if (started.child.exitCode === null) started.child.kill("SIGKILL");
+      await started.exited;
+    }
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("creates the env file with mode 0600 on the password step and resumes from the next step after a restart", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "auto-dev-wizard-"));
+    dirs.push(dir);
+    const envFile = path.join(dir, "etc", "env");
+    const env = { AUTO_DEV_DATA_DIR: path.join(dir, "data"), AUTO_DEV_ENV_FILE: envFile, AUTO_DEV_PORT: "0", AUTO_DEV_HOST: "127.0.0.1" };
+
+    const first = start(env);
+    running.push(first);
+    const url = await waitForUrl(first);
+    expect(await (await fetch(`${url}/api/setup`)).json()).toMatchObject({ required: true, current: "password", passwordSet: false });
+    expect((await fetch(`${url}/api/tasks`)).status).toBe(401);
+    const password = await fetch(`${url}/api/setup/password`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: "first run" }) });
+    expect(password.status).toBe(200);
+    expect(await password.json()).toMatchObject({ current: "repository", passwordSet: true });
+    expect(password.headers.get("set-cookie")).toContain("auto_dev_session=");
+    expect(statSync(envFile).mode & 0o777).toBe(0o600);
+    expect(readFileSync(envFile, "utf8")).toMatch(/^AUTO_DEV_PASSWORD_HASH=\$argon2id\$/);
+    expect(logLines(first.stdout).find((entry) => entry.msg === "first-run setup is not finished; open the UI to continue it")).toMatchObject({ step: "password" });
+    first.child.kill("SIGTERM");
+    await first.exited;
+
+    const second = start(env);
+    running.push(second);
+    const secondUrl = await waitForUrl(second);
+    expect(await (await fetch(`${secondUrl}/api/setup`)).json()).toMatchObject({ required: true, current: "repository", passwordSet: true });
+    // the step routes are behind the login now
+    expect((await fetch(`${secondUrl}/api/setup/repository`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(401);
+    const login = await fetch(`${secondUrl}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: "first run" }) });
+    expect(login.status).toBe(200);
+    second.child.kill("SIGTERM");
+    await second.exited;
   });
 });

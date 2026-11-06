@@ -21,6 +21,7 @@ import {
   type PullRequestFilter,
   type PullRequestPatch,
   type ReactionContent,
+  type RepositoryAccess,
 } from "../ports/github.js";
 
 export const GITHUB_API_VERSION = "2026-03-10";
@@ -62,6 +63,7 @@ type Reply = {
 };
 
 type RawUser = { login: string };
+type RawRepository = { full_name: string; default_branch: string | null };
 type RawLabel = string | { name: string };
 type RawMilestone = {
   number: number;
@@ -269,6 +271,28 @@ export class GitHubRestAdapter implements GitHubPort {
     return { login: (reply.json as RawUser).login };
   }
 
+  // Metadata comes from the repository itself. Write permissions are probed with requests that fail
+  // validation before they change anything: GitHub answers 403 when the token lacks the permission
+  // and 404 or 422 when it has it. A repository the token cannot see at all comes back as 404.
+  async checkAccess(): Promise<RepositoryAccess> {
+    const fullName = `${this._owner}/${this._repo}`;
+    const repository = await this._request("GET", this._repoPath(""), { allow: [403, 404] });
+    if (repository.status === 403 || repository.status === 404) {
+      return { fullName, defaultBranch: null, permissions: { metadataRead: false, contentsWrite: false, issuesWrite: false, pullRequestsWrite: false } };
+    }
+    const raw = repository.json as RawRepository;
+    const [contentsWrite, issuesWrite, pullRequestsWrite] = await Promise.all([
+      this._probeWrite("POST", this._repoPath("/git/refs")),
+      this._probeWrite("PATCH", this._repoPath("/issues/0")),
+      this._probeWrite("PATCH", this._repoPath("/pulls/0")),
+    ]);
+    return {
+      fullName: raw.full_name ?? fullName,
+      defaultBranch: raw.default_branch ?? null,
+      permissions: { metadataRead: true, contentsWrite, issuesWrite, pullRequestsWrite },
+    };
+  }
+
   async pollIssues(query: PollQuery): Promise<PollResult<Issue>> {
     const result = await this._pollPages<RawIssue>(this._repoPath("/issues"), {
       state: "all",
@@ -469,6 +493,11 @@ export class GitHubRestAdapter implements GitHubPort {
   }
 
   // Internals
+
+  private async _probeWrite(method: string, path: string): Promise<boolean> {
+    const reply = await this._request(method, path, { body: {}, allow: [403, 404, 422] });
+    return reply.status !== 403;
+  }
 
   private _repoPath(suffix: string): string {
     return `/repos/${this._owner}/${this._repo}${suffix}`;

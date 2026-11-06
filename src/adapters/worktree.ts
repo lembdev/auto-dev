@@ -16,8 +16,9 @@ const execFileAsync = promisify(execFile);
 
 export type GitWorktreeOptions = {
   gitBinary?: string;
-  // Token for HTTPS remotes. It reaches git through the environment, never through the command line.
-  token?: string;
+  // Token for HTTPS remotes, or a getter when it can change while the Installation runs. It reaches
+  // git through the environment, never through the command line.
+  token?: string | (() => string | undefined);
   env?: NodeJS.ProcessEnv;
 };
 
@@ -38,19 +39,26 @@ type ExecError = NodeJS.ErrnoException & { stderr?: string; code?: number | stri
 // Git on the Product clone and its worktrees, through the `git` command line.
 export class GitWorktreeAdapter implements WorktreePort {
   private readonly _git: string;
-  private readonly _env: NodeJS.ProcessEnv;
+  private readonly _baseEnv: NodeJS.ProcessEnv;
+  private readonly _token: () => string | undefined;
 
   constructor(options: GitWorktreeOptions = {}) {
     this._git = options.gitBinary ?? "git";
-    this._env = { ...(options.env ?? process.env), GIT_TERMINAL_PROMPT: "0" };
-    if (options.token !== undefined) {
-      const basic = Buffer.from(`x-access-token:${options.token}`).toString("base64");
-      Object.assign(this._env, {
-        GIT_CONFIG_COUNT: "1",
-        GIT_CONFIG_KEY_0: "http.extraheader",
-        GIT_CONFIG_VALUE_0: `Authorization: Basic ${basic}`,
-      });
-    }
+    this._baseEnv = { ...(options.env ?? process.env), GIT_TERMINAL_PROMPT: "0" };
+    const token = options.token;
+    this._token = typeof token === "function" ? token : () => token;
+  }
+
+  private _env(): NodeJS.ProcessEnv {
+    const token = this._token();
+    if (token === undefined) return this._baseEnv;
+    const basic = Buffer.from(`x-access-token:${token}`).toString("base64");
+    return {
+      ...this._baseEnv,
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "http.extraheader",
+      GIT_CONFIG_VALUE_0: `Authorization: Basic ${basic}`,
+    };
   }
 
   async isRepository(target: string): Promise<boolean> {
@@ -140,7 +148,7 @@ export class GitWorktreeAdapter implements WorktreePort {
     try {
       const { stdout } = await execFileAsync(this._git, args, {
         ...(cwd === undefined ? {} : { cwd }),
-        env: this._env,
+        env: this._env(),
         maxBuffer: 16 * 1024 * 1024,
       });
       return stdout;

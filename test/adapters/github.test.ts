@@ -335,3 +335,47 @@ describe("GitHubRestAdapter", () => {
     expect(await github.listCommitStatuses("abc")).toEqual([]);
   });
 });
+
+describe("checkAccess", () => {
+  const repository = { full_name: "acme/product", default_branch: "main" };
+
+  it("reads the repository and probes the three write permissions without changing anything", async () => {
+    const { github, requests } = setup((request) => {
+      if (request.method === "GET") return { body: repository };
+      return { status: request.url.pathname.endsWith("/git/refs") ? 422 : 404, body: { message: "Not Found" } };
+    });
+    expect(await github.checkAccess()).toEqual({
+      fullName: "acme/product",
+      defaultBranch: "main",
+      permissions: { metadataRead: true, contentsWrite: true, issuesWrite: true, pullRequestsWrite: true },
+    });
+    expect(requests.map((request) => `${request.method} ${request.url.pathname}`).sort()).toEqual(
+      ["GET /repos/acme/product", "PATCH /repos/acme/product/issues/0", "PATCH /repos/acme/product/pulls/0", "POST /repos/acme/product/git/refs"].sort(),
+    );
+  });
+
+  it("reports the permissions the token lacks from 403 answers", async () => {
+    const { github } = setup((request) => {
+      if (request.method === "GET") return { body: repository };
+      if (request.url.pathname.endsWith("/pulls/0")) return { status: 403, body: { message: "Resource not accessible by personal access token" } };
+      if (request.url.pathname.endsWith("/git/refs")) return { status: 403, body: { message: "Resource not accessible by personal access token" } };
+      return { status: 404, body: { message: "Not Found" } };
+    });
+    expect((await github.checkAccess()).permissions).toEqual({ metadataRead: true, contentsWrite: false, issuesWrite: true, pullRequestsWrite: false });
+  });
+
+  it("reports no access at all when the repository is invisible to the token", async () => {
+    const { github, requests } = setup(() => ({ status: 404, body: { message: "Not Found" } }));
+    expect(await github.checkAccess()).toEqual({
+      fullName: "acme/product",
+      defaultBranch: null,
+      permissions: { metadataRead: false, contentsWrite: false, issuesWrite: false, pullRequestsWrite: false },
+    });
+    expect(requests).toHaveLength(1);
+  });
+
+  it("throws on bad credentials", async () => {
+    const { github } = setup(() => ({ status: 401, body: { message: "Bad credentials" } }));
+    await expect(github.checkAccess()).rejects.toBeInstanceOf(GitHubError);
+  });
+});

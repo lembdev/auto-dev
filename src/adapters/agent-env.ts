@@ -45,6 +45,8 @@ export function agentEnvSourceFrom(values: Readonly<Record<string, string | unde
     CLAUDE_CONFIG_DIR: values.CLAUDE_CONFIG_DIR ?? defaults.claudeConfigDir,
   };
   if (values.CLAUDE_CODE_OAUTH_TOKEN) source.CLAUDE_CODE_OAUTH_TOKEN = values.CLAUDE_CODE_OAUTH_TOKEN;
-  if (values.GH_TOKEN) source.GH_TOKEN = values.GH_TOKEN;
+  // The Installation stores its token as GITHUB_TOKEN; `gh` inside an Agent reads GH_TOKEN.
+  const githubToken = values.GH_TOKEN || values.GITHUB_TOKEN;
+  if (githubToken) source.GH_TOKEN = githubToken;
   return source;
 }

@@ -181,6 +181,7 @@ export class Orchestrator {
       index: this._index,
       clock: this._ports.clock,
       disk: this._ports.disk,
+      driver: this._ports.driver,
       runner: this._agents,
       log: this._log,
       dataDir: options.dataDir ?? DEFAULT_DATA_DIR,

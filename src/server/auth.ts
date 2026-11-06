@@ -14,8 +14,9 @@ export const SESSION_SECRET_KEY = "session.secret";
 export const PUBLIC_API_PATHS: readonly string[] = ["/api/health", "/api/login", "/api/session"];
 
 export type AuthOptions = {
-  // argon2 hash of the Installation password; undefined means nobody can log in yet.
-  passwordHash: string | undefined;
+  // argon2 hash of the Installation password, read on every request because the wizard and the
+  // Settings page change it while the server runs; undefined means nobody can log in yet.
+  passwordHash: () => string | undefined;
   // Extra `Host` values accepted besides the built-in safe ones.
   allowedHosts: readonly string[];
 };
@@ -117,8 +118,13 @@ export const hostCheck = (allowed: readonly string[]): MiddlewareHandler => asyn
   await next();
 };
 
-export const sessionCheck = (sessions: SessionCookies, allowedOrigins: readonly string[]): MiddlewareHandler => async (c, next) => {
-  if (PUBLIC_API_PATHS.includes(c.req.path)) return next();
+export type SessionCheckOptions = {
+  // Extra routes that work without a session, decided per request (the wizard before a password exists).
+  isPublic?: (c: Context) => boolean;
+};
+
+export const sessionCheck = (sessions: SessionCookies, allowedOrigins: readonly string[], options: SessionCheckOptions = {}): MiddlewareHandler => async (c, next) => {
+  if (PUBLIC_API_PATHS.includes(c.req.path) || options.isPublic?.(c)) return next();
   if (c.req.header("upgrade")?.toLowerCase() === "websocket" && !isAllowedOrigin(c.req.header("origin"), allowedOrigins)) {
     return c.json({ error: "forbidden origin" }, 403);
   }

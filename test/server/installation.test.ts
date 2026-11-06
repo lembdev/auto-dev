@@ -30,6 +30,7 @@ describe("/api/installation", () => {
       limits: { fiveHour: null, sevenDay: null },
       prearm: { enabled: true, thresholdPercent: 95, active: false },
       disk: null,
+      claudeVersion: { current: null, lastKnownGood: null, status: "ok", error: null, rollbackCommand: null, checkedAt: null },
       blocker: null,
       canStartTurn: true,
       slots: { used: 0, max: 2 },
@@ -62,6 +63,36 @@ describe("/api/installation", () => {
     expect((await put("not json")).status).toBe(400);
     expect((await put({ paused: true, source: "alien" })).status).toBe(400);
     expect(await get()).toMatchObject({ paused: false });
+  });
+
+  it("shows a failed claude update with the rollback command and runs another smoke query on POST", async () => {
+    testApp = createTestApp();
+    await testApp.orchestrator.pollOnce();
+    testApp.ports.driver.claudeVersion = "2.2.0";
+    testApp.ports.driver.scriptSmokeQuery({ ok: false, error: "Claude Code process exited with code 1" });
+    await testApp.orchestrator.pollOnce();
+    const checkedAt = new Date(testApp.ports.clock.now()).toISOString();
+    expect(await get()).toMatchObject({
+      blocker: "claude_version",
+      canStartTurn: false,
+      claudeVersion: {
+        current: "2.2.0",
+        lastKnownGood: "2.1.318",
+        status: "failed",
+        error: "Claude Code process exited with code 1",
+        rollbackCommand: "claude install 2.1.318",
+        checkedAt,
+      },
+    });
+
+    const rechecked = await testApp.request("/api/installation/claude/recheck", { method: "POST" });
+    expect(rechecked.status).toBe(200);
+    expect(testApp.ports.driver.smokeQueries).toHaveLength(2);
+    expect((await rechecked.json()) as InstallationResponse).toMatchObject({
+      blocker: null,
+      canStartTurn: true,
+      claudeVersion: { current: "2.2.0", lastKnownGood: "2.2.0", status: "ok", error: null, rollbackCommand: null },
+    });
   });
 
   it("shows the limits, the wall and the disk after a poll", async () => {

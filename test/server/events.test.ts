@@ -95,5 +95,14 @@ describe("WebSocket events of the index", () => {
     );
     await testApp.orchestrator.pollOnce();
     expect(await until(ws, "installation")).toMatchObject({ type: "installation", installation: { limits: { fiveHour: { usedPercent: 61 } } } });
+
+    testApp.ports.driver.claudeVersion = "2.2.0";
+    testApp.ports.driver.scriptSmokeQuery({ ok: false, error: "boom" });
+    await testApp.orchestrator.pollOnce();
+    // The first poll already announced the version it recorded; the failure comes after it.
+    let announced: Record<string, unknown>;
+    do announced = (await until(ws, "installation")).installation as Record<string, unknown>;
+    while (announced.blocker !== "claude_version");
+    expect(announced).toMatchObject({ blocker: "claude_version", claudeVersion: { status: "failed", rollbackCommand: "claude install 2.1.318" } });
   });
 });
