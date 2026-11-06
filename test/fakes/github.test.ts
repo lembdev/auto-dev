@@ -97,6 +97,11 @@ describe("FakeGitHubPort", () => {
 
   it("creates, updates and squash-merges pull requests", async () => {
     const { github } = setup();
+    // GitHub answers 422 for a head that was never pushed or has no commit past the base.
+    await expect(github.createPullRequest({ title: "WIP: feat: x", body: "", head: "worktree-issue-1", base: "main" })).rejects.toMatchObject({ status: 422 });
+    github.recordPush("worktree-issue-1", 0);
+    await expect(github.createPullRequest({ title: "WIP: feat: x", body: "", head: "worktree-issue-1", base: "main" })).rejects.toThrow("No commits between");
+    github.recordPush("worktree-issue-1", 1);
     const pull = await github.createPullRequest({ title: "WIP: feat: x", body: "Closes #1", head: "worktree-issue-1", base: "main" });
     expect(pull).toMatchObject({ number: 1, state: "open", merged: false, mergeable: true, head: { ref: "worktree-issue-1" } });
     await expect(

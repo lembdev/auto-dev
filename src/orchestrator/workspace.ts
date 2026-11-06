@@ -22,6 +22,9 @@ export const branchName = (name: string): string => `worktree-${name}`;
 
 export const worktreePath = (repoPath: string, name: string): string => path.join(repoPath, WORKTREES_DIR, name);
 
+// The empty commit that lets GitHub open the pull request before the Implementer has committed anything.
+export const startCommitMessage = (title: string): string => `chore: start work on ${title.replace(/\s+/g, " ").trim()}`;
+
 export const pullRequestBody = (issueNumber: IssueNumber): string => `Closes #${issueNumber}\n\n${AUTO_DEV_MARKER}`;
 
 export type Product = {
@@ -99,6 +102,8 @@ export class Workspace {
 
   private async _prepare(issueNumber: IssueNumber, payload: PrepareWorkspacePayload): Promise<PrepareWorkspaceResult> {
     await this._createWorktree(issueNumber, payload);
+    const committed = await this._worktree.ensureCommitAhead({ cwd: payload.path, base: `origin/${payload.base}`, message: startCommitMessage(payload.title) });
+    if (committed) this._log.info({ issue: issueNumber, branch: payload.branch }, "start commit made");
     await this._worktree.push({ cwd: payload.path, branch: payload.branch });
     return this._openPullRequest(issueNumber, payload);
   }

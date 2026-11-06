@@ -6,6 +6,7 @@ import type {
   BranchInput,
   CheckoutInput,
   CloneInput,
+  CommitAheadInput,
   PushInput,
   RepoRef,
   WorktreeInfo,
@@ -119,6 +120,14 @@ export class GitWorktreeAdapter implements WorktreePort {
     await this._run(["branch", "-D", "--", input.branch], input.repoPath);
   }
 
+  async ensureCommitAhead(input: CommitAheadInput): Promise<boolean> {
+    const ahead = Number((await this._run(["rev-list", "--count", `${input.base}..HEAD`], input.cwd)).trim());
+    if (ahead > 0) return false;
+    // An empty commit runs no code: the Product's commit hooks have nothing to check.
+    await this._run([...(await this._identity(input.cwd)), "commit", "--allow-empty", "--no-verify", "-m", input.message], input.cwd);
+    return true;
+  }
+
   async push(input: PushInput): Promise<void> {
     const args = ["push", "--set-upstream"];
     if (input.force) args.push("--force-with-lease");
@@ -130,6 +139,21 @@ export class GitWorktreeAdapter implements WorktreePort {
     // `--end-of-options` keeps a ref that looks like a flag from being read as one; `--` would make it a path.
     const args = input.base === undefined ? ["checkout", "--end-of-options", input.branch] : ["checkout", "-B", input.branch, "--end-of-options", input.base];
     await this._run(args, input.repoPath);
+  }
+
+  // The configured author when there is one; a fresh VM may have none, and git refuses to commit then.
+  private async _identity(cwd: string): Promise<string[]> {
+    const fallback: Record<string, string> = { "user.name": "auto-dev", "user.email": "auto-dev@localhost" };
+    const args: string[] = [];
+    for (const [key, value] of Object.entries(fallback)) {
+      try {
+        if ((await this._run(["config", "--get", key], cwd)).trim() !== "") continue;
+      } catch (error) {
+        if (!(error instanceof GitError)) throw error;
+      }
+      args.push("-c", `${key}=${value}`);
+    }
+    return args;
   }
 
   // Worktrees live inside the clone (`claude --worktree` layout); git must not report them as untracked.

@@ -90,6 +90,21 @@ describe("GitWorktreeAdapter", () => {
     expect(await adapter.listBranches({ repoPath: repo })).toEqual(["main"]);
   });
 
+  it("makes one empty commit on a fresh branch so the pull request can open, and none once the branch is ahead", async () => {
+    await adapter.clone({ url: origin, path: repo });
+    // A fresh VM has no git identity; the adapter falls back to its own.
+    adapter = new GitWorktreeAdapter({ env: { ...env, GIT_AUTHOR_NAME: undefined, GIT_AUTHOR_EMAIL: undefined, GIT_COMMITTER_NAME: undefined, GIT_COMMITTER_EMAIL: undefined, EMAIL: undefined } });
+    const worktree = path.join(repo, ".claude", "worktrees", "issue-2");
+    await adapter.addWorktree({ repoPath: repo, path: worktree, branch: "worktree-issue-2", base: "origin/main" });
+
+    const input = { cwd: worktree, base: "origin/main", message: "chore: start work on Add login" };
+    expect(await adapter.ensureCommitAhead(input)).toBe(true);
+    expect(await adapter.ensureCommitAhead(input)).toBe(false);
+    expect(await git(["log", "--format=%s", "origin/main..HEAD"], worktree)).toBe("chore: start work on Add login");
+    expect(await git(["log", "-1", "--format=%an <%ae>"], worktree)).toBe("auto-dev <auto-dev@localhost>");
+    expect(await git(["diff", "--stat", "origin/main", "HEAD"], worktree)).toBe("");
+  });
+
   it("puts the clone itself on main at origin/main after it stood on another branch", async () => {
     await adapter.clone({ url: origin, path: repo });
     await git(["checkout", "-q", "-b", "elsewhere"], repo);

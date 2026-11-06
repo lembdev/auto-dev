@@ -31,10 +31,13 @@ export type FakePorts = Ports & {
 // One set of fakes sharing a clock, ready to be handed to the Orchestrator and the server.
 export function createFakePorts(): FakePorts {
   const clock = new FakeClock();
+  const github = new FakeGitHubPort({ now: () => clock.now() });
+  const worktree = new FakeWorktreePort();
+  worktree.onPush = (branch, commitsAhead) => github.recordPush(branch, commitsAhead);
   return {
-    github: new FakeGitHubPort({ now: () => clock.now() }),
+    github,
     driver: new FakeDriverPort(),
-    worktree: new FakeWorktreePort(),
+    worktree,
     clock,
     processes: new FakeProcessPort(),
     disk: new FakeDiskPort(),

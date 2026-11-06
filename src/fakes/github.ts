@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { CommentId, IssueId, IssueNumber, MilestoneNumber, PullNumber } from "../ids.js";
 import {
+  GitHubError,
   GitHubNotFoundError,
   type CheckRun,
   type CommitStatus,
@@ -47,6 +48,8 @@ export class FakeGitHubPort implements GitHubPort {
   readonly log = new CallLog();
   readonly reactions: Reaction[] = [];
   readonly deletedBranches: string[] = [];
+  // Pushed branches with the commits they carry past the base; a pull request needs at least one.
+  private readonly _pushedBranches = new Map<string, number>();
   login = "auto-dev-bot";
   humanLogin = "alice";
   repoUrl = DEFAULT_REPO_URL;
@@ -386,8 +389,15 @@ export class FakeGitHubPort implements GitHubPort {
     return clone(milestone);
   }
 
+  // A push reached the remote branch; GitHub sees `commitsAhead` commits past the base.
+  recordPush(branch: string, commitsAhead: number): void {
+    this._pushedBranches.set(branch, commitsAhead);
+  }
+
   async createPullRequest(input: CreatePullRequestInput): Promise<PullRequest> {
     this.log.record("createPullRequest", input);
+    // GitHub answers 422 for a head that is missing or has nothing past the base.
+    if ((this._pushedBranches.get(input.head) ?? 0) === 0) throw new GitHubError(422, `No commits between ${input.base} and ${input.head}`);
     const duplicate = [...this._pulls.values()].find((pull) => pull.state === "open" && pull.head.ref === input.head);
     if (duplicate) throw new Error(`a pull request already exists for ${input.head}`);
     return clone(

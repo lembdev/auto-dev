@@ -40,6 +40,10 @@ describe("workspace of a taken Task", () => {
       { repoPath: REPO, path, branch: "worktree-issue-42", base: "origin/main" },
     ]);
     expect(worktree.worktrees(REPO)).toEqual([{ path, branch: "worktree-issue-42", head: "sha-worktree-issue-42" }]);
+    expect(worktree.log.of("ensureCommitAhead").map((call) => call.args[0])).toEqual([
+      { cwd: path, base: "origin/main", message: "chore: start work on Add login" },
+    ]);
+    expect(worktree.commitsAhead(path)).toBe(1);
     expect(worktree.pushes).toEqual([{ cwd: path, branch: "worktree-issue-42" }]);
     expect(github.calls.filter((call) => call.method === "createPullRequest")).toEqual([
       {
@@ -211,6 +215,7 @@ describe("workspace of a taken Task", () => {
 
     expect(worktree.log.of("addWorktree")).toHaveLength(1);
     expect(worktree.worktrees(REPO)).toHaveLength(1);
+    expect(worktree.commitsAhead(`${REPO}/.claude/worktrees/issue-6`)).toBe(1);
     expect(worktree.pushes).toEqual([{ cwd: `${REPO}/.claude/worktrees/issue-6`, branch: "worktree-issue-6" }]);
     expect(second.index.tasks.get(6 as IssueNumber)).toMatchObject({
       branch: "worktree-issue-6",
@@ -218,6 +223,29 @@ describe("workspace of a taken Task", () => {
       pullNumber: 1,
     });
     expect(second.index.intents.listPending()).toEqual([]);
+  });
+
+  it("makes the start commit once: a crash after it and before the push neither repeats it nor loses it", async () => {
+    const first = scenario();
+    const { worktree, github } = first.ports;
+    github.seedIssue({ number: 9, title: "Add logout", labels: ["ready-for-agent"] });
+    const originalPush = worktree.push.bind(worktree);
+    worktree.push = async () => {
+      throw new Error("process died");
+    };
+    await first.orchestrator.pollOnce();
+    const path = `${REPO}/.claude/worktrees/issue-9`;
+    expect(worktree.commitsAhead(path)).toBe(1);
+    first.orchestrator.stop();
+
+    worktree.push = originalPush;
+    const second = scenario({ index: first.index, ports: first.ports });
+    open.push(second);
+    await second.orchestrator.pollOnce();
+
+    expect(worktree.commitsAhead(path)).toBe(1);
+    expect(worktree.log.of("ensureCommitAhead")).toHaveLength(2);
+    expect(second.index.tasks.get(9 as IssueNumber)).toMatchObject({ stage: "implement", pullNumber: 1 });
   });
 
   it("keeps the Task taken and retries the pending intent on the next cycle when git fails", async () => {

@@ -30,6 +30,15 @@ export type CheckoutInput = BranchInput & {
   base?: string;
 };
 
+export type CommitAheadInput = {
+  // The worktree whose branch must carry a commit of its own.
+  cwd: string;
+  // Ref the branch started from, e.g. `origin/main`.
+  base: string;
+  // One line of the empty commit made when the branch has no commit past `base`.
+  message: string;
+};
+
 export type PushInput = {
   // Working directory of the push: a worktree or the main clone.
   cwd: string;
@@ -48,6 +57,9 @@ export interface WorktreePort {
   listWorktrees(input: RepoRef): Promise<WorktreeInfo[]>;
   listBranches(input: RepoRef): Promise<string[]>;
   deleteBranch(input: BranchInput): Promise<void>;
+  // GitHub refuses a pull request whose head has no commit past the base: an empty commit is made when
+  // the branch has none yet. Idempotent; true when a commit was made.
+  ensureCommitAhead(input: CommitAheadInput): Promise<boolean>;
   push(input: PushInput): Promise<void>;
   // Switches the clone itself to `branch`; the Planner reads the Product from there.
   checkout(input: CheckoutInput): Promise<void>;
