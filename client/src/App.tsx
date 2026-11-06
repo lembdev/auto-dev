@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Dashboard } from "./components/Dashboard.js";
-import { Header, type Mode } from "./components/Header.js";
+import { Header, type Mode, type Page } from "./components/Header.js";
 import { LoginScreen } from "./components/LoginScreen.js";
 import { PlanningStub } from "./components/PlanningStub.js";
+import { StatsPage } from "./components/Stats.js";
 import { useServerEvents } from "./events.js";
 import { useInstallation, useLogout, usePauseToggle, useSession } from "./queries.js";
 
@@ -24,6 +25,7 @@ export function App() {
   const pause = usePauseToggle();
   const logout = useLogout();
   const [mode, setMode] = useState<Mode>("development");
+  const [page, setPage] = useState<Page>("main");
   const now = useNow();
 
   if (session.isPending) return <main className="p-6 text-neutral-500">Загрузка…</main>;
@@ -42,13 +44,15 @@ export function App() {
         installation={installation.data}
         mode={mode}
         onMode={setMode}
+        page={page}
+        onPage={setPage}
         onPause={(paused) => pause.mutate({ paused })}
         pausePending={pause.isPending}
         connected={connected}
         now={now}
         onLogout={() => logout.mutate()}
       />
-      {mode === "development" ? <Dashboard now={now} /> : <PlanningStub />}
+      {page === "stats" ? <StatsPage now={now} /> : mode === "development" ? <Dashboard now={now} /> : <PlanningStub />}
     </>
   );
 }

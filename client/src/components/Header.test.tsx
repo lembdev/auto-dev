@@ -24,7 +24,7 @@ const installation = (overrides: Partial<InstallationResponse> = {}): Installati
 });
 
 const renderHeader = (view: InstallationResponse | undefined, onPause = vi.fn()) =>
-  render(<Header installation={view} mode="development" onMode={vi.fn()} onPause={onPause} pausePending={false} connected now={NOW} onLogout={vi.fn()} />);
+  render(<Header installation={view} mode="development" onMode={vi.fn()} page="main" onPage={vi.fn()} onPause={onPause} pausePending={false} connected now={NOW} onLogout={vi.fn()} />);
 
 describe("Header", () => {
   it("shows the Product, both limits with their reset time and level, and the Slots", () => {
@@ -50,7 +50,7 @@ describe("Header", () => {
   it("toggles the Pause and explains it in a banner", () => {
     const onPause = vi.fn();
     const { rerender } = render(
-      <Header installation={installation()} mode="development" onMode={vi.fn()} onPause={onPause} pausePending={false} connected now={NOW} onLogout={vi.fn()} />,
+      <Header installation={installation()} mode="development" onMode={vi.fn()} page="main" onPage={vi.fn()} onPause={onPause} pausePending={false} connected now={NOW} onLogout={vi.fn()} />,
     );
     const toggle = screen.getByRole("switch", { name: "Пауза" });
     expect(toggle).toHaveAttribute("aria-checked", "false");
@@ -62,6 +62,8 @@ describe("Header", () => {
         installation={installation({ paused: true, pause: { source: "human", reason: "paused from the UI", since: "2026-01-01T11:00:00.000Z" }, blocker: "paused", canStartTurn: false })}
         mode="development"
         onMode={vi.fn()}
+        page="main"
+        onPage={vi.fn()}
         onPause={onPause}
         pausePending={false}
         connected
@@ -73,5 +75,18 @@ describe("Header", () => {
     expect(screen.getByRole("status")).toHaveTextContent("включена человеком: paused from the UI");
     fireEvent.click(screen.getByRole("switch", { name: "Пауза: вкл" }));
     expect(onPause).toHaveBeenLastCalledWith(false);
+  });
+
+  it("opens the statistics page from the header and marks it current", () => {
+    const onPage = vi.fn();
+    const { rerender } = render(
+      <Header installation={installation()} mode="development" onMode={vi.fn()} page="main" onPage={onPage} onPause={vi.fn()} pausePending={false} connected now={NOW} onLogout={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Статистика" }));
+    expect(onPage).toHaveBeenCalledWith("stats");
+    rerender(
+      <Header installation={installation()} mode="development" onMode={vi.fn()} page="stats" onPage={onPage} onPause={vi.fn()} pausePending={false} connected now={NOW} onLogout={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: "Статистика" })).toHaveAttribute("aria-current", "page");
   });
 });

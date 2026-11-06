@@ -1,5 +1,15 @@
 import { QueryCache, QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { DigestResponse, InstallationResponse, PauseRequest, SessionResponse, TasksResponse } from "../../src/server/api-types.js";
+import type {
+  DigestResponse,
+  InstallationResponse,
+  LimitHistoryResponse,
+  LogsResponse,
+  PauseRequest,
+  SessionResponse,
+  StatsPeriodDays,
+  StatsResponse,
+  TasksResponse,
+} from "../../src/server/api-types.js";
 import { api, ApiError } from "./api.js";
 
 export const KEYS = {
@@ -7,6 +17,9 @@ export const KEYS = {
   installation: ["installation"] as const,
   tasks: ["tasks"] as const,
   digest: (since: string) => ["digest", since] as const,
+  stats: (days: StatsPeriodDays) => ["stats", days] as const,
+  limitHistory: (days: StatsPeriodDays) => ["stats", "limits", days] as const,
+  logs: ["logs"] as const,
 };
 
 // A 401 from any query means the session is gone: the login screen takes over without a reload.
@@ -38,6 +51,15 @@ export const useDigest = (since: string | null) =>
     queryFn: () => api<DigestResponse>(`/api/digest?since=${encodeURIComponent(since ?? "")}`),
     enabled: since !== null,
   });
+
+export const useStats = (days: StatsPeriodDays, enabled = true) =>
+  useQuery({ queryKey: KEYS.stats(days), queryFn: () => api<StatsResponse>(`/api/stats?days=${days}`), enabled, refetchInterval: 60_000 });
+
+export const useLimitHistory = (days: StatsPeriodDays, enabled = true) =>
+  useQuery({ queryKey: KEYS.limitHistory(days), queryFn: () => api<LimitHistoryResponse>(`/api/stats/limits?days=${days}`), enabled, refetchInterval: 60_000 });
+
+export const useLogs = (enabled = true) =>
+  useQuery({ queryKey: KEYS.logs, queryFn: () => api<LogsResponse>("/api/logs?lines=500"), enabled, refetchInterval: 15_000 });
 
 export function useLogin() {
   const queryClient = useQueryClient();
