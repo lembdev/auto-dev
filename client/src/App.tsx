@@ -7,7 +7,7 @@ import { SettingsPage } from "./components/SettingsPage.js";
 import { SetupScreen } from "./components/SetupScreen.js";
 import { StatsPage } from "./components/Stats.js";
 import { useServerEvents } from "./events.js";
-import { useClaudeRecheck, useInstallation, useLogout, usePauseToggle, useSession, useSetup } from "./queries.js";
+import { useClaudeRecheck, useInstallation, useLogout, usePauseToggle, useSession, useSetup, useStartUpdate } from "./queries.js";
 
 // "Time since" on the cards moves once a minute; everything else moves on events.
 function useNow(intervalMs = 60_000): number {
@@ -28,6 +28,7 @@ export function App() {
   const connected = useServerEvents(authenticated);
   const pause = usePauseToggle();
   const recheck = useClaudeRecheck();
+  const startUpdate = useStartUpdate();
   const logout = useLogout();
   const [mode, setMode] = useState<Mode>("development");
   const [page, setPage] = useState<Page>("main");
@@ -63,6 +64,9 @@ export function App() {
         pausePending={pause.isPending}
         onRecheck={() => recheck.mutate()}
         recheckPending={recheck.isPending}
+        onUpdate={() => startUpdate.mutate()}
+        updatePending={startUpdate.isPending}
+        updateError={startUpdate.error?.message}
         connected={connected}
         now={now}
         onLogout={() => logout.mutate()}

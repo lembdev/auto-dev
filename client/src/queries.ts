@@ -157,6 +157,15 @@ export function useClaudeRecheck() {
   });
 }
 
+// "Обновить": the server starts the updater and answers at once; the phase then follows in the installation view.
+export function useStartUpdate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<InstallationResponse>("/api/installation/update", { method: "POST" }),
+    onSuccess: (installation) => queryClient.setQueryData(KEYS.installation, installation),
+  });
+}
+
 export const fetchAgentHistory = (issueNumber: number) => api<AgentHistoryResponse>(`/api/tasks/${issueNumber}/agent/history`);
 
 // "Остановить ход": the Turn is interrupted, the Session stays; the card follows the `agent` event.

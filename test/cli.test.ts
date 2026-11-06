@@ -70,11 +70,11 @@ describe("updater commands of main.js", () => {
       apps.push(testApp);
       return testApp;
     };
-    const through = (testApp: TestApp): CliDeps["fetch"] => (url, init) => {
+    const through = (testApp: TestApp): NonNullable<CliDeps["fetch"]> => (url, init) => {
       const { pathname, host } = new URL(url);
       const headers = new Headers(init?.headers);
       headers.set("host", host);
-      return testApp.app.request(pathname, { ...init, headers });
+      return Promise.resolve(testApp.app.request(pathname, { ...init, headers }));
     };
 
     it("pauses the running service with the local token and waits until it is ready", async () => {
@@ -97,7 +97,7 @@ describe("updater commands of main.js", () => {
     it("gives up when the service never gets ready", async () => {
       let now = 0;
       const config = configIn();
-      const fetch: CliDeps["fetch"] = async (url) =>
+      const fetch: NonNullable<CliDeps["fetch"]> = async (url) =>
         Response.json(url.endsWith("prepare-update") ? {} : { update: { phase: "preparing" } }, { status: url.endsWith("prepare-update") ? 202 : 200 });
       const result = await run("prepare-update", [], { config, fetch, readFile: () => TOKEN, now: () => now, sleep: async (ms) => void (now += ms) });
       expect(result.code).toBe(EXIT.failed);

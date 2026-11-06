@@ -18,6 +18,10 @@ export type HeaderProps = {
   // Another smoke query on the current `claude` after a failed one.
   onRecheck?: () => void;
   recheckPending?: boolean;
+  // "Обновить" in the banner of a newer release: starts the updater on the server.
+  onUpdate?: () => void;
+  updatePending?: boolean;
+  updateError?: string | undefined;
   connected: boolean;
   now: number;
   onLogout: () => void;
@@ -52,6 +56,12 @@ function Limit({ name, reading, now }: { name: string; reading: LimitReading | n
   );
 }
 
+const UPDATE_PHASE_TEXT: Record<string, string> = {
+  requested: "обновление запущено, скачивается новый релиз",
+  preparing: "пауза, ждём окончания текущих Ходов (до 10 минут)",
+  ready: "Ходы остановлены, сервис перезапускается",
+};
+
 const PAUSE_SOURCE_TEXT: Record<string, string> = {
   human: "включена человеком",
   update: "идёт обновление",
@@ -64,6 +74,7 @@ export function Header(props: HeaderProps) {
   const paused = installation?.paused ?? false;
   const tokenPause = paused && installation?.pause?.source === "token" ? installation.pause : undefined;
   const claudeVersion = installation?.claudeVersion;
+  const update = installation?.update;
   const segment = (value: Mode, label: string) => (
     <button
       type="button"
@@ -125,6 +136,34 @@ export function Header(props: HeaderProps) {
           выйти
         </button>
       </nav>
+      {update && update.phase !== "idle" && (
+        <div className="flex w-full flex-wrap items-center gap-2 rounded-md border border-blue-600 bg-blue-50 px-3 py-1.5 text-sm dark:bg-blue-950" role="status" data-testid="update-banner">
+          Обновление{update.latest ? ` до ${update.latest}` : ""}: {UPDATE_PHASE_TEXT[update.phase] ?? update.phase}. После перезапуска Агенты продолжат свои Ходы.
+        </div>
+      )}
+      {update?.available && update.phase === "idle" && (
+        <div className="flex w-full flex-wrap items-center gap-2 rounded-md border border-green-600 bg-green-50 px-3 py-1.5 text-sm dark:bg-green-950" role="status" data-testid="update-banner">
+          <span>
+            Доступна версия{" "}
+            {update.latestUrl ? (
+              <a className="underline" href={update.latestUrl} target="_blank" rel="noreferrer">
+                {update.latest}
+              </a>
+            ) : (
+              update.latest
+            )}{" "}
+            (сейчас {update.current}). Обновление ставит Установку на паузу, ждёт текущие Ходы до 10 минут и перезапускает сервис.
+          </span>
+          <button type="button" className="rounded border border-green-600 px-2 py-0.5 text-xs hover:bg-green-600 hover:text-white" disabled={props.updatePending || !props.onUpdate} onClick={props.onUpdate}>
+            Обновить
+          </button>
+          {props.updateError && (
+            <span className="text-red-600 dark:text-red-400" role="alert">
+              Не удалось запустить обновление: {props.updateError}
+            </span>
+          )}
+        </div>
+      )}
       {tokenPause && (
         <div className="flex w-full flex-wrap items-center gap-2 rounded-md border border-red-600 bg-red-50 px-3 py-1.5 text-sm dark:bg-red-950" role="alert" data-testid="token-banner">
           <span>Токен подписки истёк: Claude отклонил OAuth-токен. Новые Агенты не стартуют, пока не сохранён новый токен.</span>

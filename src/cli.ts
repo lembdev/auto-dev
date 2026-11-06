@@ -42,11 +42,13 @@ export function writeUpdateToken(dataDir: string): string {
 export const PREPARE_TIMEOUT_MS = TURN_WAIT_TIMEOUT_MS + 2 * 60_000;
 export const PREPARE_POLL_MS = 2_000;
 
+type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
+
 export type CliDeps = {
   config: Config;
   out: (line: string) => void;
   err: (line: string) => void;
-  fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  fetch?: Fetch;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   readFile?: (filePath: string) => string;

@@ -36,6 +36,7 @@ describe("/api/installation", () => {
       slots: { used: 0, max: 2 },
       product: null,
       version: "0.0.0-test",
+      update: { current: "0.0.0-test", latest: null, latestUrl: null, available: false, checkedAt: null, phase: "idle", phaseSince: null },
     });
   });
 
