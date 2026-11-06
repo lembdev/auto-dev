@@ -1,0 +1,33 @@
+# Installed by install/auto-dev-install.sh and refreshed by `update`; edit with `systemctl edit auto-dev`.
+[Unit]
+Description=auto-dev Orchestrator
+Documentation=https://github.com/lembdev/auto-dev
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=auto-dev
+Group=auto-dev
+WorkingDirectory=/opt/auto-dev/current
+# Secrets stay in /etc/auto-dev/env, which the process reads itself: loading it here would let a stale
+# token in the environment shadow the one the Settings page writes later.
+Environment=NODE_ENV=production
+Environment=HOME=/home/auto-dev
+Environment=PATH=/home/auto-dev/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=AUTO_DEV_ENV_FILE=/etc/auto-dev/env
+Environment=AUTO_DEV_DATA_DIR=/var/lib/auto-dev
+Environment=AUTO_DEV_CLAUDE_PATH=/home/auto-dev/.local/bin/claude
+Environment=CLAUDE_CONFIG_DIR=/var/lib/auto-dev/claude
+ExecStart=/usr/bin/node /opt/auto-dev/current/dist/main.js
+Restart=always
+RestartSec=5
+# SIGTERM goes to the Orchestrator only, which stops its Agents itself; the rest is killed after the timeout.
+KillMode=mixed
+TimeoutStopSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=auto-dev
+
+[Install]
+WantedBy=multi-user.target
