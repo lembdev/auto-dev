@@ -3,6 +3,7 @@ import { ConfigError, cloneUrlOf, type GitHubConfig } from "../config.js";
 import { ENV_KEYS, type ConfigStore } from "../config-store.js";
 import type { InstallationStore } from "../index/runtime-index.js";
 import type { Logger } from "../log.js";
+import { markClaudeVersionVerified } from "../orchestrator/claude-version.js";
 import type { DriverPort, SmokeQueryResult } from "../ports/driver.js";
 import { GitHubError, missingPermissions, type GitHubPort, type RepositoryAccess, type RepositoryPermission } from "../ports/github.js";
 import type { WorktreePort } from "../ports/worktree.js";
@@ -189,6 +190,8 @@ export class Setup {
       return { ok: false, error: result.error, claudeVersion: null, model: null };
     }
     this._deps.installation.set(SETUP_KEYS.smokeVerified, fingerprint(token));
+    // The CLI that answered is good: a version drift noticed earlier no longer blocks new Agents.
+    markClaudeVersionVerified(this._deps.installation, result.claudeVersion);
     this._deps.log.info({ claudeVersion: result.claudeVersion, model: result.model }, "smoke query passed");
     await this._afterStep();
     return { ok: true, error: null, claudeVersion: result.claudeVersion, model: result.model };

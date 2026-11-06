@@ -8,6 +8,8 @@ import { parseRateLimitsFile, rateLimitsFilePath } from "../limits/rate-limits-f
 import type { Logger } from "../log.js";
 import type { Clock, TimerHandle } from "../ports/clock.js";
 import type { DiskPort, DiskUsage } from "../ports/disk.js";
+import type { DriverPort } from "../ports/driver.js";
+import { ClaudeVersionGuard, type ClaudeVersionView } from "./claude-version.js";
 
 // Past the reset time the subscription may lag a little before it accepts requests again.
 export const WALL_MARGIN_MS = 2 * 60_000;
@@ -52,7 +54,7 @@ export type Limits = {
 
 type LimitWindow = keyof Limits;
 
-export type StartBlocker = "paused" | "at_limit" | "prearm";
+export type StartBlocker = "paused" | "at_limit" | "prearm" | "claude_version";
 
 export type InstallationSnapshot = {
   paused: boolean;
@@ -61,6 +63,7 @@ export type InstallationSnapshot = {
   limits: Limits;
   prearm: { enabled: boolean; thresholdPercent: number; active: boolean };
   disk: DiskUsage | null;
+  claudeVersion: ClaudeVersionView;
   blocker: StartBlocker | null;
   canStartTurn: boolean;
 };
@@ -69,6 +72,7 @@ export type InstallationStateOptions = {
   index: RuntimeIndex;
   clock: Clock;
   disk: DiskPort;
+  driver: DriverPort;
   runner: AgentRunner;
   log: Logger;
   // Data directory of the Installation: its disk is watched and the statusline file read from it.
@@ -107,8 +111,8 @@ export const isUsageLimitError = (message: SDKMessage): boolean =>
   message.is_error &&
   usageLimitText(message).some((text) => USAGE_LIMIT_ERROR_PREFIXES.some((prefix) => text.trimStart().startsWith(prefix)));
 
-// Pause, the subscription limit and the disk of the Installation: everything that decides whether a
-// new Turn may start. Lives in the `installation` table so it survives a restart.
+// Pause, the subscription limit, the disk and the CLI version of the Installation: everything that
+// decides whether a new Turn may start. Lives in the `installation` table so it survives a restart.
 export class InstallationState {
   private readonly _index: RuntimeIndex;
   private readonly _clock: Clock;
@@ -116,6 +120,7 @@ export class InstallationState {
   private readonly _runner: AgentRunner;
   private readonly _log: Logger;
   private readonly _dataDir: string;
+  private readonly _claudeVersion: ClaudeVersionGuard;
   private _lastDisk: DiskUsage | undefined;
   private _wallTimer: TimerHandle | undefined;
   private _sampleTimer: TimerHandle | undefined;
@@ -127,7 +132,19 @@ export class InstallationState {
     this._runner = options.runner;
     this._log = options.log;
     this._dataDir = options.dataDir;
+    this._claudeVersion = new ClaudeVersionGuard({
+      installation: this._index.installation,
+      driver: options.driver,
+      clock: this._clock,
+      log: this._log,
+      cwd: this._dataDir,
+    });
     this._runner.onMessage((agent, message) => this._observe(agent, message));
+  }
+
+  // The `claude` CLI under the Installation: its last known good version and the smoke query on a change.
+  get claudeVersion(): ClaudeVersionGuard {
+    return this._claudeVersion;
   }
 
   // Pause
@@ -190,6 +207,7 @@ export class InstallationState {
     if (this.paused()) return "paused";
     if (this.atLimit()) return "at_limit";
     if (this.prearmed()) return "prearm";
+    if (this._claudeVersion.blocked()) return "claude_version";
     return undefined;
   }
 
@@ -212,17 +230,20 @@ export class InstallationState {
       limits: this.limits(),
       prearm: { enabled: this.prearmEnabled(), thresholdPercent: PREARM_THRESHOLD_PERCENT, active: this.prearmed() },
       disk: this._lastDisk ?? null,
+      claudeVersion: this._claudeVersion.view(),
       blocker,
       canStartTurn: blocker === null,
     };
   }
 
-  // Once per polling cycle: the disk, the statusline file, a limit that has reset meanwhile.
+  // Once per polling cycle, before any new Agent: the disk, the statusline file, a limit that has
+  // reset meanwhile, the CLI version.
   async check(): Promise<void> {
     this._armSampling();
     await this._checkDisk();
     await this._readStatusLineFile();
     await this._settleWall();
+    await this._claudeVersion.check();
   }
 
   // Writes the current readings into `limit_samples` and drops the ones past retention.
@@ -258,7 +279,7 @@ export class InstallationState {
       return;
     }
     if (message.type === "system" && message.subtype === "api_retry" && message.error === "authentication_failed" && !this.paused()) {
-      this.pause("token", "the Claude OAuth token was rejected; run `claude setup-token` and store the new one");
+      this.pause("token", "the Claude OAuth token was rejected; run `claude setup-token` and store the new token on the Settings page");
     }
   }
 
