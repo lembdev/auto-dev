@@ -139,7 +139,8 @@ export class Recovery {
     for (const id of this._pending()) {
       const agent = this._index.agents.find(id);
       const task = agent?.issueNumber === null ? undefined : agent && this._index.tasks.find(agent.issueNumber);
-      if (!agent || !task || !isActiveStage(task.stage) || agent.state === "waiting" || this._runner.isLive(id)) {
+      // A Task in `merge` needs no Agent any more: the merge Stage works without one.
+      if (!agent || !task || !isActiveStage(task.stage) || task.stage === "merge" || agent.state === "waiting" || this._runner.isLive(id)) {
         this._removePending(id);
         continue;
       }
