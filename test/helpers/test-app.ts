@@ -4,7 +4,7 @@ import { ConfigStore, MemoryEnvFileAccess, patchEnvFile } from "../../src/config
 import type { GitHubConfig } from "../../src/config.js";
 import { createFakePorts, type FakePorts } from "../../src/fakes/index.js";
 import { IN_MEMORY, openRuntimeIndex, type RuntimeIndex } from "../../src/index/runtime-index.js";
-import { createLogger, type LogLevel, type Logger } from "../../src/log.js";
+import { createLogger, LogBuffer, type LogLevel, type Logger } from "../../src/log.js";
 import { Orchestrator, type OrchestratorHooks } from "../../src/orchestrator/orchestrator.js";
 import { createApp, type App } from "../../src/server/app.js";
 import { Settings } from "../../src/setup/settings.js";
@@ -96,7 +96,8 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
   const config = new ConfigStore({ files, env: { AUTO_DEV_ENV_FILE: TEST_ENV_FILE, AUTO_DEV_DATA_DIR: TEST_DATA_DIR } });
   const githubConfigs: GitHubConfig[] = [];
   const sink = createLogSink();
-  const log = createLogger({ level: options.logLevel ?? "silent", destination: sink });
+  const logBuffer = new LogBuffer();
+  const log = createLogger({ level: options.logLevel ?? "silent", destination: sink, buffer: logBuffer });
   const product = { repoPath: TEST_REPO_PATH };
   const dataDir = TEST_DATA_DIR;
   const orchestrator = new Orchestrator(
@@ -136,6 +137,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
     settings,
     auth: { allowedHosts: options.allowedHosts ?? [] },
     ...(options.clientDir !== undefined ? { clientDir: options.clientDir } : {}),
+    logs: logBuffer,
   });
   let cookie: string | undefined;
   const login = async (): Promise<string> => {

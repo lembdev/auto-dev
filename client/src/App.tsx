@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Dashboard } from "./components/Dashboard.js";
-import { Header, type Mode } from "./components/Header.js";
+import { Header, type Mode, type Page } from "./components/Header.js";
 import { LoginScreen } from "./components/LoginScreen.js";
 import { PlanningStub } from "./components/PlanningStub.js";
 import { SettingsPage } from "./components/SettingsPage.js";
 import { SetupScreen } from "./components/SetupScreen.js";
+import { StatsPage } from "./components/Stats.js";
 import { useServerEvents } from "./events.js";
 import { useInstallation, useLogout, usePauseToggle, useSession, useSetup } from "./queries.js";
 
@@ -18,8 +19,6 @@ function useNow(intervalMs = 60_000): number {
   return now;
 }
 
-export type Page = "dashboard" | "settings";
-
 export function App() {
   const session = useSession();
   const setup = useSetup();
@@ -30,7 +29,7 @@ export function App() {
   const pause = usePauseToggle();
   const logout = useLogout();
   const [mode, setMode] = useState<Mode>("development");
-  const [page, setPage] = useState<Page>("dashboard");
+  const [page, setPage] = useState<Page>("main");
   // The wizard stays on its "done" step until the human opens the dashboard.
   const [wizard, setWizard] = useState(false);
   useEffect(() => {
@@ -57,15 +56,15 @@ export function App() {
         installation={installation.data}
         mode={mode}
         onMode={setMode}
+        page={page}
+        onPage={setPage}
         onPause={(paused) => pause.mutate({ paused })}
         pausePending={pause.isPending}
         connected={connected}
         now={now}
         onLogout={() => logout.mutate()}
-        page={page}
-        onPage={setPage}
       />
-      {page === "settings" ? <SettingsPage onBack={() => setPage("dashboard")} /> : mode === "development" ? <Dashboard now={now} /> : <PlanningStub />}
+      {page === "settings" ? <SettingsPage onBack={() => setPage("main")} /> : page === "stats" ? <StatsPage now={now} /> : mode === "development" ? <Dashboard now={now} /> : <PlanningStub />}
     </>
   );
 }

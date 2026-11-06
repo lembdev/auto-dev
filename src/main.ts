@@ -2,10 +2,11 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSystemPorts } from "./adapters/index.js";
+import { createJournalLogSource, runsUnderJournald, SYSTEMD_UNIT } from "./adapters/journal.js";
 import { ConfigStore } from "./config-store.js";
 import { ConfigError } from "./config.js";
 import { openRuntimeIndex } from "./index/runtime-index.js";
-import { createLogger } from "./log.js";
+import { createLogger, LogBuffer } from "./log.js";
 import { Orchestrator } from "./orchestrator/orchestrator.js";
 import { createApp } from "./server/app.js";
 import { startServer } from "./server/server.js";
@@ -29,7 +30,9 @@ async function main(): Promise<void> {
   }
   const config = configStore.current();
 
-  const log = createLogger({ level: config.logLevel });
+  const logBuffer = new LogBuffer();
+  const log = createLogger({ level: config.logLevel, buffer: logBuffer });
+  const logs = runsUnderJournald() ? createJournalLogSource({ unit: SYSTEMD_UNIT, fallback: logBuffer }) : logBuffer;
   log.info({ version: VERSION, envFile: config.envFile, envFileExists: config.envFileExists, dataDir: config.dataDir }, "starting");
   // The SDK's session helpers look up transcripts under the config dir of this process.
   process.env.CLAUDE_CONFIG_DIR ??= config.claudeConfigDir;
@@ -69,6 +72,7 @@ async function main(): Promise<void> {
     settings,
     auth: { allowedHosts: config.allowedHosts },
     clientDir: CLIENT_DIR,
+    logs,
   });
   const server = await startServer({ app, host: config.host, port: config.port, log });
 

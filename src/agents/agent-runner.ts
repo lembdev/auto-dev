@@ -4,6 +4,7 @@ import type { AgentPatch, AgentRecord, AgentRole, AgentState, AgentStore } from 
 import type { Logger } from "../log.js";
 import type { Clock, TimerHandle } from "../ports/clock.js";
 import type { AgentLaunch, AgentProcess, AskHumanCall, AskHumanDecision, DriverPort } from "../ports/driver.js";
+import { AgentFeed } from "./agent-feed.js";
 
 // How long a process stays alive after a Turn before the runner stops it; the Session survives.
 export const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60_000;
@@ -14,6 +15,8 @@ export type AgentRunnerDeps = {
   agents: AgentStore;
   log: Logger;
   idleTimeoutMs?: number;
+  // How many recent messages per Agent the feed keeps for the UI.
+  feedLimit?: number;
 };
 
 // Per-launch settings that the Driver needs again when the runner resumes the Session itself.
@@ -72,6 +75,8 @@ const isDeferred = (message: SDKMessage): boolean =>
 // running during a Turn, idle after it until the timeout, waiting after a deferred ask_human,
 // stopped once the process is gone. Messages and state changes fan out to listeners.
 export class AgentRunner {
+  // Recent messages of every Agent with sequence numbers; the UI panel streams from it.
+  readonly feed: AgentFeed;
   private readonly _live = new Map<AgentId, Live>();
   private readonly _options = new Map<AgentId, AgentSessionOptions>();
   private readonly _messageListeners = new Set<MessageListener>();
@@ -80,6 +85,7 @@ export class AgentRunner {
 
   constructor(private readonly _deps: AgentRunnerDeps) {
     this._idleTimeoutMs = _deps.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+    this.feed = new AgentFeed(_deps.feedLimit);
   }
 
   onMessage(listener: MessageListener): () => void {
@@ -204,6 +210,7 @@ export class AgentRunner {
       for await (const message of live.process.messages()) {
         this._observe(id, live, message);
         const current = this._deps.agents.get(id);
+        this.feed.push(id, message);
         for (const listener of this._messageListeners) listener(current, message);
       }
     } catch (error) {

@@ -9,6 +9,7 @@ import type { Clock } from "../ports/clock.js";
 import type { AskHumanCall } from "../ports/driver.js";
 import type { GitHubPort, Issue } from "../ports/github.js";
 import { StagePrompts } from "../prompts/index.js";
+import { isTurnEnd } from "./turns.js";
 import type { DeadEnds } from "./dead-end.js";
 import type { AskHumanHandler, Implementation } from "./implementation.js";
 import type { MergeFailure } from "./merge.js";
@@ -38,9 +39,6 @@ export type MergerOptions = {
 
 // The Merger of one attempt, in memory only: after a restart a conflict simply gets a fresh Merger.
 type Resolution = { attempt: number; agentId: AgentRecord["id"]; sha: string; settling: boolean };
-
-const isTurnEnd = (message: SDKMessage): boolean =>
-  message.type === "result" && !(message.subtype === "success" && message.terminal_reason === "tool_deferred");
 
 // What the Merge Stage does when the pull request cannot be merged. A conflict with the base branch
 // brings a Merger up in the worktree of the Task (a new Session with the `merge` prompt); once its Turn

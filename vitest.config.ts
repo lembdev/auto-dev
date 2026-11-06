@@ -16,7 +16,7 @@ export default defineConfig({
         plugins: [react()],
         test: {
           name: "client",
-          include: ["client/src/**/*.test.tsx"],
+          include: ["client/src/**/*.test.{ts,tsx}"],
           environment: "jsdom",
           setupFiles: ["client/src/test-setup.ts"],
         },

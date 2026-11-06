@@ -1,5 +1,7 @@
 // Wire types of the HTTP and WebSocket API, shared with the client bundle (type-only imports there).
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentRole, AgentState } from "../index/agents.js";
+import type { LimitSample } from "../index/limit-samples.js";
 import type { Task, TaskStage, Transition } from "../index/tasks.js";
 import type { InstallationSnapshot, PauseSource } from "../orchestrator/installation-state.js";
 import type { RepositoryAccess, RepositoryPermission } from "../ports/github.js";
@@ -129,6 +131,28 @@ export type DigestResponse = {
   stuck: DigestStuck[];
 };
 
+// One message of an Agent's feed; `seq` orders the live stream of one Agent and names the seam
+// after the history.
+export type AgentFeedEntry = { seq: number; message: SDKMessage };
+
+// `GET /api/tasks/:issue/agent/history`: the Session transcript of the Agent of the current attempt.
+// The client subscribes to the live stream with `after: cursor` and misses nothing in between.
+export type AgentHistoryResponse = {
+  agent: AgentView;
+  sessionId: string | null;
+  history: SDKMessage[];
+  cursor: number;
+};
+
+// `POST /api/tasks/:issue/agent/interrupt`: the Turn is interrupted, the Session stays.
+export type InterruptResponse = { agent: AgentView };
+
+// `POST /api/tasks/:issue/cancel`: the issue is closed, the Cancellation follows.
+export type CancelResponse = { issueNumber: number; stage: TaskStage };
+
+// Frames the client sends over `/ws`: the live feed of one Agent, from the message after `after`.
+export type ClientMessage = { type: "subscribe"; agentId: number; after?: number } | { type: "unsubscribe"; agentId: number };
+
 // Events pushed to the UI over `/ws`. They announce a change; the client refetches the affected queries.
 export type ServerEvent =
   | { type: "hello"; version: string }
@@ -136,4 +160,45 @@ export type ServerEvent =
   | { type: "task"; issueNumber: number; stage: TaskStage; round: number }
   | { type: "agent"; agentId: number; issueNumber: number | null; role: AgentRole; state: AgentState; previous: AgentState }
   | { type: "request"; requestId: number; issueNumber: number; open: boolean }
-  | { type: "installation"; installation: InstallationResponse };
+  | { type: "installation"; installation: InstallationResponse }
+  // One message of a subscribed Agent's feed, in `seq` order.
+  | { type: "agent-message"; agentId: number; seq: number; message: SDKMessage };
+
+// Statistics page
+
+export type StatsPeriodDays = 7 | 30;
+
+export type StageTimeView = {
+  stage: "implement" | "qa" | "merge";
+  count: number;
+  meanMs: number | null;
+  medianMs: number | null;
+};
+
+export type RoundsBucketView = { rounds: number; tasks: number };
+
+// Aggregates over `transitions` for the last `days`: takes, merges, dead ends, Stage times and QA Rounds.
+export type StatsResponse = {
+  days: StatsPeriodDays;
+  since: string;
+  taken: number;
+  done: number;
+  stuck: number;
+  stages: StageTimeView[];
+  rounds: { tasks: number; mean: number | null; buckets: RoundsBucketView[] };
+};
+
+export type LimitHistoryResponse = {
+  days: StatsPeriodDays;
+  since: string;
+  samples: LimitSample[];
+};
+
+// One line of the Orchestrator journal; `raw` is the full JSON line for the expanded view.
+export type LogEntryView = { at: string | null; level: string | null; msg: string; raw: string };
+
+export type LogsResponse = {
+  lines: number;
+  source: "journal" | "buffer";
+  entries: LogEntryView[];
+};

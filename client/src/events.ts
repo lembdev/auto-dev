@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { ServerEvent } from "../../src/server/api-types.js";
+import { liveFeeds } from "./live.js";
 import { KEYS } from "./queries.js";
 
 const MAX_BACKOFF_MS = 30_000;
@@ -41,6 +42,9 @@ export function useServerEvents(enabled: boolean): boolean {
           void queryClient.invalidateQueries({ queryKey: KEYS.tasks });
           void queryClient.invalidateQueries({ queryKey: KEYS.installation });
           return;
+        case "agent-message":
+          liveFeeds.dispatch(event);
+          return;
       }
     };
 
@@ -50,6 +54,7 @@ export function useServerEvents(enabled: boolean): boolean {
       socket.onopen = () => {
         attempt = 0;
         setConnected(true);
+        if (socket) liveFeeds.attach(socket);
         // Whatever happened while the socket was down is picked up by a full refetch.
         invalidateAll();
       };
@@ -61,6 +66,7 @@ export function useServerEvents(enabled: boolean): boolean {
         }
       };
       socket.onclose = () => {
+        liveFeeds.detach();
         setConnected(false);
         if (closed) return;
         timer = setTimeout(connect, Math.min(MAX_BACKOFF_MS, 1_000 * 2 ** attempt));
