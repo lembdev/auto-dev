@@ -4,7 +4,53 @@
 одного Продукта, ведёт их через Конвейер Реализация -> QA -> Merge и показывает всё в веб-UI.
 Термины: `GLOSSARY.md`. Контракт трекера и триажные метки: `docs/agents/`.
 
-## Требования
+## Установка на Proxmox VE
+
+Одна команда в shell хоста Proxmox VE (от root) создаёт unprivileged LXC Debian 13 с Установкой:
+
+```
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/lembdev/auto-dev/main/ct/auto-dev.sh)"
+```
+
+Требования: Proxmox VE 8.0+ или 9.x, root-shell на хосте, доступ в интернет во время установки, публичный
+релиз `lembdev/auto-dev` на GitHub (скрипт ставит последний). Контейнер по умолчанию: 4 vCPU, 8 GB RAM,
+40 GB диска, DHCP; всё это меняется в диалоге «Advanced Install» ct-скрипта. Движок установщика: Proxmox VE
+Community Scripts (`community-scripts/core`, MIT), запинен в `ct/auto-dev.sh` по SHA; наши скрипты
+`ct/auto-dev.sh` и `install/auto-dev-install.sh` берутся из `main` этого репозитория.
+
+Что делает установщик внутри контейнера:
+
+- ставит git, `gh` (из GitHub Releases `cli/cli`), Node 22 LTS (NodeSource), `sudo`, `jq`;
+- создаёт пользователя `auto-dev` (без sudo, кроме NOPASSWD на `/usr/bin/update` и `journalctl -u auto-dev`,
+  плюс группа `systemd-journal` для чтения журнала из UI) и ставит ему `claude` native installer
+  (`https://claude.ai/install.sh`), который обновляет себя сам;
+- раскладка: `/opt/auto-dev/releases/<версия>` плюс симлинк `/opt/auto-dev/current` (код, владелец root),
+  `/var/lib/auto-dev` (`runtime.db`, клон Продукта `repo/`, `claude/` как `CLAUDE_CONFIG_DIR`; владелец `auto-dev`),
+  `/etc/auto-dev` (владелец `auto-dev`, файл `env` 0600 создаёт мастер первого запуска);
+- systemd unit `auto-dev.service` из `deploy/auto-dev.service` (User=auto-dev, Restart=always, логи в journald,
+  `Environment=` для путей; секреты процесс читает из `/etc/auto-dev/env` сам), включён и запущен, так что
+  Установка поднимается после перезагрузки контейнера; sudo-правила из `deploy/auto-dev.sudoers`;
+- `/usr/bin/update` (генерирует движок): в консоли контейнера `update` или с хоста `pct exec <ctid> -- update`
+  скачивает свежий ct-скрипт и выполняет его `update_script()`: останавливает сервис, кладёт новый релиз в
+  `releases/<версия>`, переключает `current`, обновляет unit и sudo-правила, запускает сервис. Прошлый релиз
+  остаётся на диске.
+
+После установки откройте `http://<ip контейнера>:8080`: первый вход показывает мастер первого запуска (см. ниже),
+после него Оркестратор начинает брать Задачи. Логи: `journalctl -u auto-dev -f`.
+
+## Релизы
+
+Версия приложения живёт в `package.json` и отдаётся в `GET /api/health`. Релиз: поднять версию, закоммитить,
+поставить тег `vX.Y.Z` (ровно `v` + версия из `package.json`) и запушить его. Workflow
+`.github/workflows/release.yml` по тегу делает `npm ci`, typecheck, build, test, собирает архив
+`auto-dev-X.Y.Z.tar.gz` (`scripts/package-release.sh`: `dist/`, `prompts/`, `deploy/`, `package.json`,
+`package-lock.json`, `README.md` и production `node_modules` через `npm ci --omit=dev --omit=optional`) и
+публикует GitHub Release с этим архивом; тег с суффиксом (`v1.2.0-rc1`) публикуется как pre-release, установщик
+берёт только релиз, помеченный latest. Архив не зависит от платформы сборки: argon2 несёт prebuilds для linux
+x64 и arm64 внутри пакета, а платформенные бинарники `claude` из optional-зависимостей Agent SDK не нужны, потому
+что Установка запускает системный `claude`. Локально: `npm run build && scripts/package-release.sh --out release`.
+
+## Требования (локальная разработка)
 
 - Node 22.13+ (используется `node:sqlite`), npm.
 - Подписка Claude Max: Оркестратор отказывается стартовать, если в окружении или в файле env
@@ -220,4 +266,8 @@ npm run smoke:driver -- idle                       # AgentRunner гасит пр
   `index.html`.
 - `client/`: SPA Режима разработки (React, Vite, TanStack Query, Tailwind): вход, шапка с лимитами, Слотами и Паузой,
   «С прошлого визита», карточки В работе / Готовые / Тупики, заглушка панели Агента; обновление по WS плюс опрос.
-- `test/`: vitest, `test/helpers/test-app.ts` поднимает сервер на фейках.
+- `test/`: vitest, `test/helpers/test-app.ts` поднимает сервер на фейках; `test/installer/` проверяет скрипты
+  установщика (`bash -n`, shellcheck, если он есть в PATH), unit и sudo-правила из `deploy/` и состав архива релиза.
+- `ct/`, `install/`: Установщик в стиле Proxmox VE Community Scripts (ct-скрипт с `update_script()` и install-скрипт,
+  который исполняется внутри контейнера); `deploy/`: systemd unit и sudo-правила, попадают в архив релиза;
+  `scripts/package-release.sh`: сборка архива; `.github/workflows/release.yml`: публикация релиза по тегу.
