@@ -282,6 +282,14 @@ class SdkAgentProcess implements AgentProcess {
   }
 }
 
+// Commits and pull requests follow the Product's Conventional Commits rules: Claude Code must not
+// append its Co-Authored-By, session link or "Generated with" lines. `includeCoAuthoredBy` covers
+// CLI versions that predate `attribution`.
+const NO_ATTRIBUTION = {
+  attribution: { commit: "", pr: "", sessionUrl: false },
+  includeCoAuthoredBy: false,
+} satisfies Settings;
+
 // DriverPort over the Claude Agent SDK: one `query()` in streaming input mode per Agent process.
 export class SdkDriver implements DriverPort {
   private readonly _query: QueryFn;
@@ -403,7 +411,7 @@ export class SdkDriver implements DriverPort {
       },
       ...(launch.resume ? { resume: launch.resume } : {}),
       ...(launch.model ? { model: launch.model } : {}),
-      ...(this._options.settings ? { settings: structuredClone(this._options.settings) } : {}),
+      settings: { ...structuredClone(this._options.settings ?? {}), ...NO_ATTRIBUTION },
     };
 
     if (launch.prompt !== undefined) input.push(userMessage(launch.prompt, launch.resume));

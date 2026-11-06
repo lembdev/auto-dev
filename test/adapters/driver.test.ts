@@ -112,9 +112,19 @@ describe("SdkDriver.launch", () => {
     const { driver, sdk } = createDriver({}, { settings });
     driver.launch({ cwd: "/w", prompt: "go" });
     await tick();
-    expect(sdk.lastCall().options.settings).toEqual(settings);
+    expect(sdk.lastCall().options.settings).toMatchObject(settings);
     expect(sdk.lastCall().options.settings).not.toBe(settings);
     expect(sdk.lastCall().options.settingSources).toBeUndefined();
+  });
+
+  it("turns off Claude Code attribution so commits and pull requests carry no trailers", async () => {
+    const { driver, sdk } = createDriver();
+    driver.launch({ cwd: "/w", prompt: "go" });
+    await tick();
+    expect(sdk.lastCall().options.settings).toMatchObject({
+      attribution: { commit: "", pr: "", sessionUrl: false },
+      includeCoAuthoredBy: false,
+    });
   });
 
   it("refuses to launch under root", () => {
