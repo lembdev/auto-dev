@@ -15,6 +15,8 @@ export const UPDATE_KEYS = {
 } as const;
 
 export const RELEASE_CHECK_INTERVAL_MS = 24 * 60 * 60_000;
+// After a failed check GitHub is asked again no sooner than this, not on every polling cycle.
+export const RELEASE_RETRY_MS = 60 * 60_000;
 // How long running Turns get to finish before the updater interrupts them.
 export const TURN_WAIT_TIMEOUT_MS = 10 * 60_000;
 export const TURN_WAIT_POLL_MS = 5_000;
@@ -98,6 +100,7 @@ export class UpdateCoordinator {
   private readonly _version: string;
   private _preparing: Promise<void> | undefined;
   private _started = false;
+  private _failedAt: number | undefined;
 
   constructor(options: UpdateCoordinatorOptions) {
     this._index = options.index;
@@ -145,13 +148,16 @@ export class UpdateCoordinator {
   async checkRelease(): Promise<void> {
     const latest = this._readLatest();
     if (latest && Date.parse(latest.checkedAt) + RELEASE_CHECK_INTERVAL_MS > this._clock.now()) return;
+    if (this._failedAt !== undefined && this._failedAt + RELEASE_RETRY_MS > this._clock.now()) return;
     let release;
     try {
       release = await this._releases.findLatest();
     } catch (error) {
+      this._failedAt = this._clock.now();
       this._log.warn({ err: error }, "release check failed");
       return;
     }
+    this._failedAt = undefined;
     const checkedAt = this._iso();
     if (!release) {
       this._index.installation.delete(UPDATE_KEYS.latest);

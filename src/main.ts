@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 import { createSystemPorts } from "./adapters/index.js";
 import { createJournalLogSource, runsUnderJournald, SYSTEMD_UNIT } from "./adapters/journal.js";
 import { ConfigStore } from "./config-store.js";
-import { ConfigError } from "./config.js";
+import { isCliCommand, runCli, writeUpdateToken } from "./cli.js";
+import { ConfigError, loadConfig } from "./config.js";
 import { openRuntimeIndex } from "./index/runtime-index.js";
 import { createLogger, LogBuffer } from "./log.js";
 import { Orchestrator } from "./orchestrator/orchestrator.js";
@@ -17,7 +18,26 @@ import { VERSION } from "./version.js";
 // The client bundle is built next to the server bundle: `dist/client` beside `dist/main.js`.
 const CLIENT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "client");
 
+// `node dist/main.js <command>`: the updater's helpers; without a command the service starts.
+async function cli(command: Parameters<typeof runCli>[0], args: string[]): Promise<void> {
+  let code: number;
+  try {
+    code = await runCli(command, args, {
+      config: loadConfig(),
+      out: (line) => process.stdout.write(`${line}\n`),
+      err: (line) => process.stderr.write(`auto-dev ${command}: ${line}\n`),
+    });
+  } catch (error) {
+    process.stderr.write(`auto-dev ${command}: ${error instanceof Error ? error.message : String(error)}\n`);
+    code = 1;
+  }
+  process.exit(code);
+}
+
 async function main(): Promise<void> {
+  const [command, ...args] = process.argv.slice(2);
+  if (isCliCommand(command)) return cli(command, args);
+
   let configStore: ConfigStore;
   try {
     configStore = new ConfigStore();
@@ -42,7 +62,7 @@ async function main(): Promise<void> {
   log.info({ path: config.runtimeDbPath, schemaVersion: index.schemaVersion() }, "runtime index ready");
 
   const ports = createSystemPorts({ config: configStore, log, version: VERSION });
-  const orchestrator = new Orchestrator({ ports, index, log, product: { repoPath: config.repoPath }, dataDir: config.dataDir });
+  const orchestrator = new Orchestrator({ ports, index, log, product: { repoPath: config.repoPath }, dataDir: config.dataDir, version: VERSION });
   const setup = new Setup({
     config: configStore,
     installation: index.installation,
@@ -73,6 +93,7 @@ async function main(): Promise<void> {
     auth: { allowedHosts: config.allowedHosts },
     clientDir: CLIENT_DIR,
     logs,
+    localToken: writeUpdateToken(config.dataDir),
   });
   const server = await startServer({ app, host: config.host, port: config.port, log });
 

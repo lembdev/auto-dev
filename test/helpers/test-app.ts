@@ -66,6 +66,8 @@ export type TestAppOptions = {
   // A restart of the same Installation: the env file and the index of a previous test app.
   files?: MemoryEnvFileAccess;
   index?: RuntimeIndex;
+  // Bearer token the updater on the same host presents instead of a session.
+  localToken?: string;
 };
 
 export const TEST_PASSWORD = "correct horse";
@@ -100,8 +102,9 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
   const log = createLogger({ level: options.logLevel ?? "silent", destination: sink, buffer: logBuffer });
   const product = { repoPath: TEST_REPO_PATH };
   const dataDir = TEST_DATA_DIR;
+  const version = options.version ?? "0.0.0-test";
   const orchestrator = new Orchestrator(
-    options.hooks ? { ports, index, log, hooks: options.hooks, product, dataDir } : { ports, index, log, product, dataDir },
+    options.hooks ? { ports, index, log, hooks: options.hooks, product, dataDir, version } : { ports, index, log, product, dataDir, version },
   );
   const setup = new Setup({
     config,
@@ -130,7 +133,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
     ports,
     index,
     log,
-    version: options.version ?? "0.0.0-test",
+    version,
     orchestrator,
     config,
     setup,
@@ -138,6 +141,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
     auth: { allowedHosts: options.allowedHosts ?? [] },
     ...(options.clientDir !== undefined ? { clientDir: options.clientDir } : {}),
     logs: logBuffer,
+    ...(options.localToken !== undefined ? { localToken: options.localToken } : {}),
   });
   let cookie: string | undefined;
   const login = async (): Promise<string> => {

@@ -109,6 +109,11 @@ export type AppDeps = {
   localToken?: string;
 };
 
+const LOCAL_TOKEN_ROUTES: ReadonlyArray<readonly [string, string]> = [
+  ["POST", "/api/installation/prepare-update"],
+  ["GET", "/api/installation"],
+];
+
 export const DEFAULT_PAUSE_REASON = "paused from the UI";
 
 const parsePauseRequest = (body: unknown): PauseRequest | undefined => {
@@ -177,8 +182,10 @@ export function createApp(deps: AppDeps): App {
     }
   };
 
+  // The token opens only what the updater needs: the preparation and the phase it waits on.
   const hasLocalToken = (c: Context): boolean => {
     const token = deps.localToken;
+    if (!LOCAL_TOKEN_ROUTES.some(([method, route]) => c.req.method === method && c.req.path === route)) return false;
     const header = c.req.header("authorization");
     if (token === undefined || header === undefined || !header.startsWith("Bearer ")) return false;
     const given = Buffer.from(header.slice("Bearer ".length));
@@ -317,7 +324,8 @@ export function createApp(deps: AppDeps): App {
       await deps.orchestrator.updates.request();
     } catch (error) {
       if (error instanceof UpdateInProgressError) return c.json({ error: error.message, ...installationView() }, 409);
-      throw error;
+      deps.log.error({ err: error }, "the updater did not start");
+      return c.json({ error: `the updater did not start: ${error instanceof Error ? error.message : String(error)}` }, 500);
     }
     return c.json(installationView(), 202);
   });
