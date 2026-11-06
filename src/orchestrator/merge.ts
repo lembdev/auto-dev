@@ -39,6 +39,28 @@ export const evaluateChecks = (runs: CheckRun[], statuses: CommitStatus[]): Chec
 
 export const stripWip = (title: string): string => title.replace(/^WIP:\s*/i, "");
 
+const BREAKING_TITLE = /^[a-z]+(\([^)]*\))?!:/;
+const BREAKING_SECTION = "## Ломающие изменения";
+const BREAKING_MAX_LINES = 5;
+
+// The squash commit stays one line unless the title marks a breaking change: then its body is the
+// short description from the pull request's breaking-changes section, as a Conventional Commits footer.
+export const squashCommitMessage = (title: string, body: string): string => {
+  if (!BREAKING_TITLE.test(title)) return "";
+  const lines = body.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === BREAKING_SECTION);
+  if (start === -1) return "";
+  const end = lines.findIndex((line, i) => i > start && line.startsWith("## "));
+  const text = lines
+    .slice(start + 1, end === -1 ? undefined : end)
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+    .slice(0, BREAKING_MAX_LINES)
+    .join("\n");
+  if (text === "" || /^нет\.?$/i.test(text)) return "";
+  return `BREAKING CHANGE: ${text}`;
+};
+
 // Why a pull request could not be merged. `reason` is the short transition reason, `text` the explanation
 // for the human. The kind lets the conflict and CI handling route each case to a Merger or a QA round.
 export type MergeFailureKind = "conflict" | "red-checks" | "checks-timeout" | "merge-failed";
@@ -50,7 +72,8 @@ export type MergeFailure = { reason: string; text: string; sha: string } & (
 );
 
 export type UnmarkWipPayload = { pullNumber: PullNumber; title: string };
-export type MergePullPayload = { pullNumber: PullNumber; commitTitle: string };
+// `commitMessage` is missing in intents journaled before breaking changes got a commit body.
+export type MergePullPayload = { pullNumber: PullNumber; commitTitle: string; commitMessage?: string };
 export type MergePullResult = { merged: true; sha: string | null } | { merged: false; reason: string };
 export type DeleteRemoteBranchPayload = { pullNumber: PullNumber; branch: string };
 export type CloseIssuePayload = { pullNumber: PullNumber };
@@ -222,7 +245,7 @@ export class MergeStage {
       this._forget(task.issueNumber);
       const result = done.has(MERGE_PULL.name)
         ? (done.get(MERGE_PULL.name)?.result as MergePullResult)
-        : await this._journal.run(MERGE_PULL, task.issueNumber, { pullNumber, commitTitle: title });
+        : await this._journal.run(MERGE_PULL, task.issueNumber, { pullNumber, commitTitle: title, commitMessage: squashCommitMessage(title, pull.body) });
       if (!result.merged) {
         return this._fail(task, {
           kind: "merge-failed",
@@ -314,7 +337,7 @@ export class MergeStage {
     const result = await this._github.mergePullRequest(payload.pullNumber, {
       method: "squash",
       commitTitle: payload.commitTitle,
-      commitMessage: "",
+      commitMessage: payload.commitMessage ?? "",
     });
     return result.merged ? { merged: true, sha: result.sha } : { merged: false, reason: result.reason };
   }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FakeAgentProcess } from "../../src/fakes/driver.js";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
-import type { IssueNumber, SessionId } from "../../src/ids.js";
+import type { IssueNumber, PullNumber, SessionId } from "../../src/ids.js";
 import { isMarkedComment } from "../../src/orchestrator/comments.js";
 import { CHECKS_POLL_MS, CHECKS_TIMEOUT_MS, evaluateChecks, MERGEABLE_POLL_MS } from "../../src/orchestrator/merge.js";
 import type { CheckRun, CommitStatus } from "../../src/ports/github.js";
@@ -130,6 +130,35 @@ describe("Merge Stage", () => {
     expect(body.inProgress).toEqual([]);
     expect(body.stuck).toEqual([]);
     expect(body.slots).toEqual({ used: 0, max: 2 });
+  });
+
+  it("squashes a breaking change with the short description from the pull request as the commit body", async () => {
+    const s = await approvedTask((testApp) => {
+      void testApp.ports.github.updatePullRequest(1 as PullNumber, {
+        title: "WIP: feat!: drop the legacy login",
+        body: "Closes #42\n\n## Ломающие изменения\n\nPOST /login removed, use /auth/login.\n\n## Критерии Epic\n\nнет\n",
+      });
+    });
+
+    await s.orchestrator.pollOnce();
+
+    expect(s.ports.github.log.of("mergePullRequest")[0]?.args).toEqual([
+      1,
+      { method: "squash", commitTitle: "feat!: drop the legacy login", commitMessage: "BREAKING CHANGE: POST /login removed, use /auth/login." },
+    ]);
+  });
+
+  it("squashes a change that is not breaking with no commit body even if the pull request has the section", async () => {
+    const s = await approvedTask((testApp) => {
+      void testApp.ports.github.updatePullRequest(1 as PullNumber, {
+        title: "WIP: feat: add login",
+        body: "Closes #42\n\n## Ломающие изменения\n\nнет\n",
+      });
+    });
+
+    await s.orchestrator.pollOnce();
+
+    expect(s.ports.github.log.of("mergePullRequest")[0]?.args).toEqual([1, { method: "squash", commitTitle: "feat: add login", commitMessage: "" }]);
   });
 
   it("waits for check runs and commit statuses to finish, polling them through the clock", async () => {
