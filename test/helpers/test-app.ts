@@ -63,6 +63,9 @@ export type TestAppOptions = {
   cloned?: boolean;
   allowedHosts?: string[];
   clientDir?: string;
+  // A restart of the same Installation: the env file and the index of a previous test app.
+  files?: MemoryEnvFileAccess;
+  index?: RuntimeIndex;
 };
 
 export const TEST_PASSWORD = "correct horse";
@@ -86,10 +89,10 @@ export const cheapHash = (password: string): Promise<string> => argon2.hash(pass
 export function createTestApp(options: TestAppOptions = {}): TestApp {
   const ports = createFakePorts();
   if (options.cloned ?? true) ports.worktree.seedRepo(TEST_REPO_PATH);
-  const index = openRuntimeIndex(IN_MEMORY);
+  const index = options.index ?? openRuntimeIndex(IN_MEMORY);
   const passwordHash = options.passwordHash === null ? undefined : (options.passwordHash ?? TEST_PASSWORD_HASH);
   const envValues = { ...(passwordHash ? { AUTO_DEV_PASSWORD_HASH: passwordHash } : {}), ...options.env };
-  const files = new MemoryEnvFileAccess(Object.keys(envValues).length > 0 ? { [TEST_ENV_FILE]: patchEnvFile(undefined, envValues) } : {});
+  const files = options.files ?? new MemoryEnvFileAccess(Object.keys(envValues).length > 0 ? { [TEST_ENV_FILE]: patchEnvFile(undefined, envValues) } : {});
   const config = new ConfigStore({ files, env: { AUTO_DEV_ENV_FILE: TEST_ENV_FILE, AUTO_DEV_DATA_DIR: TEST_DATA_DIR } });
   const githubConfigs: GitHubConfig[] = [];
   const sink = createLogSink();
