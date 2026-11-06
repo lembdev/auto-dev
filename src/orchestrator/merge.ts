@@ -8,6 +8,7 @@ import type { Clock, TimerHandle } from "../ports/clock.js";
 import type { CheckRun, CheckRunConclusion, CommitStatus, GitHubPort, IssueComment, PullRequest } from "../ports/github.js";
 import type { WorkspaceCleanup } from "./cleanup.js";
 import type { DeadEnds } from "./dead-end.js";
+import type { EpicClosure } from "./epic-closure.js";
 import type { Implementation } from "./implementation.js";
 import { defineIntent, type IntentJournal } from "./intents.js";
 import { stopAgentsOf } from "./stop-agents.js";
@@ -41,7 +42,12 @@ export const stripWip = (title: string): string => title.replace(/^WIP:\s*/i, ""
 // Why a pull request could not be merged. `reason` is the short transition reason, `text` the explanation
 // for the human. The kind lets the conflict and CI handling route each case to a Merger or a QA round.
 export type MergeFailureKind = "conflict" | "red-checks" | "checks-timeout" | "merge-failed";
-export type MergeFailure = { kind: MergeFailureKind; reason: string; text: string };
+export type MergeFailure = { reason: string; text: string; sha: string } & (
+  | { kind: "conflict" }
+  | { kind: "red-checks"; failed: string[] }
+  | { kind: "checks-timeout" }
+  | { kind: "merge-failed" }
+);
 
 export type UnmarkWipPayload = { pullNumber: PullNumber; title: string };
 export type MergePullPayload = { pullNumber: PullNumber; commitTitle: string };
@@ -66,6 +72,7 @@ export type MergeStageOptions = {
   implementation: Implementation;
   cleanup: WorkspaceCleanup;
   deadEnds: DeadEnds;
+  epicClosure: EpicClosure;
   transition: (issueNumber: IssueNumber, to: TaskStage, reason?: string) => Task;
   postComment: (issueNumber: IssueNumber, key: string, text: string) => Promise<IssueComment>;
   baseBranch: string;
@@ -75,6 +82,8 @@ export type MergeStageOptions = {
   // Returns true when it moved the Task on itself (a Merger for a conflict, a QA round for red checks);
   // otherwise the failure is a dead end.
   onFailure?: (task: Task, failure: MergeFailure) => Promise<boolean>;
+  // True while an Agent (the Merger) works on the Task: the Stage leaves the pull request alone.
+  isHeld?: (task: Task) => boolean;
 };
 
 // A pull request whose head is being watched: checks running or mergeability not computed yet.
@@ -95,6 +104,7 @@ export class MergeStage {
   private readonly _implementation: Implementation;
   private readonly _cleanup: WorkspaceCleanup;
   private readonly _deadEnds: DeadEnds;
+  private readonly _epicClosure: EpicClosure;
   private readonly _transition: MergeStageOptions["transition"];
   private readonly _postComment: MergeStageOptions["postComment"];
   private readonly _baseBranch: string;
@@ -102,6 +112,7 @@ export class MergeStage {
   private readonly _mergeablePollMs: number;
   private readonly _checksTimeoutMs: number;
   private readonly _onFailure: MergeStageOptions["onFailure"];
+  private readonly _isHeld: MergeStageOptions["isHeld"];
   private readonly _waits = new Map<IssueNumber, Wait>();
   private readonly _inFlight = new Set<IssueNumber>();
 
@@ -115,6 +126,7 @@ export class MergeStage {
     this._implementation = options.implementation;
     this._cleanup = options.cleanup;
     this._deadEnds = options.deadEnds;
+    this._epicClosure = options.epicClosure;
     this._transition = options.transition;
     this._postComment = options.postComment;
     this._baseBranch = options.baseBranch;
@@ -122,6 +134,7 @@ export class MergeStage {
     this._mergeablePollMs = options.mergeablePollMs ?? MERGEABLE_POLL_MS;
     this._checksTimeoutMs = options.checksTimeoutMs ?? CHECKS_TIMEOUT_MS;
     this._onFailure = options.onFailure;
+    this._isHeld = options.isHeld;
     this._journal.handle(UNMARK_WIP, (payload) => this._unmarkWip(payload));
     this._journal.handle(MERGE_PULL, (payload) => this._mergePull(payload));
     this._journal.handle(DELETE_REMOTE_BRANCH, (payload) => this._github.deleteBranch(payload.branch));
@@ -143,6 +156,7 @@ export class MergeStage {
       return;
     }
     if (this._inFlight.has(issueNumber) || this._waits.get(issueNumber)?.timer !== undefined) return;
+    if (this._isHeld?.(task)) return;
     this._inFlight.add(issueNumber);
     try {
       await this._run(task);
@@ -192,6 +206,8 @@ export class MergeStage {
           kind: "red-checks",
           reason: `merge: red checks: ${failed}`,
           text: `PR #${pullNumber} не слит: красные проверки CI (${failed}).`,
+          sha: pull.head.sha,
+          failed: checks.failed,
         });
       }
       if (pull.mergeable === null) return this._wait(task, pull, this._mergeablePollMs);
@@ -200,6 +216,7 @@ export class MergeStage {
           kind: "conflict",
           reason: `merge: conflict with ${this._baseBranch}`,
           text: `PR #${pullNumber} не слит: конфликт с \`${this._baseBranch}\` (${pull.mergeableState}).`,
+          sha: pull.head.sha,
         });
       }
       this._forget(task.issueNumber);
@@ -211,6 +228,7 @@ export class MergeStage {
           kind: "merge-failed",
           reason: `merge failed: ${result.reason}`,
           text: `PR #${pullNumber} не слит, GitHub ответил: ${result.reason}`,
+          sha: pull.head.sha,
         });
       }
       sha = result.sha;
@@ -222,6 +240,7 @@ export class MergeStage {
       await this._journal.run(DELETE_REMOTE_BRANCH, task.issueNumber, { pullNumber, branch: task.branch });
     }
     if (!done.has(CLOSE_ISSUE.name)) await this._journal.run(CLOSE_ISSUE, task.issueNumber, { pullNumber });
+    await this._epicClosure.settle(task, pull);
     const session = this._implementation.findImplementer(task)?.sessionId ?? null;
     await this._postComment(task.issueNumber, `done:${task.attempt}`, finalComment(pull, title, sha, session, this._baseBranch));
     await stopAgentsOf(this._runner, this._index.agents, task.issueNumber);
@@ -246,6 +265,7 @@ export class MergeStage {
         kind: "checks-timeout",
         reason: `merge: checks not finished in ${minutes} min`,
         text: `PR #${pull.number} не слит: проверки CI не завершились за ${minutes} мин на коммите \`${pull.head.sha}\`.`,
+        sha: pull.head.sha,
       });
     }
     const watched = wait;

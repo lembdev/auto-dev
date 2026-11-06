@@ -233,6 +233,17 @@ export class FakeGitHubPort implements GitHubPort {
     );
   }
 
+  // An Agent pushed to the branch of the pull request: new head, mergeability as GitHub would compute it.
+  agentPush(number: number, sha: string, mergeable: boolean | null = true): PullRequest {
+    return clone(
+      this._touchPull(number as PullNumber, (pull) => {
+        pull.head = { ...pull.head, sha };
+        pull.mergeable = mergeable;
+        pull.mergeableState = mergeable === null ? "unknown" : mergeable ? "clean" : "dirty";
+      }),
+    );
+  }
+
   humanSetMergeable(number: number, mergeable: boolean | null, mergeableState?: string): PullRequest {
     return clone(
       this._touchPull(number as PullNumber, (pull) => {
@@ -349,6 +360,11 @@ export class FakeGitHubPort implements GitHubPort {
       .filter((milestone) => state === "all" || milestone.state === state)
       .sort((a, b) => a.number - b.number)
       .map(clone);
+  }
+
+  async getMilestone(number: MilestoneNumber): Promise<Milestone> {
+    this.log.record("getMilestone", number);
+    return clone(this._milestone(number));
   }
 
   async updateMilestone(number: MilestoneNumber, patch: { state: IssueState }): Promise<Milestone> {
