@@ -173,6 +173,9 @@ export type RemoveDialogueResponse = { id: number };
 // `seq` only grows, so the server applies each frame once and answers every repeat with an `ack`.
 export type DialogueFrame = { type: "dialogue"; clientId: string; seq: number; issueNumber: number; text: string };
 export type AnswerFrame = { type: "answer"; clientId: string; seq: number; requestId: number; text: string };
+// A line of the chat with the Planner: a Dialogue frame addressed `to: "planner"` instead of an issue.
+// It shares the sender's `clientId` and `seq` with the Dialogue, so the same watermark makes it count once.
+export type PlannerDialogueFrame = { type: "dialogue"; to: "planner"; clientId: string; seq: number; text: string };
 
 export type AckOutcome = "applied" | "duplicate" | "rejected";
 
@@ -181,7 +184,7 @@ export type AckEvent = { type: "ack"; clientId: string; seq: number; watermark: 
 
 // Frames the client sends over `/ws`: the live feed of one Agent, from the message after `after`,
 // and the frames of the Dialogue.
-export type ClientMessage = { type: "subscribe"; agentId: number; after?: number } | { type: "unsubscribe"; agentId: number } | DialogueFrame | AnswerFrame;
+export type ClientMessage = { type: "subscribe"; agentId: number; after?: number } | { type: "unsubscribe"; agentId: number } | DialogueFrame | PlannerDialogueFrame | AnswerFrame;
 
 // Events pushed to the UI over `/ws`. They announce a change; the client refetches the affected queries.
 export type ServerEvent =
@@ -195,8 +198,33 @@ export type ServerEvent =
   | { type: "agent-message"; agentId: number; seq: number; message: SDKMessage }
   // The queue of a Task changed; the panel refetches it.
   | { type: "dialogue"; issueNumber: number; messageId: number; state: "queued" | "delivered" | "removed" }
+  // The Planner started, stopped, ended a Turn or its queue changed; the planning screen refetches it.
+  | { type: "planner" }
   // Sent only to the socket that sent the frame.
   | AckEvent;
+
+// Planning mode
+
+export type PlannerStatusView = "none" | "running" | "idle" | "stopped";
+
+// A line to the Planner typed during its Turn; it reaches the Session at the end of the Turn.
+export type PlannerLineView = { id: number; clientId: string; seq: number; text: string; createdAt: string };
+
+// `GET /api/planner`: the Planner of the open Session, else the last one. `open` is true between start and
+// finish; `canResume` says whether "продолжить прошлую" has a Session to continue.
+export type PlannerResponse = {
+  status: PlannerStatusView;
+  open: boolean;
+  canResume: boolean;
+  agent: AgentView | null;
+  sessionId: string | null;
+  queue: PlannerLineView[];
+};
+
+export type PlannerMode = "resume" | "new";
+
+// `POST /api/planner/start`: a new Session or the last one resumed; `message` is the first line of the human.
+export type StartPlannerRequest = { mode: PlannerMode; message?: string };
 
 // Statistics page
 

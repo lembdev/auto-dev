@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type {
   BranchInput,
+  CheckoutInput,
   CloneInput,
   PushInput,
   RepoRef,
@@ -123,6 +124,12 @@ export class GitWorktreeAdapter implements WorktreePort {
     if (input.force) args.push("--force-with-lease");
     args.push("origin", `${input.branch}:${input.branch}`);
     await this._run(args, input.cwd);
+  }
+
+  async checkout(input: CheckoutInput): Promise<void> {
+    // `--end-of-options` keeps a ref that looks like a flag from being read as one; `--` would make it a path.
+    const args = input.base === undefined ? ["checkout", "--end-of-options", input.branch] : ["checkout", "-B", input.branch, "--end-of-options", input.base];
+    await this._run(args, input.repoPath);
   }
 
   // Worktrees live inside the clone (`claude --worktree` layout); git must not report them as untracked.

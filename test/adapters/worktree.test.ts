@@ -90,6 +90,24 @@ describe("GitWorktreeAdapter", () => {
     expect(await adapter.listBranches({ repoPath: repo })).toEqual(["main"]);
   });
 
+  it("puts the clone itself on main at origin/main after it stood on another branch", async () => {
+    await adapter.clone({ url: origin, path: repo });
+    await git(["checkout", "-q", "-b", "elsewhere"], repo);
+    const seed = path.join(root, "seed");
+    await writeFile(path.join(seed, "PLAN.md"), "next\n");
+    await git(["add", "PLAN.md"], seed);
+    await git(["commit", "-q", "-m", "docs: add plan"], seed);
+    await git(["push", "-q", "origin", "main"], seed);
+
+    await adapter.fetch({ repoPath: repo });
+    await adapter.checkout({ repoPath: repo, branch: "main", base: "origin/main" });
+    expect(await git(["branch", "--show-current"], repo)).toBe("main");
+    expect(await git(["rev-parse", "HEAD"], repo)).toBe(await git(["rev-parse", "main"], seed));
+
+    await adapter.checkout({ repoPath: repo, branch: "elsewhere" });
+    expect(await git(["branch", "--show-current"], repo)).toBe("elsewhere");
+  });
+
   it("reports git failures with the command and stderr", async () => {
     await expect(adapter.fetch({ repoPath: path.join(root, "nowhere") })).rejects.toThrow(/git fetch --prune origin failed/);
     await adapter.clone({ url: origin, path: repo });
