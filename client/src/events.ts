@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { ServerEvent } from "../../src/server/api-types.js";
+import { dialogueOutbox } from "./dialogue.js";
 import { liveFeeds } from "./live.js";
 import { KEYS } from "./queries.js";
 
@@ -17,6 +18,8 @@ export function useServerEvents(enabled: boolean): boolean {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
     let closed = false;
+    // Set by the outbox when a frame waited too long for its ACK: the next close reconnects at once.
+    let forced = false;
 
     const invalidateAll = () => {
       void queryClient.invalidateQueries({ queryKey: KEYS.tasks });
@@ -45,7 +48,18 @@ export function useServerEvents(enabled: boolean): boolean {
         case "agent-message":
           liveFeeds.dispatch(event);
           return;
+        case "dialogue":
+          void queryClient.invalidateQueries({ queryKey: KEYS.dialogue(event.issueNumber) });
+          return;
+        case "ack":
+          dialogueOutbox.dispatch(event);
+          return;
       }
+    };
+
+    const reconnect = () => {
+      forced = true;
+      socket?.close();
     };
 
     const connect = () => {
@@ -54,7 +68,10 @@ export function useServerEvents(enabled: boolean): boolean {
       socket.onopen = () => {
         attempt = 0;
         setConnected(true);
-        if (socket) liveFeeds.attach(socket);
+        if (socket) {
+          liveFeeds.attach(socket);
+          dialogueOutbox.attach(socket, reconnect);
+        }
         // Whatever happened while the socket was down is picked up by a full refetch.
         invalidateAll();
       };
@@ -67,8 +84,14 @@ export function useServerEvents(enabled: boolean): boolean {
       };
       socket.onclose = () => {
         liveFeeds.detach();
+        dialogueOutbox.detach();
         setConnected(false);
         if (closed) return;
+        if (forced) {
+          forced = false;
+          connect();
+          return;
+        }
         timer = setTimeout(connect, Math.min(MAX_BACKOFF_MS, 1_000 * 2 ** attempt));
         attempt += 1;
       };
