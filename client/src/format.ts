@@ -6,7 +6,7 @@ export const AGENT_LABELS: Record<AgentState, string> = {
   running: "работает",
   idle: "idle",
   waiting: "ждёт человека",
-  stopped: "остановлен",
+  stopped: "агент завершён",
 };
 
 const STAGE_LABELS: Record<TaskStage, string> = {

@@ -230,6 +230,8 @@ const PERMISSION_LABELS: Record<RepositoryPermission, string> = {
   contentsWrite: "Contents: write",
   issuesWrite: "Issues: write",
   pullRequestsWrite: "Pull requests: write",
+  actionsRead: "Actions: read",
+  statusesRead: "Commit statuses: read",
 };
 
 export const permissionLabel = (permission: RepositoryPermission): string => PERMISSION_LABELS[permission];

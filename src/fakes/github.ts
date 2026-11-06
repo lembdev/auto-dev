@@ -57,7 +57,7 @@ export class FakeGitHubPort implements GitHubPort {
   access: RepositoryAccess = {
     fullName: "example/product",
     defaultBranch: "main",
-    permissions: { metadataRead: true, contentsWrite: true, issuesWrite: true, pullRequestsWrite: true },
+    permissions: { metadataRead: true, contentsWrite: true, issuesWrite: true, pullRequestsWrite: true, actionsRead: true, statusesRead: true },
   };
   private _nextIssueId = 100_000;
   private _nextCommentId = 1;

@@ -32,6 +32,8 @@ export const PERMISSION_TITLES: Record<RepositoryPermission, string> = {
   contentsWrite: "Contents: write",
   issuesWrite: "Issues: write",
   pullRequestsWrite: "Pull requests: write",
+  actionsRead: "Actions: read",
+  statusesRead: "Commit statuses: read",
 };
 
 const INPUT = "mt-1 w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 font-mono text-sm dark:border-neutral-700 dark:bg-neutral-900";

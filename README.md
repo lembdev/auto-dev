@@ -116,7 +116,7 @@ npm run password-hash -- <пароль>  # argon2-хеш для AUTO_DEV_PASSWOR
 | `AUTO_DEV_CLAUDE_PATH` | ищется в `PATH`    | путь к системному `claude`                   |
 | `CLAUDE_CODE_OAUTH_TOKEN` |                 | токен подписки из `claude setup-token`, уходит Агентам |
 | `GH_TOKEN`          | = `GITHUB_TOKEN`      | токен GitHub, уходит Агентам для `gh`        |
-| `GITHUB_TOKEN`      | не задан              | fine-grained PAT Установки (Issues RW, Pull requests RW, Contents RW, Checks R, Commit statuses R, Metadata R) |
+| `GITHUB_TOKEN`      | не задан              | fine-grained PAT Установки (Issues RW, Pull requests RW, Contents RW, Actions R, Commit statuses R, Metadata R) |
 | `GITHUB_REPO`       | не задан              | Продукт в виде `owner/name`; без него и токена Оркестратор не стартует, UI ведёт в мастер |
 
 Настройки, которые меняются на ходу, лежат в таблице `installation` Рантайм-индекса:

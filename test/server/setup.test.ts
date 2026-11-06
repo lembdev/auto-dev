@@ -144,7 +144,14 @@ describe("first-run wizard", () => {
     expect(body.error).toContain("Issues: write");
     expect(body.error).toContain("Pull requests: write");
 
-    app.ports.github.access.permissions = { metadataRead: false, contentsWrite: false, issuesWrite: false, pullRequestsWrite: false };
+    app.ports.github.access.permissions = {
+      metadataRead: false,
+      contentsWrite: false,
+      issuesWrite: false,
+      pullRequestsWrite: false,
+      actionsRead: false,
+      statusesRead: false,
+    };
     expect((await (await app.request("/api/setup/access", json({}))).json()) as SetupAccessResponse).toMatchObject({ ok: false, status: { current: "access" } });
   });
 

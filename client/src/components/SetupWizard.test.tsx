@@ -82,7 +82,7 @@ describe("SetupWizard", () => {
           ok: false,
           error: "the token lacks Issues: write on acme/product",
           missing: ["issuesWrite"],
-          access: { fullName: "acme/product", defaultBranch: "main", permissions: { metadataRead: true, contentsWrite: true, issuesWrite: false, pullRequestsWrite: true } },
+          access: { fullName: "acme/product", defaultBranch: "main", permissions: { metadataRead: true, contentsWrite: true, issuesWrite: false, pullRequestsWrite: true, actionsRead: true, statusesRead: true } },
           status: statusAt("access"),
         }}
         {...fns}

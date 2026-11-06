@@ -334,34 +334,78 @@ describe("GitHubRestAdapter", () => {
     expect(requests[0]?.url.searchParams.get("filter")).toBe("latest");
     expect(await github.listCommitStatuses("abc")).toEqual([]);
   });
+  it("reads CI from GitHub Actions when the token may not read check runs, as fine-grained tokens may not", async () => {
+    const { github, requests } = setup((request) => {
+      if (request.url.pathname.endsWith("/check-runs")) return { status: 403, body: { message: "Resource not accessible by personal access token" } };
+      return {
+        body: {
+          total_count: 3,
+          workflow_runs: [
+            { id: 3, name: "ci", workflow_id: 10, run_attempt: 2, status: "in_progress", conclusion: null, html_url: "h3", run_started_at: "c", updated_at: "d" },
+            { id: 2, name: "ci", workflow_id: 10, run_attempt: 1, status: "completed", conclusion: "failure", html_url: "h2", run_started_at: "a", updated_at: "b" },
+            { id: 4, name: "lint", workflow_id: 11, run_attempt: 1, status: "completed", conclusion: "success", html_url: "h4", run_started_at: "a", updated_at: "b" },
+          ],
+        },
+      };
+    });
+    expect(await github.listCheckRuns("abc")).toEqual([
+      { id: 3, name: "ci", status: "in_progress", conclusion: null, htmlUrl: "h3", startedAt: "c", completedAt: null },
+      { id: 4, name: "lint", status: "completed", conclusion: "success", htmlUrl: "h4", startedAt: "a", completedAt: "b" },
+    ]);
+    expect(requests[1]?.url.pathname).toBe("/repos/acme/product/actions/runs");
+    expect(requests[1]?.url.searchParams.get("head_sha")).toBe("abc");
+  });
+
+  it("names the missing permission when neither check runs nor Actions are readable", async () => {
+    const { github } = setup(() => ({ status: 403, body: { message: "Resource not accessible by personal access token" } }));
+    await expect(github.listCheckRuns("abc")).rejects.toThrow(/Actions: read/);
+  });
 });
 
 describe("checkAccess", () => {
   const repository = { full_name: "acme/product", default_branch: "main" };
 
-  it("reads the repository and probes the three write permissions without changing anything", async () => {
+  it("reads the repository, probes the write permissions without changing anything and the reads CI needs", async () => {
     const { github, requests } = setup((request) => {
+      if (request.method === "GET" && request.url.pathname.endsWith("/actions/runs")) return { body: { total_count: 0, workflow_runs: [] } };
+      if (request.method === "GET" && request.url.pathname.endsWith("/status")) return { body: { state: "pending", statuses: [] } };
       if (request.method === "GET") return { body: repository };
       return { status: request.url.pathname.endsWith("/git/refs") ? 422 : 404, body: { message: "Not Found" } };
     });
     expect(await github.checkAccess()).toEqual({
       fullName: "acme/product",
       defaultBranch: "main",
-      permissions: { metadataRead: true, contentsWrite: true, issuesWrite: true, pullRequestsWrite: true },
+      permissions: { metadataRead: true, contentsWrite: true, issuesWrite: true, pullRequestsWrite: true, actionsRead: true, statusesRead: true },
     });
     expect(requests.map((request) => `${request.method} ${request.url.pathname}`).sort()).toEqual(
-      ["GET /repos/acme/product", "PATCH /repos/acme/product/issues/0", "PATCH /repos/acme/product/pulls/0", "POST /repos/acme/product/git/refs"].sort(),
+      [
+        "GET /repos/acme/product",
+        "GET /repos/acme/product/actions/runs",
+        "GET /repos/acme/product/commits/main/status",
+        "PATCH /repos/acme/product/issues/0",
+        "PATCH /repos/acme/product/pulls/0",
+        "POST /repos/acme/product/git/refs",
+      ].sort(),
     );
   });
 
   it("reports the permissions the token lacks from 403 answers", async () => {
     const { github } = setup((request) => {
+      if (request.url.pathname.endsWith("/actions/runs")) return { status: 403, body: { message: "Resource not accessible by personal access token" } };
+      if (request.url.pathname.endsWith("/status")) return { body: { state: "pending", statuses: [] } };
       if (request.method === "GET") return { body: repository };
       if (request.url.pathname.endsWith("/pulls/0")) return { status: 403, body: { message: "Resource not accessible by personal access token" } };
       if (request.url.pathname.endsWith("/git/refs")) return { status: 403, body: { message: "Resource not accessible by personal access token" } };
       return { status: 404, body: { message: "Not Found" } };
     });
-    expect((await github.checkAccess()).permissions).toEqual({ metadataRead: true, contentsWrite: false, issuesWrite: true, pullRequestsWrite: false });
+    expect((await github.checkAccess()).permissions).toEqual({
+      metadataRead: true,
+      contentsWrite: false,
+      issuesWrite: true,
+      pullRequestsWrite: false,
+      actionsRead: false,
+      statusesRead: true,
+    });
   });
 
   it("reports no access at all when the repository is invisible to the token", async () => {
@@ -369,7 +413,7 @@ describe("checkAccess", () => {
     expect(await github.checkAccess()).toEqual({
       fullName: "acme/product",
       defaultBranch: null,
-      permissions: { metadataRead: false, contentsWrite: false, issuesWrite: false, pullRequestsWrite: false },
+      permissions: { metadataRead: false, contentsWrite: false, issuesWrite: false, pullRequestsWrite: false, actionsRead: false, statusesRead: false },
     });
     expect(requests).toHaveLength(1);
   });

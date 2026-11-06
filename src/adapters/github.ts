@@ -209,6 +209,39 @@ const toPull = (raw: RawPull): PullRequest => ({
   mergedAt: raw.merged_at,
 });
 
+type RawWorkflowRun = {
+  id: number;
+  name: string | null;
+  workflow_id: number;
+  run_attempt?: number;
+  status: string | null;
+  conclusion: string | null;
+  html_url: string;
+  run_started_at?: string | null;
+  updated_at: string;
+};
+
+// A workflow run read as the check run GitHub Actions would have created for it; only the newest
+// attempt of each workflow counts, as `filter=latest` does for check runs.
+const latestWorkflowRuns = (runs: RawWorkflowRun[]): CheckRun[] => {
+  const latest = new Map<number, RawWorkflowRun>();
+  for (const run of runs) {
+    const known = latest.get(run.workflow_id);
+    // A re-run keeps the id and bumps the attempt; a new push starts a run with a larger id.
+    const newer = !known || run.id > known.id || (run.id === known.id && (run.run_attempt ?? 1) > (known.run_attempt ?? 1));
+    if (newer) latest.set(run.workflow_id, run);
+  }
+  return [...latest.values()].map((run) => ({
+    id: run.id,
+    name: run.name ?? `workflow ${run.workflow_id}`,
+    status: (run.status === "completed" ? "completed" : run.status === "in_progress" ? "in_progress" : "queued") as CheckRun["status"],
+    conclusion: (run.status === "completed" ? run.conclusion : null) as CheckRun["conclusion"],
+    htmlUrl: run.html_url,
+    startedAt: run.run_started_at ?? null,
+    completedAt: run.status === "completed" ? run.updated_at : null,
+  }));
+};
+
 const toCheckRun = (raw: RawCheckRun): CheckRun => ({
   id: raw.id,
   name: raw.name,
@@ -278,18 +311,26 @@ export class GitHubRestAdapter implements GitHubPort {
     const fullName = `${this._owner}/${this._repo}`;
     const repository = await this._request("GET", this._repoPath(""), { allow: [403, 404] });
     if (repository.status === 403 || repository.status === 404) {
-      return { fullName, defaultBranch: null, permissions: { metadataRead: false, contentsWrite: false, issuesWrite: false, pullRequestsWrite: false } };
+      return {
+        fullName,
+        defaultBranch: null,
+        permissions: { metadataRead: false, contentsWrite: false, issuesWrite: false, pullRequestsWrite: false, actionsRead: false, statusesRead: false },
+      };
     }
     const raw = repository.json as RawRepository;
-    const [contentsWrite, issuesWrite, pullRequestsWrite] = await Promise.all([
+    const branch = raw.default_branch ?? "HEAD";
+    // The Merge Stage reads the CI of a pull request: Actions runs and commit statuses.
+    const [contentsWrite, issuesWrite, pullRequestsWrite, actionsRead, statusesRead] = await Promise.all([
       this._probeWrite("POST", this._repoPath("/git/refs")),
       this._probeWrite("PATCH", this._repoPath("/issues/0")),
       this._probeWrite("PATCH", this._repoPath("/pulls/0")),
+      this._probeRead(this._repoPath("/actions/runs"), { per_page: 1 }),
+      this._probeRead(this._repoPath(`/commits/${encodeURIComponent(branch)}/status`)),
     ]);
     return {
       fullName: raw.full_name ?? fullName,
       defaultBranch: raw.default_branch ?? null,
-      permissions: { metadataRead: true, contentsWrite, issuesWrite, pullRequestsWrite },
+      permissions: { metadataRead: true, contentsWrite, issuesWrite, pullRequestsWrite, actionsRead, statusesRead },
     };
   }
 
@@ -480,11 +521,19 @@ export class GitHubRestAdapter implements GitHubPort {
     });
   }
 
+  // Check runs need the `checks` permission, which fine-grained tokens cannot have; such a token
+  // reads the CI of the commit from GitHub Actions instead.
   async listCheckRuns(ref: string): Promise<CheckRun[]> {
     const reply = await this._request("GET", this._repoPath(`/commits/${ref}/check-runs`), {
       query: { per_page: PER_PAGE, filter: "latest" },
+      allow: [403],
     });
-    return ((reply.json as { check_runs: RawCheckRun[] }).check_runs ?? []).map(toCheckRun);
+    if (reply.status !== 403) return ((reply.json as { check_runs: RawCheckRun[] }).check_runs ?? []).map(toCheckRun);
+    const runs = await this._request("GET", this._repoPath("/actions/runs"), { query: { head_sha: ref, per_page: PER_PAGE }, allow: [403] });
+    if (runs.status === 403) {
+      throw new GitHubError(403, "the token can read neither check runs nor GitHub Actions: grant it Actions: read");
+    }
+    return latestWorkflowRuns((runs.json as { workflow_runs: RawWorkflowRun[] }).workflow_runs ?? []);
   }
 
   async listCommitStatuses(ref: string): Promise<CommitStatus[]> {
@@ -493,6 +542,12 @@ export class GitHubRestAdapter implements GitHubPort {
   }
 
   // Internals
+
+  // An empty repository has no commit to read the status of (404, 409, 422); only 403 means no permission.
+  private async _probeRead(path: string, query?: Query): Promise<boolean> {
+    const reply = await this._request("GET", path, { ...(query ? { query } : {}), allow: [403, 404, 409, 422] });
+    return reply.status !== 403;
+  }
 
   private async _probeWrite(method: string, path: string): Promise<boolean> {
     const reply = await this._request(method, path, { body: {}, allow: [403, 404, 422] });

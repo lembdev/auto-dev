@@ -6,7 +6,7 @@ const AGENT_BADGE: Record<string, string> = {
   running: "border-green-600 text-green-700 dark:text-green-400",
   idle: "border-neutral-400 text-neutral-500",
   waiting: "border-amber-500 text-amber-700 dark:text-amber-400",
-  stopped: "border-red-600 text-red-600 dark:text-red-400",
+  stopped: "border-neutral-400 text-neutral-500",
 };
 
 export type TaskCardProps = {

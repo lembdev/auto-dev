@@ -171,9 +171,16 @@ export type MergeInput = {
 export type MergeResult = { merged: true; sha: string } | { merged: false; reason: string };
 
 // What the Installation needs from its fine-grained token on the Product repository.
-export type RepositoryPermission = "metadataRead" | "contentsWrite" | "issuesWrite" | "pullRequestsWrite";
+export type RepositoryPermission = "metadataRead" | "contentsWrite" | "issuesWrite" | "pullRequestsWrite" | "actionsRead" | "statusesRead";
 
-export const REPOSITORY_PERMISSIONS: readonly RepositoryPermission[] = ["metadataRead", "contentsWrite", "issuesWrite", "pullRequestsWrite"];
+export const REPOSITORY_PERMISSIONS: readonly RepositoryPermission[] = [
+  "metadataRead",
+  "contentsWrite",
+  "issuesWrite",
+  "pullRequestsWrite",
+  "actionsRead",
+  "statusesRead",
+];
 
 export type RepositoryAccess = {
   fullName: string;

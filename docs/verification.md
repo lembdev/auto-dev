@@ -16,6 +16,24 @@ Markdown, промпт запуска свёрнут. Данные Устано�
 
 Уже пройдено: Этапы 0-2, сценарии 1 (взятие), 2 (лента), 3 (запрос к человеку и Ответ), 13 (Тупик).
 
+### Второй прогон: Задачи висят в Merge
+
+После перезапуска #2 и #4 прошли QA (PR #7 и #8 без `WIP:`), но не сливались: PAT получал 403 на чтение
+check runs, а такого права у fine-grained PAT нет. Исправлено: CI читается через GitHub Actions, мастер
+проверяет `Actions: read` и `Commit statuses: read`. Продолжить так:
+
+1. На github.com -> Settings -> Developer settings -> Fine-grained tokens -> токен Установки -> Edit:
+   Repository permissions -> Actions: Read-only -> Update. Токен остаётся прежним, вводить заново не нужно.
+2. Проверить: `curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer <PAT>"
+   https://api.github.com/repos/lembdev/auto-dev-sandbox/actions/runs` -> `200`.
+3. Остановить процесс, `git pull && npm ci && npm run build`, запустить с тем же `~/auto-dev-local`.
+4. Ожидается: в течение минуты PR #7 и #8 слиты squash-коммитами `feat: add slugify` и `feat: add greet`,
+   issue закрыты, затем взята #3. Это сценарии 4 и 5. Бейдж Агента после QA серый «агент завершён»: это
+   штатно, процесс QA закончил работу, merge делает Оркестратор без Агента.
+5. Дальше Этап 3 со сценария 6.
+
+### Первый прогон: Тупики из-за `WIP:`
+
 1. Остановить локальный процесс (Ctrl+C в его терминале).
 2. Обновить код и собрать:
 
@@ -104,7 +122,8 @@ Markdown, промпт запуска свёрнут. Данные Устано�
    Ожидается: Epic #1 без `ready-for-agent`, Задачи #2, #3, #4 как его sub-issues, у #3 блокер #2.
 
 3. Fine-grained PAT только на `lembdev/auto-dev-sandbox`: Issues RW, Pull requests RW, Contents RW,
-   Checks R, Commit statuses R, Metadata R.
+   Actions R, Commit statuses R, Metadata R. Права «Checks» у fine-grained PAT нет: CI Оркестратор читает
+   через Actions.
 
 ## Этап 2. Локальный запуск и мастер
 
