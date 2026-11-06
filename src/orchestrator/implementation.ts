@@ -1,6 +1,6 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentRunner } from "../agents/agent-runner.js";
-import type { IssueNumber } from "../ids.js";
+import type { AgentId, IssueNumber } from "../ids.js";
 import type { AgentRecord } from "../index/agents.js";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Task, TaskStage } from "../index/tasks.js";
@@ -8,8 +8,13 @@ import type { Logger } from "../log.js";
 import type { AskHumanCall, AskHumanDecision } from "../ports/driver.js";
 import type { GitHubPort, Issue } from "../ports/github.js";
 import { StagePrompts } from "../prompts/index.js";
+import type { DeadEnds } from "./dead-end.js";
 import { findEpic } from "./epic.js";
-import { isTurnEnd } from "./turns.js";
+import { isUsageLimitError } from "./installation-state.js";
+import { CONTINUE_PROMPT, isTurnEnd } from "./turns.js";
+
+// Failed Turns in a row (not the subscription limit) after which the Task goes to a dead end.
+const MAX_TURN_FAILURES = 2;
 
 export class ImplementerNotStartedError extends Error {
   constructor(readonly issueNumber: IssueNumber) {
@@ -34,6 +39,9 @@ export type ImplementationOptions = {
   log: Logger;
   prompts?: StagePrompts;
   transition: (issueNumber: IssueNumber, to: TaskStage, reason?: string) => Task;
+  deadEnds: DeadEnds;
+  // True while a resume after a restart has not produced its first message: its failure is counted there.
+  isResuming?: (id: AgentId) => boolean;
   // Wired by the ask_human feature; without it the Driver tells the Agent the tool is unavailable.
   onAskHuman?: AskHumanHandler;
 };
@@ -49,6 +57,10 @@ export class Implementation {
   private readonly _prompts: StagePrompts;
   private readonly _transition: ImplementationOptions["transition"];
   private readonly _onAskHuman: AskHumanHandler | undefined;
+  private readonly _deadEnds: DeadEnds;
+  private readonly _isResuming: (id: AgentId) => boolean;
+  // Failed Turns in a row per Implementer; a Turn that ends cleanly clears the count.
+  private readonly _failures = new Map<AgentId, number>();
 
   constructor(options: ImplementationOptions) {
     this._github = options.github;
@@ -58,6 +70,8 @@ export class Implementation {
     this._prompts = options.prompts ?? new StagePrompts();
     this._transition = options.transition;
     this._onAskHuman = options.onAskHuman;
+    this._deadEnds = options.deadEnds;
+    this._isResuming = options.isResuming ?? (() => false);
     this._runner.onMessage((agent, message) => this._observe(agent, message));
   }
 
@@ -120,10 +134,33 @@ export class Implementation {
     const task = this._index.tasks.find(agent.issueNumber);
     if (!task || task.stage !== "implement" || this.findImplementer(task)?.id !== agent.id) return;
     if (message.type === "result" && message.is_error) {
-      // A failed Turn is not finished work; the hang and restart handling decides what happens next.
-      this._log.error({ issue: task.issueNumber, agent: agent.id, subtype: message.subtype }, "implementer turn failed");
+      // The subscription limit stops and later resumes the Turn; a failed resume is counted by the recovery.
+      if (isUsageLimitError(message) || this._isResuming(agent.id)) return;
+      const detail = message.subtype === "success" ? message.result : message.errors.join("; ");
+      this._failed(agent, task, detail).catch((error: unknown) =>
+        this._log.error({ err: error, issue: task.issueNumber, agent: agent.id }, "failed implementer turn not handled"),
+      );
       return;
     }
+    this._failures.delete(agent.id);
     this._transition(task.issueNumber, "qa", "implementer turn finished");
+  }
+
+  // A failed Turn is not finished work: the same Session is asked to continue once, a second failure in
+  // a row is a dead end.
+  private async _failed(agent: AgentRecord, task: Task, detail: string): Promise<void> {
+    const failures = (this._failures.get(agent.id) ?? 0) + 1;
+    this._log.error({ issue: task.issueNumber, agent: agent.id, failures, detail }, "implementer turn failed");
+    if (failures >= MAX_TURN_FAILURES) {
+      this._failures.delete(agent.id);
+      await this._deadEnds.enter(
+        task.issueNumber,
+        "implementer turn failed twice",
+        `Ход Реализатора ${failures} раза подряд завершился ошибкой. Последняя ошибка: ${detail.trim() || "(без текста)"}`,
+      );
+      return;
+    }
+    this._failures.set(agent.id, failures);
+    await this._runner.send(agent.id, CONTINUE_PROMPT, this._askHuman(task.issueNumber));
   }
 }

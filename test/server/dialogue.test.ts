@@ -231,8 +231,8 @@ describe("the Dialogue and the Answer from the UI", () => {
 
   it("delivers a line to an idle Agent at once and resumes a stopped one with the line as the prompt", async () => {
     const process = await takeIssue();
-    // A failed Turn leaves the Implementer idle and the Task in its Stage: nobody else is working on it.
-    process.emit(sdkMessages.resultError(SESSION, ["context overflow"]));
+    // An interrupted Turn leaves the Implementer idle and the Task in its Stage: nobody else is working on it.
+    process.emit(sdkMessages.resultError(SESSION, ["interrupted"], { terminal_reason: "aborted_streaming" }));
     await flush();
     expect(testApp.index.agents.listByIssue(ISSUE)).toMatchObject([{ state: "idle" }]);
     const ws = await connect();

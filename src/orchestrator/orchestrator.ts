@@ -141,15 +141,6 @@ export class Orchestrator {
       comments: this._comments,
       journal: this._intents,
     });
-    this._implementation = new Implementation({
-      github: this._ports.github,
-      runner: this._agents,
-      index: this._index,
-      log: this._log,
-      transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
-      ...(options.prompts ? { prompts: options.prompts } : {}),
-      onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
-    });
     this._deadEnds = new DeadEnds({
       github: this._ports.github,
       runner: this._agents,
@@ -158,6 +149,18 @@ export class Orchestrator {
       journal: this._intents,
       transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
       postComment: (issueNumber, key, text) => this.postComment(issueNumber, key, text),
+    });
+    this._implementation = new Implementation({
+      github: this._ports.github,
+      runner: this._agents,
+      index: this._index,
+      log: this._log,
+      transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
+      deadEnds: this._deadEnds,
+      // The recovery is built later; the callback reads it only when a Turn ends.
+      isResuming: (id) => this._recovery.isResuming(id),
+      ...(options.prompts ? { prompts: options.prompts } : {}),
+      onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
     });
     this._qa = new QaStage({
       github: this._ports.github,

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_IDLE_TIMEOUT_MS } from "../../src/agents/agent-runner.js";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
+import { CONTINUE_PROMPT } from "../../src/orchestrator/recovery.js";
 import type { IssueNumber, SessionId } from "../../src/ids.js";
 import type { Issue } from "../../src/ports/github.js";
 import { createTestApp, TEST_REPO_PATH, type TestApp } from "../helpers/test-app.js";
@@ -200,5 +201,33 @@ describe("Implementation Stage", () => {
     await testApp.orchestrator.pollOnce();
     expect(driver.launches).toHaveLength(1);
     expect(testApp.index.tasks.get(ISSUE).stage).toBe("implement");
+  });
+
+  it("asks the same Session to continue after a failed Turn and sends the Task to a dead end after the second failure in a row", async () => {
+    const s = await taken();
+    const { driver, github } = s.ports;
+    const process = driver.lastLaunch();
+    process.emit(sdkMessages.init(SESSION));
+    process.emit(sdkMessages.resultError(SESSION, ["api overloaded"]));
+    await flush();
+    expect(process.sent).toEqual([CONTINUE_PROMPT]);
+    expect(driver.launches).toHaveLength(1);
+    expect(s.index.tasks.get(ISSUE).stage).toBe("implement");
+
+    process.emit(sdkMessages.resultSuccess(SESSION, "done"));
+    await flush();
+    expect(s.index.tasks.get(ISSUE).stage).toBe("qa");
+
+    await s.orchestrator.implementation.send(ISSUE, "QA blockers: fix the form");
+    process.emit(sdkMessages.resultError(SESSION, ["api overloaded"]));
+    await flush();
+    expect(process.sent.at(-1)).toBe(CONTINUE_PROMPT);
+    expect(s.index.tasks.get(ISSUE).stage).toBe("implement");
+
+    process.emit(sdkMessages.resultError(SESSION, ["api overloaded again"]));
+    await flush();
+    expect(s.index.tasks.get(ISSUE).stage).toBe("stuck");
+    expect(s.index.transitions.listFor(ISSUE).at(-1)?.reason).toBe("implementer turn failed twice");
+    expect(github.commentsOf(42).at(-1)?.body).toContain("api overloaded again");
   });
 });

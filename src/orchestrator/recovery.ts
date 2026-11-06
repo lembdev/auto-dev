@@ -13,7 +13,7 @@ import type { DeadEnds } from "./dead-end.js";
 import type { AskHumanHandler } from "./implementation.js";
 import { isUsageLimitError } from "./installation-state.js";
 import type { Reconciler } from "./reconcile.js";
-import { isResult } from "./turns.js";
+import { CONTINUE_PROMPT, isResult } from "./turns.js";
 
 // SIGTERM leaves the Turn unfinished for `resume`; a process that ignores it gets SIGKILL after this pause.
 export const ORPHAN_GRACE_MS = 10_000;
@@ -25,8 +25,7 @@ export const INSTALLATION_USER = "auto-dev";
 export const MAX_RESUME_FAILURES = 3;
 export const HANG_TIMEOUT_MS = 30 * 60_000;
 export const MAX_HANGS = 2;
-// Sent into the Session of a hung Agent after its process was interrupted.
-export const CONTINUE_PROMPT = "Продолжай.";
+export { CONTINUE_PROMPT };
 export const MERGED_WHILE_DOWN_REASON = "pull request merged while down";
 
 // Keys in the `installation` table owned by this module.
@@ -132,6 +131,11 @@ export class Recovery {
       const agent = this._runner.find(id);
       if (agent && agent.state === "running" && this._isResumable(agent)) this._addPending(id);
     }
+  }
+
+  // A resumed Agent whose process has not produced a message yet; its failure counts as a failed resume.
+  isResuming(id: AgentId): boolean {
+    return this._resuming.has(id);
   }
 
   // Every cycle: Sessions whose Turn was cut short get a new process, once new Turns may start.

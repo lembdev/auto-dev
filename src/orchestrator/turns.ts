@@ -5,6 +5,9 @@ type Result = Extract<SDKMessage, { type: "result" }>;
 // The Turn was cut short by interrupt() or a signal: whatever the Agent produced is not finished work.
 const ABORTED_REASONS: ReadonlySet<string> = new Set(["aborted_streaming", "aborted_tools"]);
 
+// Sent into a Session whose Turn was cut short or failed, to pick the work up where it stopped.
+export const CONTINUE_PROMPT = "Продолжай.";
+
 export const isResult = (message: SDKMessage): message is Result => message.type === "result";
 
 export const isDeferred = (message: SDKMessage): boolean =>
