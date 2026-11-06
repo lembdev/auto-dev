@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { MarkdownText } from "./MarkdownText.js";
 import { childrenOf, formatInput, toolHead, topLevelOf, type FeedItem, type FeedState, type ToolItem } from "../feed.js";
 
 export type AgentFeedProps = {
@@ -35,9 +36,9 @@ export function AgentFeed({ feed, status, error }: AgentFeedProps) {
         </div>
       )}
       {status === "live" && count === 0 && <div className="text-xs text-neutral-500 italic">Сессия пока пуста.</div>}
-      {topLevelOf(feed.items).map((item) => (
-        <FeedRow key={item.id} item={item} items={feed.items} />
-      ))}
+      {topLevelOf(feed.items).map((item, index) =>
+        index === 0 && item.kind === "user" ? <LaunchPrompt key={item.id} text={item.text} /> : <FeedRow key={item.id} item={item} items={feed.items} />,
+      )}
     </div>
   );
 }
@@ -46,8 +47,8 @@ function FeedRow({ item, items }: { item: FeedItem; items: FeedItem[] }) {
   switch (item.kind) {
     case "text":
       return (
-        <div className="whitespace-pre-wrap" data-testid="feed-text" data-streaming={item.streaming}>
-          {item.text}
+        <div className="break-words" data-testid="feed-text" data-streaming={item.streaming}>
+          <MarkdownText text={item.text} />
           {item.streaming && <span className="animate-pulse text-neutral-400">▍</span>}
         </div>
       );
@@ -60,8 +61,8 @@ function FeedRow({ item, items }: { item: FeedItem; items: FeedItem[] }) {
       );
     case "user":
       return (
-        <div className="rounded-md bg-blue-50 px-2.5 py-1.5 whitespace-pre-wrap dark:bg-blue-950" data-testid="feed-user">
-          {item.text}
+        <div className="rounded-md bg-blue-50 px-2.5 py-1.5 break-words dark:bg-blue-950" data-testid="feed-user">
+          <MarkdownText text={item.text} />
         </div>
       );
     case "system":
@@ -73,6 +74,19 @@ function FeedRow({ item, items }: { item: FeedItem; items: FeedItem[] }) {
     case "tool":
       return <ToolRow item={item} items={items} />;
   }
+}
+
+// The first message of a Session is the prompt the Orchestrator launched the Agent with: long and the
+// same every time, so it stays folded until asked for.
+function LaunchPrompt({ text }: { text: string }) {
+  return (
+    <details className="rounded-md bg-blue-50 px-2.5 py-1.5 text-xs dark:bg-blue-950" data-testid="feed-prompt">
+      <summary className="cursor-pointer text-neutral-600 dark:text-neutral-400">Промпт запуска</summary>
+      <div className="mt-1.5 border-t border-dashed border-blue-200 pt-1.5 text-sm break-words dark:border-blue-900">
+        <MarkdownText text={text} />
+      </div>
+    </details>
+  );
 }
 
 function ToolRow({ item, items }: { item: ToolItem; items: FeedItem[] }) {

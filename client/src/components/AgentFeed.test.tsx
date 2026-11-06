@@ -26,6 +26,29 @@ describe("AgentFeed", () => {
     expect(screen.getByTestId("feed-text")).toHaveAttribute("data-streaming", "false");
   });
 
+  it("renders the Agent text as formatted Markdown, not as raw markup", () => {
+    renderFeed(applyMessages(emptyFeed(), [sdkMessages.assistantText(S, "## Plan\n\n- read **the issue**\n- run `npm test`\n\n| a | b |\n| - | - |\n| 1 | 2 |")]));
+    const text = screen.getByTestId("feed-text");
+    expect(within(text).getByRole("heading", { name: "Plan" })).toBeInTheDocument();
+    expect(within(text).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(text).getByText("the issue").tagName).toBe("STRONG");
+    expect(within(text).getByText("npm test").tagName).toBe("CODE");
+    expect(within(text).getByRole("table")).toBeInTheDocument();
+    expect(text).not.toHaveTextContent("**");
+  });
+
+  it("folds the launch prompt of the Session and unfolds it on demand", () => {
+    renderFeed(applyMessages(emptyFeed(), [sdkMessages.userText(S, "# Стадия\n\nImplement issue 7"), sdkMessages.assistantText(S, "On it."), sdkMessages.userText(S, "Fix the blocker")]));
+    const prompt = screen.getByTestId("feed-prompt");
+    expect(prompt).not.toHaveAttribute("open");
+    expect(prompt.querySelector("summary")).toHaveTextContent("Промпт запуска");
+    fireEvent.click(prompt.querySelector("summary") as HTMLElement);
+    expect(prompt).toHaveAttribute("open");
+    expect(within(prompt).getByRole("heading", { name: "Стадия" })).toBeInTheDocument();
+    expect(screen.getAllByTestId("feed-prompt")).toHaveLength(1);
+    expect(screen.getByTestId("feed-user")).toHaveTextContent("Fix the blocker");
+  });
+
   it("collapses a tool call to one line and unfolds the input and the result", () => {
     renderFeed(
       applyMessages(emptyFeed(), [
