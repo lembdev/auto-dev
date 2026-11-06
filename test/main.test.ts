@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { migrations } from "../src/index/migrations.js";
 
 const schemaVersion = migrations.at(-1)?.version;
+// The release archive and the installer take the version from package.json; health must report the same one.
+const packageVersion = (JSON.parse(readFileSync(path.resolve(import.meta.dirname, "..", "package.json"), "utf8")) as { version: string }).version;
 
 const root = path.resolve(import.meta.dirname, "..");
 const tsx = path.join(root, "node_modules", "tsx", "dist", "cli.mjs");
@@ -78,7 +80,7 @@ describe("auto-dev process", () => {
     expect(existsSync(path.join(dataDir, "runtime.db"))).toBe(true);
     const health = await fetch(`${url}/api/health`);
     expect(health.status).toBe(200);
-    expect(await health.json()).toMatchObject({ status: "ok", schemaVersion });
+    expect(await health.json()).toMatchObject({ status: "ok", schemaVersion, version: packageVersion });
 
     first.child.kill("SIGTERM");
     expect(await first.exited).toEqual({ code: 0, signal: null });
