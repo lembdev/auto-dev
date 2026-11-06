@@ -217,3 +217,67 @@ describe("AgentRunner", () => {
     expect(driver.launches.map((launch) => launch.log.methods())).toEqual([["stop"], ["stop"]]);
   });
 });
+
+describe("AgentRunner.restartAfterTurn", () => {
+  const indexes: RuntimeIndex[] = [];
+  afterEach(() => {
+    for (const index of indexes.splice(0)) index.close();
+  });
+
+  const setup = () => {
+    const driver = new FakeDriverPort();
+    const clock = new FakeClock(Date.UTC(2026, 0, 1));
+    const index = openRuntimeIndex(IN_MEMORY);
+    indexes.push(index);
+    const runner = new AgentRunner({ driver, clock, agents: index.agents, log: createLogger({ level: "silent" }) });
+    return { driver, clock, index, runner };
+  };
+
+  it("stops an idle Agent at once and a running one when its Turn ends; the next message resumes the Session", async () => {
+    const { driver, index, runner } = setup();
+    const idle = runner.start({ issueNumber: 7 as IssueNumber, role: "implementer", cwd: WORKTREE, prompt: "implement #7" });
+    const idleProcess = driver.lastLaunch();
+    idleProcess.emit(sdkMessages.init(SESSION));
+    idleProcess.emit(sdkMessages.resultSuccess(SESSION, "done"));
+    await flush();
+    const busySession = "44444444-4444-4444-8444-444444444444" as SessionId;
+    const busy = runner.start({ issueNumber: 8 as IssueNumber, role: "qa", cwd: "/repo/.claude/worktrees/issue-8", prompt: "review #8" });
+    const busyProcess = driver.lastLaunch();
+    busyProcess.emit(sdkMessages.init(busySession));
+    await flush();
+    expect(index.agents.get(idle.id).state).toBe("idle");
+    expect(index.agents.get(busy.id).state).toBe("running");
+
+    await runner.restartAfterTurn("secrets changed");
+    await flush();
+    expect(idleProcess.calls.map((call) => call.method)).toContain("stop");
+    expect(index.agents.get(idle.id)).toMatchObject({ state: "stopped", pid: null, sessionId: SESSION });
+    expect(busyProcess.calls.map((call) => call.method)).not.toContain("stop");
+    expect(index.agents.get(busy.id).state).toBe("running");
+
+    busyProcess.emit(sdkMessages.assistantText(busySession, "verdict"));
+    busyProcess.emit(sdkMessages.resultSuccess(busySession, "verdict"));
+    await flush();
+    await flush();
+    expect(busyProcess.calls.map((call) => call.method)).toContain("stop");
+    expect(index.agents.get(busy.id)).toMatchObject({ state: "stopped", pid: null, sessionId: busySession });
+
+    await runner.send(idle.id, "blockers: fix the test");
+    expect(driver.lastLaunch().launch).toMatchObject({ cwd: WORKTREE, resume: SESSION, prompt: "blockers: fix the test" });
+    expect(index.agents.get(idle.id).state).toBe("running");
+  });
+
+  it("leaves a waiting Agent alone", async () => {
+    const { driver, index, runner } = setup();
+    const agent = runner.start({ issueNumber: 7 as IssueNumber, role: "implementer", cwd: WORKTREE, prompt: "implement #7", onAskHuman: async () => ({ kind: "defer" }) });
+    const fake = driver.lastLaunch();
+    fake.emit(sdkMessages.init(SESSION));
+    fake.emit(deferredResult(SESSION));
+    fake.end();
+    await flush();
+    expect(index.agents.get(agent.id).state).toBe("waiting");
+    await runner.restartAfterTurn("secrets changed");
+    expect(index.agents.get(agent.id).state).toBe("waiting");
+    expect(driver.launches).toHaveLength(1);
+  });
+});

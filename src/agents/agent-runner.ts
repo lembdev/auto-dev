@@ -61,6 +61,8 @@ type Live = {
   options: AgentSessionOptions;
   idleTimer: TimerHandle | undefined;
   finished: Promise<void>;
+  // Set when the environment changed under the process: it is stopped as soon as its Turn ends.
+  restartPending: boolean;
 };
 
 const isDeferred = (message: SDKMessage): boolean =>
@@ -170,10 +172,26 @@ export class AgentRunner {
     await Promise.all(this.liveIds().map((id) => this.stop(id)));
   }
 
+  // Soft restart after a change of secrets: every live process is stopped the way the idle timeout
+  // stops it, right away when it is between Turns, otherwise once its current Turn ends. The next
+  // message resumes the Session in a fresh process with the new environment.
+  async restartAfterTurn(reason: string): Promise<void> {
+    const now: AgentId[] = [];
+    for (const [id, live] of this._live) {
+      if (this._deps.agents.get(id).state === "running") {
+        live.restartPending = true;
+        this._deps.log.info({ agent: id, reason }, "agent process restarts when its turn ends");
+      } else {
+        now.push(id);
+      }
+    }
+    await Promise.all(now.map((id) => this._restart(id, reason)));
+  }
+
   private _launch(record: AgentRecord, launch: AgentLaunch, options: AgentSessionOptions): AgentRecord {
     const process = this._deps.driver.launch(launch);
     this._options.set(record.id, options);
-    const live: Live = { process, options, idleTimer: undefined, finished: Promise.resolve() };
+    const live: Live = { process, options, idleTimer: undefined, finished: Promise.resolve(), restartPending: false };
     this._live.set(record.id, live);
     const started = this._setState(record.id, { state: "running", pid: process.pid() ?? null, sessionId: process.sessionId() ?? record.sessionId });
     this._deps.log.info({ agent: record.id, issue: record.issueNumber, role: record.role, pid: started.pid, resume: launch.resume }, "agent process started");
@@ -209,12 +227,24 @@ export class AgentRunner {
       patch.lastTurnAt = this._iso();
       if (isDeferred(message)) {
         patch.state = "waiting";
+      } else if (live.restartPending) {
+        patch.state = "idle";
+        void this._restart(id, "turn ended");
       } else {
         patch.state = "idle";
         this._armIdleTimer(id, live);
       }
     }
     this._setState(id, patch);
+  }
+
+  private async _restart(id: AgentId, reason: string): Promise<void> {
+    this._deps.log.info({ agent: id, reason }, "stopping the agent process for a soft restart");
+    try {
+      await this.stop(id);
+    } catch (error) {
+      this._deps.log.error({ err: error, agent: id }, "soft restart stop failed");
+    }
   }
 
   private _armIdleTimer(id: AgentId, live: Live): void {
