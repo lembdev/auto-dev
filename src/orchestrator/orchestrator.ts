@@ -179,6 +179,8 @@ export class Orchestrator {
       transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
       findIssue: (issueNumber) => this._issueOf(issueNumber),
       canStartRound: () => this.canStartTurn(),
+      // The recovery is built later; the callback reads it only during a cycle.
+      isPendingResume: (id) => this._recovery.isPendingResume(id),
       ...(options.prompts ? { prompts: options.prompts } : {}),
       onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
     });
@@ -232,6 +234,7 @@ export class Orchestrator {
       findIssue: (issueNumber) => this._issueOf(issueNumber),
       baseBranch: this._workspace.baseBranch,
       canStart: () => this.canStartTurn(),
+      isPendingResume: (id) => this._recovery.isPendingResume(id),
       ...(options.prompts ? { prompts: options.prompts } : {}),
       onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
     });
@@ -273,6 +276,8 @@ export class Orchestrator {
       canStartTurn: () => this.canStartTurn(),
       onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
       rememberIssue: (issue) => this._issues.set(issue.number, issue),
+      // The Planner is built later; the callback runs only during a cycle.
+      resumePlanner: (agent) => this._planner.resumeInterrupted(agent),
     });
     this._planner = new Planner({
       index: this._index,

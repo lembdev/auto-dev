@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { ASK_HUMAN_TOOL_NAME } from "../../src/adapters/ask-human.js";
 import type { FakeAgentProcess } from "../../src/fakes/driver.js";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
 import type { IssueNumber, Pid, SessionId, ToolUseId } from "../../src/ids.js";
@@ -17,6 +18,8 @@ import { createTestApp, TEST_REPO_PATH, type TestApp } from "../helpers/test-app
 
 const SESSION = "11111111-1111-4111-8111-111111111111" as SessionId;
 const SECOND_SESSION = "22222222-2222-4222-8222-222222222222" as SessionId;
+const MERGER_SESSION = "33333333-3333-4333-8333-333333333333" as SessionId;
+const PLANNER_SESSION = "44444444-4444-4444-8444-444444444444" as SessionId;
 const ISSUE = 42 as IssueNumber;
 const WORKTREE = `${TEST_REPO_PATH}/.claude/worktrees/issue-42`;
 const BRANCH = "worktree-issue-42";
@@ -321,7 +324,7 @@ describe("restart of the Orchestrator", () => {
       expect(driver.lastLaunch().launch).toMatchObject({ resume: SESSION, prompt: "blockers" });
     });
 
-    it("starts a fresh QA round after a restart instead of resuming the old QA Agent", async () => {
+    it("resumes the QA Agent of the current round after a restart and takes the verdict of its resumed Turn", async () => {
       const s = await working();
       const { driver } = s.ports;
       s.implementer.emit(sdkMessages.resultSuccess(SESSION, "done"));
@@ -334,13 +337,102 @@ describe("restart of the Orchestrator", () => {
       await s.restart();
 
       expect(driver.launches).toHaveLength(3);
-      expect(driver.lastLaunch().launch.resume).toBeUndefined();
+      const resumed = driver.lastLaunch();
+      expect(resumed.launch).toMatchObject({ resume: SECOND_SESSION, resumeInterruptedTurn: true, cwd: WORKTREE });
+      expect(resumed.launch.onAskHuman).toBeDefined();
       expect(s.index.agents.listByIssue(ISSUE).map((agent) => [agent.role, agent.state])).toEqual([
         ["implementer", "stopped"],
-        ["qa", "stopped"],
         ["qa", "running"],
       ]);
       expect(signalsOf(s, 1001)).toEqual(["SIGTERM"]);
+
+      const verdict = JSON.stringify({ approved: true, summary: "ok", blockers: [] });
+      resumed.emit(sdkMessages.init(SECOND_SESSION));
+      resumed.emit(sdkMessages.resultSuccess(SECOND_SESSION, verdict));
+      await flush();
+      expect(s.index.tasks.get(ISSUE).stage).toBe("merge");
+      expect(driver.launches).toHaveLength(3);
+    });
+
+    it("keeps a waiting QA Agent through a restart: no new round, the Answer resumes it", async () => {
+      const s = await working();
+      const { driver, github } = s.ports;
+      s.implementer.emit(sdkMessages.resultSuccess(SESSION, "done"));
+      await flush();
+      const qa = driver.lastLaunch();
+      qa.emit(sdkMessages.init(SECOND_SESSION));
+      const call = { ...CALL, toolUseId: "toolu_qa" as ToolUseId };
+      expect(await qa.askHuman(call)).toEqual({ kind: "defer" });
+      qa.emit(
+        sdkMessages.resultSuccess(SECOND_SESSION, "", {
+          stop_reason: "tool_deferred",
+          terminal_reason: "tool_deferred",
+          deferred_tool_use: { id: call.toolUseId, name: ASK_HUMAN_TOOL_NAME, input: { question: call.question } },
+        }),
+      );
+      qa.end();
+      await flush();
+      crash(s);
+
+      const next = await s.restart();
+      expect(driver.launches).toHaveLength(2);
+
+      github.humanComment(42, "yes");
+      await next.pollOnce();
+      expect(driver.launches).toHaveLength(3);
+      expect(driver.lastLaunch().launch).toMatchObject({ resume: SECOND_SESSION });
+      expect(s.index.agents.listByIssue(ISSUE).filter((agent) => agent.role === "qa")).toHaveLength(1);
+    });
+
+    it("resumes a Merger cut short by a restart instead of starting another, and its Turn end brings the extra round", async () => {
+      const s = await working();
+      const { driver, github } = s.ports;
+      s.implementer.emit(sdkMessages.resultSuccess(SESSION, "done"));
+      await flush();
+      const qa = driver.lastLaunch();
+      const approved = JSON.stringify({ approved: true, summary: "ok", blockers: [] });
+      qa.emit(sdkMessages.init(SECOND_SESSION));
+      qa.emit(sdkMessages.resultSuccess(SECOND_SESSION, approved));
+      await flush();
+      github.humanSetMergeable(1, false, "dirty");
+      await s.orchestrator.pollOnce();
+      const merger = driver.lastLaunch();
+      expect(merger.launch.prompt).toContain("Стадии «Merge»");
+      merger.emit(sdkMessages.init(MERGER_SESSION));
+      await flush();
+      crash(s);
+
+      await s.restart();
+
+      expect(driver.launches).toHaveLength(4);
+      const resumed = driver.lastLaunch();
+      expect(resumed.launch).toMatchObject({ resume: MERGER_SESSION, resumeInterruptedTurn: true });
+      expect(s.index.agents.listByIssue(ISSUE).filter((agent) => agent.role === "merger")).toHaveLength(1);
+
+      github.agentPush(1, "sha-merged");
+      resumed.emit(sdkMessages.init(MERGER_SESSION));
+      resumed.emit(sdkMessages.resultSuccess(MERGER_SESSION, "готово"));
+      await flush();
+      expect(s.index.tasks.get(ISSUE).stage).toBe("qa");
+      expect(driver.lastLaunch().launch.prompt).toContain("Стадии «QA»");
+    });
+
+    it("resumes the Planner cut short by a restart as the one open Planner", async () => {
+      const s = await working();
+      const { driver } = s.ports;
+      await s.orchestrator.planner.start({ mode: "new" });
+      const planner = driver.lastLaunch();
+      planner.emit(sdkMessages.init(PLANNER_SESSION));
+      await flush();
+      crash(s);
+
+      const next = await s.restart();
+
+      const resumed = driver.launches.find((process) => process.launch.resume === PLANNER_SESSION);
+      expect(resumed?.launch).toMatchObject({ resumeInterruptedTurn: true, cwd: TEST_REPO_PATH });
+      expect(next.planner.snapshot()).toMatchObject({ open: true, status: "running" });
+      await expect(next.planner.start({ mode: "new" })).rejects.toThrow("already running");
+      expect(s.index.agents.list().filter((agent) => agent.role === "planner")).toHaveLength(1);
     });
 
     it("waits for new Turns to be allowed before resuming", async () => {

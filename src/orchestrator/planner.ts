@@ -186,6 +186,17 @@ export class Planner {
     return agent;
   }
 
+  // A Turn cut short by a restart: the same Session continues and is the open one again. False when the
+  // human has opened another Session meanwhile; there is only ever one Planner.
+  resumeInterrupted(agent: AgentRecord): boolean {
+    if (this._openAgentId !== undefined && this._openAgentId !== agent.id) return false;
+    if (this._liveAgent()) return false;
+    this._runner.resume(agent.id, { resumeInterruptedTurn: true });
+    this._openAgentId = agent.id;
+    this._notify();
+    return true;
+  }
+
   // The human is done for now: the process goes, the Session stays for the next "resume".
   async finish(): Promise<AgentRecord | undefined> {
     const agent = this.current();

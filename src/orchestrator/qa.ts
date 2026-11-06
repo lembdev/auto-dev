@@ -41,11 +41,13 @@ export type QaStageOptions = {
   findIssue: (issueNumber: IssueNumber) => Promise<Issue>;
   // False while the Installation is paused or at the limit: no new round starts, running Turns finish.
   canStartRound?: () => boolean;
+  // True for an Agent whose Turn a restart cut short and that the recovery is about to resume.
+  isPendingResume?: (id: AgentId) => boolean;
   onAskHuman?: AskHumanHandler;
 };
 
-// One QA check of one attempt. It lives in memory only: a QA Session is disposable, so after a restart
-// the Task in `qa` simply gets a fresh round through `startRounds()`.
+// One QA check of one attempt. It lives in memory only: after a restart the QA Agent of the round is
+// taken back (resumed by the recovery or waiting for an Answer), else the Task gets a fresh round.
 type Round = {
   attempt: number;
   round: number;
@@ -72,6 +74,7 @@ export class QaStage {
   private readonly _findIssue: QaStageOptions["findIssue"];
   private readonly _canStartRound: () => boolean;
   private readonly _onAskHuman: AskHumanHandler | undefined;
+  private readonly _isPendingResume: (id: AgentId) => boolean;
   private readonly _rounds = new Map<IssueNumber, Round>();
   private readonly _lastVerdicts = new Map<IssueNumber, Verdict>();
   private readonly _starting = new Set<IssueNumber>();
@@ -89,6 +92,7 @@ export class QaStage {
     this._findIssue = options.findIssue;
     this._canStartRound = options.canStartRound ?? (() => true);
     this._onAskHuman = options.onAskHuman;
+    this._isPendingResume = options.isPendingResume ?? (() => false);
     this._runner.onMessage((agent, message) => this._observe(agent, message));
   }
 
@@ -129,11 +133,12 @@ export class QaStage {
   async ensureRound(issueNumber: IssueNumber): Promise<AgentRecord | undefined> {
     const task = this._index.tasks.find(issueNumber);
     if (!task || task.stage !== "qa" || this._starting.has(issueNumber)) return undefined;
-    const current = this._rounds.get(issueNumber);
+    const current = this._rounds.get(issueNumber) ?? this._adopt(task);
     if (current && current.attempt === task.attempt && current.round === task.round) {
       const agent = this._index.agents.find(current.agentId);
       // A QA Agent in Waiting asked a human: its Answer resumes the same Session, which gives the verdict.
-      if (current.settling || this._runner.isLive(current.agentId) || agent?.state === "waiting") return agent;
+      // One cut short by a restart is about to be resumed by the recovery.
+      if (current.settling || this._runner.isLive(current.agentId) || agent?.state === "waiting" || this._isPendingResume(current.agentId)) return agent;
       // The process is gone without a verdict (crash, orphan after a restart): the round starts over.
       this._log.warn({ issue: issueNumber, agent: current.agentId }, "qa process gone without a verdict");
       this._rounds.delete(issueNumber);
@@ -195,7 +200,8 @@ export class QaStage {
       return;
     }
     if (agent.role !== "qa") return;
-    const round = this._rounds.get(agent.issueNumber);
+    const task = this._index.tasks.find(agent.issueNumber);
+    const round = this._rounds.get(agent.issueNumber) ?? (task ? this._adopt(task) : undefined);
     if (!round || round.agentId !== agent.id || round.settling) return;
     if (message.type === "assistant") {
       const text = message.message.content
@@ -233,6 +239,26 @@ export class QaStage {
     }
     // The same Session already did the review; it only has to answer with the JSON.
     this._fireAndLog(agent.issueNumber, this._runner.send(agent.id, VERDICT_RETRY_PROMPT), "verdict retry not sent");
+  }
+
+  // After a restart the round is gone from memory while its QA Agent still lives on: resumed by the
+  // recovery, pending its resume or waiting for an Answer. That Agent is the round again.
+  private _adopt(task: Task): Round | undefined {
+    if (task.stage !== "qa") return undefined;
+    const enteredAt = this._index.transitions
+      .listFor(task.issueNumber)
+      .filter((transition) => transition.to === "qa")
+      .at(-1)?.at;
+    const agent = this._index.agents
+      .listByIssue(task.issueNumber)
+      .filter((candidate) => candidate.role === "qa" && candidate.createdAt >= task.takenAt && (enteredAt === undefined || candidate.createdAt >= enteredAt))
+      .at(-1);
+    if (!agent) return undefined;
+    if (!this._runner.isLive(agent.id) && agent.state !== "waiting" && !this._isPendingResume(agent.id)) return undefined;
+    const round: Round = { attempt: task.attempt, round: task.round, agentId: agent.id, failures: 0, lastText: "", settling: false };
+    this._rounds.set(task.issueNumber, round);
+    this._log.info({ issue: task.issueNumber, agent: agent.id, state: agent.state }, "qa round taken back after a restart");
+    return round;
   }
 
   private async _restart(previous: AgentId, issueNumber: IssueNumber, failures: number): Promise<void> {

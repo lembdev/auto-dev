@@ -215,6 +215,29 @@ describe("update of the Installation", () => {
       expect(testApp.ports.driver.lastLaunch().launch).toMatchObject({ resume: SESSION, resumeInterruptedTurn: true });
     });
 
+    it("resumes the Planner Turn the update interrupted as the open Planner", async () => {
+      const testApp = app("0.1.0");
+      const plannerSession = "44444444-4444-4444-8444-444444444444" as SessionId;
+      await testApp.orchestrator.planner.start({ mode: "new" });
+      testApp.ports.driver.lastLaunch().emit(sdkMessages.init(plannerSession));
+      await flush();
+      await prepare(testApp);
+      await flush();
+      await testApp.ports.clock.advance(TURN_WAIT_TIMEOUT_MS);
+      await flush();
+      await testApp.orchestrator.shutdown();
+
+      const next = new Orchestrator({ ports: testApp.ports, index: testApp.index, log: testApp.log, product: { repoPath: TEST_REPO_PATH }, version: "0.2.0" });
+      restarted.push(next);
+      const cycle = next.pollOnce();
+      await flush();
+      await testApp.ports.clock.advance(ORPHAN_GRACE_MS);
+      await cycle;
+
+      expect(testApp.ports.driver.lastLaunch().launch).toMatchObject({ resume: plannerSession, resumeInterruptedTurn: true, cwd: TEST_REPO_PATH });
+      expect(next.planner.snapshot()).toMatchObject({ open: true, status: "running" });
+    });
+
     it("keeps a human Pause the update did not set", async () => {
       const testApp = app();
       testApp.orchestrator.installation.pause("human", "holiday");

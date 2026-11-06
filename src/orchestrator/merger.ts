@@ -34,10 +34,13 @@ export type MergerOptions = {
   baseBranch: string;
   // False while the Installation is paused or at the limit: no Merger starts, the conflict waits.
   canStart?: () => boolean;
+  // True for a Merger whose Turn a restart cut short and that the recovery is about to resume.
+  isPendingResume?: (id: AgentRecord["id"]) => boolean;
   onAskHuman?: AskHumanHandler;
 };
 
-// The Merger of one attempt, in memory only: after a restart a conflict simply gets a fresh Merger.
+// The Merger of one attempt, in memory only: after a restart the Merger is resumed by the recovery and
+// its Turn end is taken without the head check (the head before the conflict is not known any more).
 type Resolution = { attempt: number; agentId: AgentRecord["id"]; sha: string; settling: boolean };
 
 // What the Merge Stage does when the pull request cannot be merged. A conflict with the base branch
@@ -59,6 +62,7 @@ export class Merger {
   private readonly _baseBranch: string;
   private readonly _canStart: () => boolean;
   private readonly _onAskHuman: AskHumanHandler | undefined;
+  private readonly _isPendingResume: (id: AgentRecord["id"]) => boolean;
   private readonly _resolutions = new Map<IssueNumber, Resolution>();
 
   constructor(options: MergerOptions) {
@@ -76,6 +80,7 @@ export class Merger {
     this._baseBranch = options.baseBranch;
     this._canStart = options.canStart ?? (() => true);
     this._onAskHuman = options.onAskHuman;
+    this._isPendingResume = options.isPendingResume ?? (() => false);
     this._runner.onMessage((agent, message) => this._observe(agent, message));
   }
 
@@ -87,10 +92,11 @@ export class Merger {
       .at(-1);
   }
 
-  // Whether a Merger is still working on the conflict (its process lives or it waits for an Answer).
+  // Whether a Merger is still working on the conflict: its process lives, it waits for an Answer or a
+  // restart cut its Turn short and the recovery resumes it.
   isResolving(task: Task): boolean {
     const merger = this.findMerger(task);
-    return merger !== undefined && (this._runner.isLive(merger.id) || merger.state === "waiting");
+    return merger !== undefined && (this._runner.isLive(merger.id) || merger.state === "waiting" || this._isPendingResume(merger.id));
   }
 
   // Handler for `MergeStageOptions.onFailure`: true once the failure is taken care of here.

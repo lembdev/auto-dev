@@ -52,6 +52,9 @@ export type RecoveryOptions = {
   // False while the Installation is paused or at the limit: interrupted Turns wait for the next cycle.
   canStartTurn: () => boolean;
   onAskHuman?: AskHumanHandler;
+  // Resumes the Planner whose Turn was cut short and makes it the open one; false when another Planner
+  // is open by now, so only one Planner ever runs.
+  resumePlanner?: (agent: AgentRecord) => boolean;
   // The Orchestrator keeps the issues it fetched here so the Ready queue sees the restored state.
   rememberIssue?: (issue: Issue) => void;
   // The Orchestrator process itself: its descendants are never foreign.
@@ -76,6 +79,7 @@ export class Recovery {
   private readonly _transition: RecoveryOptions["transition"];
   private readonly _canStartTurn: () => boolean;
   private readonly _onAskHuman: AskHumanHandler | undefined;
+  private readonly _resumePlanner: ((agent: AgentRecord) => boolean) | undefined;
   private readonly _rememberIssue: ((issue: Issue) => void) | undefined;
   private readonly _selfPid: Pid;
   private readonly _installationUser: string;
@@ -100,6 +104,7 @@ export class Recovery {
     this._transition = options.transition;
     this._canStartTurn = options.canStartTurn;
     this._onAskHuman = options.onAskHuman;
+    this._resumePlanner = options.resumePlanner;
     this._rememberIssue = options.rememberIssue;
     this._selfPid = options.selfPid ?? (process.pid as Pid);
     this._installationUser = options.installationUser ?? INSTALLATION_USER;
@@ -133,6 +138,12 @@ export class Recovery {
     }
   }
 
+  // An Agent whose Turn was cut short by a restart and waits for its resume: the Stages keep it as theirs
+  // instead of starting a new one.
+  isPendingResume(id: AgentId): boolean {
+    return this._pending().includes(id);
+  }
+
   // A resumed Agent whose process has not produced a message yet; its failure counts as a failed resume.
   isResuming(id: AgentId): boolean {
     return this._resuming.has(id);
@@ -142,9 +153,13 @@ export class Recovery {
   async resumeInterrupted(): Promise<void> {
     for (const id of this._pending()) {
       const agent = this._index.agents.find(id);
+      if (agent?.role === "planner") {
+        if (!this._canStartTurn()) return;
+        this._resumePlannerTurn(agent);
+        continue;
+      }
       const task = agent?.issueNumber === null ? undefined : agent && this._index.tasks.find(agent.issueNumber);
-      // A Task in `merge` needs no Agent any more: the merge Stage works without one.
-      if (!agent || !task || !isActiveStage(task.stage) || task.stage === "merge" || agent.state === "waiting" || this._runner.isLive(id)) {
+      if (!agent || !task || !this._belongsToStage(agent, task) || agent.state === "waiting" || this._runner.isLive(id)) {
         this._removePending(id);
         continue;
       }
@@ -291,10 +306,45 @@ export class Recovery {
 
   // Internals: resume
 
-  // QA rounds and conflict resolutions are disposable and restart from scratch; the Planner works with
-  // the human, not alone. Only the Implementer keeps a Turn worth continuing.
+  // Every Agent that is not waiting continues its cut Turn: the Agents of a Task and the Planner. A QA
+  // Agent, a Merger or a Planner cut short before its Session began has nothing to continue: the Stage
+  // starts a fresh one instead.
   private _isResumable(agent: AgentRecord): boolean {
-    return agent.issueNumber !== null && agent.role === "implementer";
+    if (agent.role === "implementer") return agent.issueNumber !== null;
+    if (agent.sessionId === null) return false;
+    return agent.role === "planner" ? agent.issueNumber === null : agent.issueNumber !== null;
+  }
+
+  // The Agent still works for the Task where it stands: the Implementer before `merge`, the newest QA
+  // Agent in `qa`, the newest Merger in `merge`. Anything else is left behind by a later Stage.
+  private _belongsToStage(agent: AgentRecord, task: Task): boolean {
+    if (!isActiveStage(task.stage)) return false;
+    const newest = this._index.agents
+      .listByIssue(task.issueNumber)
+      .filter((other) => other.role === agent.role)
+      .at(-1);
+    if (newest?.id !== agent.id) return false;
+    switch (agent.role) {
+      case "implementer":
+        return task.stage !== "merge";
+      case "qa":
+        return task.stage === "qa";
+      case "merger":
+        return task.stage === "merge";
+      default:
+        return false;
+    }
+  }
+
+  // The Planner talks to the human, so a failed resume is not retried: the human resumes it from the UI.
+  private _resumePlannerTurn(agent: AgentRecord): void {
+    this._removePending(agent.id);
+    if (agent.state === "waiting" || this._runner.isLive(agent.id) || !this._resumePlanner) return;
+    try {
+      if (this._resumePlanner(agent)) this._log.info({ agent: agent.id, session: agent.sessionId }, "planner session resumed");
+    } catch (error) {
+      this._log.error({ err: error, agent: agent.id }, "planner session not resumed");
+    }
   }
 
   private async _resume(agent: AgentRecord, task: Task, spec: { resumeInterruptedTurn?: boolean; prompt?: string }): Promise<void> {
