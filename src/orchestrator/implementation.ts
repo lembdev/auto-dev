@@ -9,6 +9,7 @@ import type { AskHumanCall, AskHumanDecision } from "../ports/driver.js";
 import type { GitHubPort, Issue } from "../ports/github.js";
 import { StagePrompts } from "../prompts/index.js";
 import { findEpic } from "./epic.js";
+import { isTurnEnd } from "./turns.js";
 
 export class ImplementerNotStartedError extends Error {
   constructor(readonly issueNumber: IssueNumber) {
@@ -37,8 +38,6 @@ export type ImplementationOptions = {
   onAskHuman?: AskHumanHandler;
 };
 
-const isTurnEnd = (message: SDKMessage): boolean =>
-  message.type === "result" && !(message.subtype === "success" && message.terminal_reason === "tool_deferred");
 
 // The Implementation Stage: one Implementer Session per Task attempt, started in the worktree with
 // the `implement` prompt. The end of each Turn hands the Task to QA.

@@ -4,10 +4,15 @@ import { clockTime, limitLevel, type LimitLevel } from "../format.js";
 
 export type Mode = "development" | "planning";
 
+// Which screen is under the header: the mode's main screen or one of the pages linked at the right.
+export type Page = "main" | "stats";
+
 export type HeaderProps = {
   installation: InstallationResponse | undefined;
   mode: Mode;
   onMode: (mode: Mode) => void;
+  page: Page;
+  onPage: (page: Page) => void;
   onPause: (paused: boolean) => void;
   pausePending: boolean;
   connected: boolean;
@@ -52,12 +57,15 @@ const PAUSE_SOURCE_TEXT: Record<string, string> = {
 };
 
 export function Header(props: HeaderProps) {
-  const { installation, mode } = props;
+  const { installation, mode, page } = props;
   const paused = installation?.paused ?? false;
   const segment = (value: Mode, label: string) => (
     <button
       type="button"
-      onClick={() => props.onMode(value)}
+      onClick={() => {
+        props.onMode(value);
+        props.onPage("main");
+      }}
       aria-pressed={mode === value}
       className={`px-3 py-1 ${mode === value ? "bg-blue-600 text-white" : "hover:bg-neutral-200 dark:hover:bg-neutral-700"}`}
     >
@@ -99,7 +107,9 @@ export function Header(props: HeaderProps) {
       <span className="flex-1" />
       <nav className="flex gap-3 text-xs text-neutral-500">
         <span title="Появится в следующих тикетах">Настройки</span>
-        <span title="Появится в следующих тикетах">Статистика</span>
+        <button type="button" aria-current={page === "stats" ? "page" : undefined} className={page === "stats" ? "font-semibold text-neutral-900 dark:text-neutral-100" : "hover:underline"} onClick={() => props.onPage(page === "stats" ? "main" : "stats")}>
+          Статистика
+        </button>
         <span title={props.connected ? "живые события подключены" : "нет связи с сервером, данные обновляются опросом"} data-testid="connection" data-connected={props.connected}>
           {props.connected ? "● live" : "○ offline"}
         </span>

@@ -27,15 +27,21 @@ export type LimitLevel = "ok" | "warn" | "danger";
 
 export const limitLevel = (percent: number): LimitLevel => (percent >= 85 ? "danger" : percent >= 60 ? "warn" : "ok");
 
-// "42 мин", "2 ч 10 мин", "3 дн 4 ч": time passed since `iso` at `now`.
-export function elapsed(iso: string, now: number): string {
-  const minutes = Math.max(0, Math.floor((now - Date.parse(iso)) / 60_000));
-  if (minutes < 1) return "только что";
+// "42 мин", "2 ч 10 мин", "3 дн 4 ч": a span of time; under a minute it is "< 1 мин".
+export function duration(ms: number): string {
+  const minutes = Math.max(0, Math.floor(ms / 60_000));
+  if (minutes < 1) return "< 1 мин";
   if (minutes < 60) return `${minutes} мин`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} ч ${minutes % 60} мин`;
   const days = Math.floor(hours / 24);
   return `${days} дн ${hours % 24} ч`;
+}
+
+// Time passed since `iso` at `now`; "только что" inside the first minute.
+export function elapsed(iso: string, now: number): string {
+  const ms = now - Date.parse(iso);
+  return ms < 60_000 ? "только что" : duration(ms);
 }
 
 const WEEKDAYS = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];

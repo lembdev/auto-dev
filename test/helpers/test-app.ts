@@ -1,7 +1,7 @@
 import { Writable } from "node:stream";
 import { createFakePorts, type FakePorts } from "../../src/fakes/index.js";
 import { IN_MEMORY, openRuntimeIndex, type RuntimeIndex } from "../../src/index/runtime-index.js";
-import { createLogger, type LogLevel, type Logger } from "../../src/log.js";
+import { createLogger, LogBuffer, type LogLevel, type Logger } from "../../src/log.js";
 import { Orchestrator, type OrchestratorHooks } from "../../src/orchestrator/orchestrator.js";
 import { createApp, type App } from "../../src/server/app.js";
 
@@ -65,7 +65,8 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
   ports.worktree.seedRepo(TEST_REPO_PATH);
   const index = openRuntimeIndex(IN_MEMORY);
   const sink = createLogSink();
-  const log = createLogger({ level: options.logLevel ?? "silent", destination: sink });
+  const logBuffer = new LogBuffer();
+  const log = createLogger({ level: options.logLevel ?? "silent", destination: sink, buffer: logBuffer });
   const product = { repoPath: TEST_REPO_PATH };
   const dataDir = TEST_DATA_DIR;
   const orchestrator = new Orchestrator(
@@ -79,6 +80,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
     orchestrator,
     auth: { passwordHash: options.passwordHash === null ? undefined : (options.passwordHash ?? TEST_PASSWORD_HASH), allowedHosts: options.allowedHosts ?? [] },
     ...(options.clientDir !== undefined ? { clientDir: options.clientDir } : {}),
+    logs: logBuffer,
   });
   let cookie: string | undefined;
   const login = async (): Promise<string> => {

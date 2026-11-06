@@ -5,7 +5,7 @@ import type { AgentId } from "../ids.js";
 import type { HumanRequest } from "../index/human-requests.js";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Task, Transition } from "../index/tasks.js";
-import type { Logger } from "../log.js";
+import { LogBuffer, type Logger, type LogSource } from "../log.js";
 import { PAUSE_SOURCES, type PauseSource } from "../orchestrator/installation-state.js";
 import type { Orchestrator } from "../orchestrator/orchestrator.js";
 import type { Ports } from "../ports/index.js";
@@ -25,6 +25,7 @@ import type {
   TaskView,
   TasksResponse,
 } from "./api-types.js";
+import { registerStatsRoutes } from "./routes/stats.js";
 import {
   clearSessionCookie,
   hasSession,
@@ -49,12 +50,16 @@ export type {
   FinishedTaskView,
   HealthResponse,
   InstallationResponse,
+  LimitHistoryResponse,
+  LogEntryView,
+  LogsResponse,
   PauseRequest,
   ProductView,
   ReadyTaskView,
   RequestView,
   ServerEvent,
   SessionResponse,
+  StatsResponse,
   StuckTaskView,
   TaskView,
   TasksResponse,
@@ -70,6 +75,8 @@ export type AppDeps = {
   // Built client bundle; without it the server answers only the API.
   clientDir?: string;
   product?: ProductView;
+  // Where `GET /api/logs` reads the journal tail from; an empty buffer when nothing is wired.
+  logs?: LogSource;
 };
 
 export const DEFAULT_PAUSE_REASON = "paused from the UI";
@@ -254,6 +261,7 @@ export function createApp(deps: AppDeps): App {
   app.get("/api/installation", (c) => c.json(installationView()));
 
   app.route("/api/tasks", agentRoutes({ ports: deps.ports, index: deps.index, log: deps.log, orchestrator: deps.orchestrator }));
+  registerStatsRoutes(app, { index: deps.index, clock: deps.ports.clock, logs: deps.logs ?? new LogBuffer() });
 
   app.put("/api/installation/pause", async (c) => {
     let body: unknown;

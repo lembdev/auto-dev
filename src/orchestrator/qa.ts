@@ -12,6 +12,7 @@ import { StagePrompts } from "../prompts/index.js";
 import type { DeadEnds } from "./dead-end.js";
 import { findEpic } from "./epic.js";
 import type { AskHumanHandler, Implementation } from "./implementation.js";
+import { isTurnEnd } from "./turns.js";
 import { formatBlockers, formatVerdict, parseVerdict, type Verdict } from "./verdict.js";
 
 export const DEFAULT_MAX_QA_ROUNDS = 3;
@@ -55,8 +56,6 @@ type Round = {
   settling: boolean;
 };
 
-const isTurnEnd = (message: SDKMessage): boolean =>
-  message.type === "result" && !(message.subtype === "success" && message.terminal_reason === "tool_deferred");
 
 // The QA Stage: every round starts a new QA Agent with a clean Session in the worktree, its verdict
 // moves the Task on (blockers back to the Implementer, approval to merge) or into a dead end.
