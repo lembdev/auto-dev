@@ -1,3 +1,6 @@
-# The auto-dev user has no sudo beyond these two commands: the updater and its own journal.
+# The auto-dev user has no sudo beyond these commands: the updater and its own journal.
+# The "Обновить" button runs the updater in a transient unit of its own, so stopping auto-dev.service does not kill it;
+# `=` in arguments is escaped as sudoers requires.
 auto-dev ALL=(root) NOPASSWD: /usr/bin/update
+auto-dev ALL=(root) NOPASSWD: /usr/bin/systemd-run --unit\=auto-dev-update --collect --setenv\=PHS_SILENT\=1 --setenv\=HOME\=/root /usr/bin/update
 auto-dev ALL=(root) NOPASSWD: /usr/bin/journalctl -u auto-dev *

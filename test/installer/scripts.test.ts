@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ctDefault, readRepoFile, repoRoot } from "./helpers.js";
 
 const CORE_SHA = /^[0-9a-f]{40}$/;
-const SCRIPTS = ["ct/auto-dev.sh", "install/auto-dev-install.sh", "scripts/package-release.sh"];
+const SCRIPTS = ["ct/auto-dev.sh", "install/auto-dev-install.sh", "scripts/package-release.sh", "deploy/auto-dev-update.sh", "deploy/update"];
 
 const hasShellcheck = spawnSync("shellcheck", ["--version"], { stdio: "ignore" }).status === 0;
 
@@ -46,14 +46,19 @@ describe("ct/auto-dev.sh", () => {
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
   });
 
-  it("updates from the GitHub releases of lembdev/auto-dev into a new release directory and ends with exit", () => {
+  it("downloads a newer GitHub release of lembdev/auto-dev and hands it to the update procedure of that release", () => {
     const body = script.slice(script.indexOf("function update_script()"), script.indexOf("\nstart\n"));
-    expect(body).toContain('check_for_gh_release "auto-dev" "lembdev/auto-dev"');
-    expect(body).toMatch(/fetch_and_deploy_gh_release "auto-dev" "lembdev\/auto-dev" "prebuild" "latest" "[^"]+" "auto-dev-\*\.tar\.gz"/);
-    expect(body).toContain("systemctl stop auto-dev");
-    expect(body).toContain("systemctl start auto-dev");
-    expect(body).toContain("/opt/auto-dev/releases/");
-    expect(body).toContain("/opt/auto-dev/current");
+    const order = [
+      'check_for_gh_release "auto-dev" "lembdev/auto-dev"',
+      'staging="$(mktemp -d /opt/auto-dev/.deploy.XXXXXX)"',
+      'fetch_and_deploy_gh_release "auto-dev" "lembdev/auto-dev" "prebuild" "latest" "$staging" "auto-dev-*.tar.gz"',
+      'bash "$staging/deploy/auto-dev-update.sh" install "$staging"',
+    ];
+    const positions = order.map((line) => body.indexOf(line));
+    expect(positions.every((p) => p >= 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    // The stop belongs to the procedure, after the Pause and the wait for the Turns.
+    expect(body).not.toContain("systemctl stop");
     expect(body.trimEnd().endsWith("exit\n}")).toBe(true);
   });
 
@@ -92,6 +97,10 @@ describe("install/auto-dev-install.sh", () => {
     }
     // The wizard creates the env file itself; an empty one would only confuse the "file exists" status.
     expect(script).not.toContain("/etc/auto-dev/env");
+  });
+
+  it("puts the update command that knows --rollback ahead of the engine's one", () => {
+    expect(script).toContain("install -m 0755 /opt/auto-dev/current/deploy/update /usr/local/bin/update");
   });
 
   it("deploys the latest release under releases/<version>, points current at it and enables the service", () => {

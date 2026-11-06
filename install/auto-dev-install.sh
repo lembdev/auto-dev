@@ -53,6 +53,8 @@ msg_info "Creating Service"
 install -m 0644 /opt/auto-dev/current/deploy/auto-dev.service /etc/systemd/system/auto-dev.service
 install -m 0440 /opt/auto-dev/current/deploy/auto-dev.sudoers /etc/sudoers.d/auto-dev
 visudo -cf /etc/sudoers.d/auto-dev >/dev/null
+# `update --rollback`: the engine's /usr/bin/update drops arguments, this one in /usr/local/bin comes first in PATH.
+install -m 0755 /opt/auto-dev/current/deploy/update /usr/local/bin/update
 systemctl enable -q --now auto-dev
 msg_ok "Created Service"
 

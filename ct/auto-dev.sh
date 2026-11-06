@@ -38,30 +38,14 @@ function update_script() {
   fetch_and_deploy_gh_release "gh" "cli/cli" "binary"
 
   if check_for_gh_release "auto-dev" "lembdev/auto-dev"; then
-    msg_info "Stopping Service"
-    systemctl stop auto-dev
-    msg_ok "Stopped Service"
-
-    # Each release lands in its own directory; `current` flips to it, the previous one stays for a rollback.
+    # The download happens while the service still runs; the stop comes only once the release is on disk.
     staging="$(mktemp -d /opt/auto-dev/.deploy.XXXXXX)"
     fetch_and_deploy_gh_release "auto-dev" "lembdev/auto-dev" "prebuild" "latest" "$staging" "auto-dev-*.tar.gz"
-    version="$(jq -r .version "$staging/package.json")"
 
-    msg_info "Switching to auto-dev ${version}"
-    rm -rf "/opt/auto-dev/releases/${version}"
-    mv "$staging" "/opt/auto-dev/releases/${version}"
-    chown -R root:root "/opt/auto-dev/releases/${version}"
-    chmod -R u+rwX,go+rX,go-w "/opt/auto-dev/releases/${version}"
-    ln -sfn "releases/${version}" /opt/auto-dev/current
-    install -m 0644 /opt/auto-dev/current/deploy/auto-dev.service /etc/systemd/system/auto-dev.service
-    install -m 0440 /opt/auto-dev/current/deploy/auto-dev.sudoers /etc/sudoers.d/auto-dev
-    visudo -cf /etc/sudoers.d/auto-dev >/dev/null
-    systemctl daemon-reload
-    msg_ok "Switched to auto-dev ${version}"
-
-    msg_info "Starting Service"
-    systemctl start auto-dev
-    msg_ok "Started Service"
+    # The new release brings its own procedure: Pause and the running Turns, stop, releases/<version>,
+    # migrations forward, `current`, unit and sudoers, start. It refuses an index newer than its code.
+    msg_info "Installing the new release"
+    bash "$staging/deploy/auto-dev-update.sh" install "$staging"
     msg_ok "Updated successfully!"
   fi
   exit

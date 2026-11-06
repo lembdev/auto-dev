@@ -26,10 +26,11 @@ export const REQUEST_TTL_MS = 10 * 60_000;
 export const UPDATE_PAUSE_REASON = "the Installation is being updated";
 
 // What the UI runs through sudo: the engine's `update` in a transient unit of its own, so stopping
-// auto-dev.service does not kill the updater as a child of the service. Silent mode: there is no terminal.
+// auto-dev.service does not kill the updater as a child of the service. Silent mode: there is no terminal;
+// HOME: the engine keeps the installed version in `~/.auto-dev` of root. The sudoers rule matches these exact arguments.
 export const UPDATE_COMMAND = {
   command: "sudo",
-  args: ["-n", "/usr/bin/systemd-run", "--unit=auto-dev-update", "--collect", "--setenv=PHS_SILENT=1", "/usr/bin/update"],
+  args: ["-n", "/usr/bin/systemd-run", "--unit=auto-dev-update", "--collect", "--setenv=PHS_SILENT=1", "--setenv=HOME=/root", "/usr/bin/update"],
 } as const;
 
 export type UpdatePhase = "idle" | "requested" | "preparing" | "ready";

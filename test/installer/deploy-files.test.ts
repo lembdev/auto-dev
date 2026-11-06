@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { UPDATE_COMMAND } from "../../src/orchestrator/update-coordinator.js";
 import { environmentOf, parseUnit, readRepoFile } from "./helpers.js";
 
 describe("deploy/auto-dev.service", () => {
@@ -46,10 +47,17 @@ describe("deploy/auto-dev.sudoers", () => {
     .map((line) => line.trim())
     .filter((line) => line !== "" && !line.startsWith("#"));
 
-  it("allows auto-dev exactly the updater and its own journal, without a password", () => {
+  it("allows auto-dev exactly the updater, the updater in its own unit and its own journal, without a password", () => {
     expect(rules).toEqual([
       "auto-dev ALL=(root) NOPASSWD: /usr/bin/update",
+      "auto-dev ALL=(root) NOPASSWD: /usr/bin/systemd-run --unit\\=auto-dev-update --collect --setenv\\=PHS_SILENT\\=1 --setenv\\=HOME\\=/root /usr/bin/update",
       "auto-dev ALL=(root) NOPASSWD: /usr/bin/journalctl -u auto-dev *",
     ]);
+  });
+
+  it("matches the command the Обновить button runs, argument for argument", () => {
+    const rule = rules.find((line) => line.includes("systemd-run")) ?? "";
+    const command = rule.slice(rule.indexOf("NOPASSWD: ") + "NOPASSWD: ".length).replace(/\\=/g, "=");
+    expect([UPDATE_COMMAND.command, ...UPDATE_COMMAND.args].join(" ")).toBe(`sudo -n ${command}`);
   });
 });
