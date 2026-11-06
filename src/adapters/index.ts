@@ -26,7 +26,6 @@ export type { SdkDriverOptions } from "./driver.js";
 export { buildAgentEnv, agentEnvSourceFrom, AGENT_ENV_KEYS, AgentEnvError } from "./agent-env.js";
 export type { AgentEnvSource } from "./agent-env.js";
 export { ASK_HUMAN_TOOL_NAME, ASK_HUMAN_SERVER, ASK_HUMAN_TOOL } from "./ask-human.js";
-export { notImplemented, NotImplementedError } from "./not-implemented.js";
 export { createSwitchablePort, PortNotConfiguredError, type SwitchablePort } from "./switchable.js";
 export { GitWorktreeAdapter, GitError, parseWorktreeList, type GitWorktreeOptions } from "./worktree.js";
 
