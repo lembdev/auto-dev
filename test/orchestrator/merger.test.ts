@@ -89,7 +89,7 @@ describe("Merger and CI as a round", () => {
   };
 
   const transitions = (s: TestApp) => s.index.transitions.listFor(ISSUE).map((t) => [t.from, t.to, t.reason]);
-  const tasks = async (s: TestApp): Promise<TasksResponse> => (await s.app.request("/api/tasks")).json() as Promise<TasksResponse>;
+  const tasks = async (s: TestApp): Promise<TasksResponse> => (await s.request("/api/tasks")).json() as Promise<TasksResponse>;
 
   it("brings a Merger up in the worktree on a conflict instead of a dead end, with the merge prompt and the base branch", async () => {
     const s = await conflicted();
