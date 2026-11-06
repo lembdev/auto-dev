@@ -22,13 +22,14 @@ const task = (overrides: Partial<TaskView> = {}): TaskView => ({
   htmlUrl: "https://github.com/acme/product/issues/138",
   pullUrl: "https://github.com/acme/product/pull/147",
   agent: { id: 5 as AgentId, role: "qa", state: "running", lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" },
+  agents: [],
   transitions: [],
   request: null,
   ...overrides,
 });
 
 const renderCard = (view: TaskView, handlers: { onOpen?: () => void; onAnswer?: () => void } = {}) =>
-  render(<TaskCard task={view} maxQaRounds={3} now={NOW} selected={false} onOpen={handlers.onOpen ?? vi.fn()} onAnswer={handlers.onAnswer ?? vi.fn()} />);
+  render(<TaskCard task={view} maxQaRounds={3} now={NOW} selectedKey={null} onOpen={handlers.onOpen ?? vi.fn()} onAnswer={handlers.onAnswer ?? vi.fn()} />);
 
 describe("TaskCard", () => {
   it("shows the number, the title, the milestone, the QA round, the Agent badge, the PR and the time", () => {
@@ -45,6 +46,33 @@ describe("TaskCard", () => {
     expect(screen.queryByRole("button", { name: "Ответить" })).toBeNull();
     fireEvent.click(card);
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ issueNumber: 138 }));
+  });
+
+  it("draws the steps of the Pipeline and opens the feed of the clicked one", () => {
+    const onOpen = vi.fn();
+    const implementer = { id: 4 as AgentId, role: "implementer" as const, state: "stopped" as const, lastTurnAt: null, createdAt: "2026-01-01T09:50:00.000Z" };
+    const qa = { id: 5 as AgentId, role: "qa" as const, state: "running" as const, lastTurnAt: null, createdAt: "2026-01-01T10:30:00.000Z" };
+    renderCard(
+      task({
+        stage: "qa",
+        round: 0,
+        agent: qa,
+        agents: [implementer, qa],
+        transitions: [
+          { id: 1, issueNumber: 138 as IssueNumber, from: null, to: "taken", reason: null, at: "2026-01-01T09:50:00.000Z" },
+          { id: 2, issueNumber: 138 as IssueNumber, from: "taken", to: "implement", reason: "implementer started", at: "2026-01-01T09:50:00.000Z" },
+          { id: 3, issueNumber: 138 as IssueNumber, from: "implement", to: "qa", reason: "implementer turn finished", at: "2026-01-01T10:30:00.000Z" },
+        ],
+      }),
+      { onOpen },
+    );
+    expect(screen.getByTestId("node-implement-0")).toHaveTextContent("Реализация");
+    expect(screen.getByTestId("node-implement-0")).toHaveTextContent("готово");
+    expect(screen.getByTestId("node-implement-0")).toHaveAttribute("title", "Реализация · готово · 40 мин. Открыть лог");
+    expect(screen.getByTestId("node-qa-1")).toHaveAttribute("data-status", "running");
+    expect(screen.getByTestId("node-merge-next")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("node-implement-0"));
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ issueNumber: 138 }), "implement-0");
   });
 
   it("highlights a waiting Task, shows the first line of the Request and offers to answer", () => {

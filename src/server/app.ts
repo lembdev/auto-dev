@@ -43,6 +43,7 @@ import {
 } from "./auth.js";
 import { isPublicSetupRequest, registerSetupRoutes } from "./setup-routes.js";
 import { registerSettingsRoutes } from "./settings-routes.js";
+import { attemptAgentsOf } from "../orchestrator/current-agent.js";
 import { agentRoutes, agentView, currentAgentOf } from "./routes/agent.js";
 import { dialogueRoutes, parseDialogueFrame } from "./routes/dialogue.js";
 import { plannerRoutes } from "./routes/planner.js";
@@ -285,6 +286,7 @@ export function createApp(deps: AppDeps): App {
       pullUrl: pullUrlOf(htmlUrl, task.pullNumber),
       transitions: deps.index.transitions.listFor(task.issueNumber),
       agent: agentOf(task),
+      agents: attemptAgentsOf(deps.index.agents, task).map(agentView),
       request: await requestOf(task, htmlUrl),
     };
   };
@@ -293,6 +295,15 @@ export function createApp(deps: AppDeps): App {
     const viewed = await taskView(task);
     const last = viewed.transitions.at(-1);
     return { ...viewed, reason: last?.reason ?? null, finishedAt: last?.at ?? null };
+  };
+
+  // Tasks merged within the last day stay on the screen, so their Pipeline can still be read.
+  const recentlyDone = async (): Promise<FinishedTaskView[]> => {
+    const since = deps.ports.clock.now() - RECENT_DONE_MS;
+    // `updatedAt` moves with every transition, so it cuts the old ones off before the views are built.
+    const recent = deps.index.tasks.listByStage(["done"]).filter((task) => Date.parse(task.updatedAt) >= since);
+    const views = await Promise.all(recent.map(finishedView));
+    return views.filter((view) => view.finishedAt !== null && Date.parse(view.finishedAt) >= since).sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""));
   };
 
   app.get("/api/tasks", async (c) => {
@@ -311,6 +322,7 @@ export function createApp(deps: AppDeps): App {
       ),
       stuck: await Promise.all(deps.index.tasks.listByStage(["stuck"]).map(finishedView)),
       cancelled: await Promise.all(deps.index.tasks.listByStage(["cancelled"]).map(finishedView)),
+      done: await recentlyDone(),
     };
     return c.json(body);
   });
@@ -538,6 +550,8 @@ export function createApp(deps: AppDeps): App {
 }
 
 // A Task can enter the same Stage twice between visits; the digest names it once, by the latest entry.
+const RECENT_DONE_MS = 24 * 60 * 60 * 1000;
+
 const lastPerIssue = (transitions: Transition[]): Transition[] => {
   const byIssue = new Map<number, Transition>();
   for (const transition of transitions) byIssue.set(transition.issueNumber, transition);

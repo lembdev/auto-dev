@@ -171,7 +171,8 @@ export function useStartUpdate() {
   });
 }
 
-export const fetchAgentHistory = (issueNumber: number) => api<AgentHistoryResponse>(`/api/tasks/${issueNumber}/agent/history`);
+// The Session history of one Agent of a Task: a node of the Pipeline, live or finished.
+export const fetchAgentHistory = (issueNumber: number, agentId: number) => api<AgentHistoryResponse>(`/api/tasks/${issueNumber}/agents/${agentId}/history`);
 
 // "Остановить ход": the Turn is interrupted, the Session stays; the card follows the `agent` event.
 export function useInterrupt() {

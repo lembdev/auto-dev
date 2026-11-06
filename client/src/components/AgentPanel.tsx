@@ -3,16 +3,21 @@ import type { TaskView } from "../../../src/server/api-types.js";
 import { useAgentFeed } from "../agent-feed.js";
 import { useDialogueOutbox } from "../dialogue.js";
 import type { FeedState } from "../feed.js";
-import { AGENT_LABELS, stageLabel } from "../format.js";
+import { AGENT_LABELS } from "../format.js";
+import type { PipelineNode } from "../pipeline.js";
 import { useCancelTask, useInterrupt } from "../queries.js";
 import { AgentFeed } from "./AgentFeed.js";
 import { DialogueBox } from "./DialogueBox.js";
 import { RequestBlock } from "./RequestBlock.js";
-import { Badge, Button, CloseIcon, LINK } from "./ui.js";
+import { Badge, Banner, Button, CloseIcon, LINK } from "./ui.js";
 
 export type AgentPanelProps = {
   task: TaskView;
-  maxQaRounds: number;
+  // The step whose feed the panel shows; it stays put when the Task moves on.
+  node: PipelineNode;
+  // The step the Task is on now; undefined once the Task left the Pipeline.
+  liveNode: PipelineNode | undefined;
+  onJump: (nodeKey: string) => void;
   // True when opened by the "Ответить" button: the Request block gets the focus once it exists.
   answering: boolean;
   onClose: () => void;
@@ -22,14 +27,20 @@ export type AgentPanelProps = {
   dialogueSlot?: ReactNode;
 };
 
-// The drawer of one Agent: the Request if there is one, the Session feed, the Dialogue, the buttons.
-// Data and actions come from the hooks; `AgentPanelView` below is the part the tests render.
-export function AgentPanel({ task, maxQaRounds, answering, onClose, requestSlot, dialogueSlot }: AgentPanelProps) {
-  const feed = useAgentFeed(task.issueNumber, task.agent?.id ?? null);
+// The live step shares its Session with the opened one: then the Dialogue and the buttons apply to it.
+export const isInteractive = (node: PipelineNode, liveNode: PipelineNode | undefined): boolean =>
+  liveNode !== undefined && node.agent !== null && liveNode.agent?.id === node.agent.id;
+
+// The side panel of one step of a Task: the Request if there is one, the Session feed, the Dialogue,
+// the buttons. Data and actions come from the hooks; `AgentPanelView` below is the part the tests render.
+export function AgentPanel(props: AgentPanelProps) {
+  const { task, node, liveNode, answering, onClose, requestSlot, dialogueSlot } = props;
+  const feed = useAgentFeed(task.issueNumber, node.agent?.id ?? null);
   const interrupt = useInterrupt();
   const cancel = useCancelTask();
   const outbox = useDialogueOutbox(task.issueNumber);
-  const request = task.request;
+  const interactive = isInteractive(node, liveNode);
+  const request = interactive && task.request?.agentId === node.agent?.id ? task.request : null;
   const requestBlock =
     requestSlot ??
     (request ? (
@@ -40,13 +51,10 @@ export function AgentPanel({ task, maxQaRounds, answering, onClose, requestSlot,
         onAnswer={(text) => outbox.send({ kind: "answer", issueNumber: task.issueNumber, requestId: request.id }, text)}
       />
     ) : undefined);
-  const dialogueBox = dialogueSlot ?? <DialogueBox issueNumber={task.issueNumber} outbox={outbox} />;
+  const dialogueBox = dialogueSlot ?? (interactive ? <DialogueBox issueNumber={task.issueNumber} outbox={outbox} /> : undefined);
   return (
     <AgentPanelView
-      task={task}
-      maxQaRounds={maxQaRounds}
-      answering={answering}
-      onClose={onClose}
+      {...props}
       feed={feed.feed}
       feedStatus={feed.status}
       feedError={feed.error}
@@ -57,7 +65,7 @@ export function AgentPanel({ task, maxQaRounds, answering, onClose, requestSlot,
       cancelPending={cancel.isPending}
       cancelError={cancel.error?.message ?? null}
       {...(requestBlock !== undefined ? { requestSlot: requestBlock } : {})}
-      dialogueSlot={dialogueBox}
+      {...(dialogueBox !== undefined ? { dialogueSlot: dialogueBox } : {})}
     />
   );
 }
@@ -75,9 +83,13 @@ export type AgentPanelViewProps = AgentPanelProps & {
 };
 
 export function AgentPanelView(props: AgentPanelViewProps) {
-  const { task, maxQaRounds, onClose } = props;
+  const { task, node, liveNode, onClose } = props;
   const [confirming, setConfirming] = useState(false);
-  const running = task.agent?.state === "running";
+  const interactive = isInteractive(node, liveNode);
+  // The state of the opened Agent as the Task reports it now, fresher than the node's copy.
+  const agent = task.agent?.id === node.agent?.id ? task.agent : node.agent;
+  const running = interactive && agent?.state === "running";
+  const active = liveNode !== undefined;
   const dialogRef = useRef<HTMLDivElement>(null);
   // The drawer takes the focus when it opens (Tab then walks its controls), unless the Request field asked for it.
   useEffect(() => {
@@ -85,18 +97,20 @@ export function AgentPanelView(props: AgentPanelViewProps) {
   }, [props.answering]);
 
   return (
-    <div ref={dialogRef} tabIndex={-1} className="flex h-full min-h-0 flex-col outline-none" role="dialog" aria-modal="true" aria-label={`Агент Задачи #${task.issueNumber}`}>
+    <div ref={dialogRef} tabIndex={-1} className="flex h-full min-h-0 flex-col outline-none" role="dialog" aria-modal="false" aria-label={`${node.title}: Задача #${task.issueNumber}`}>
       <div className="flex items-start gap-3 border-b border-line px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="font-semibold">
             <span className="font-normal text-muted tabular-nums">#{task.issueNumber}</span> {task.title}
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-            <Badge tone="accent">{stageLabel(task, maxQaRounds)}</Badge>
-            {task.agent && (
-              <Badge tone={task.agent.state === "running" ? "ok" : task.agent.state === "waiting" ? "warn" : "neutral"} dot>
-                {AGENT_LABELS[task.agent.state]}
+            <Badge tone="accent">{node.title}</Badge>
+            {interactive && agent ? (
+              <Badge tone={agent.state === "running" ? "ok" : agent.state === "waiting" ? "warn" : "neutral"} dot>
+                {AGENT_LABELS[agent.state]}
               </Badge>
+            ) : (
+              <Badge>{node.outcome ? `завершён: ${node.outcome}` : "завершён"}</Badge>
             )}
             {task.pullUrl && task.pullNumber !== null && (
               <a href={task.pullUrl} target="_blank" rel="noreferrer" className={LINK}>
@@ -109,10 +123,25 @@ export function AgentPanelView(props: AgentPanelViewProps) {
           <CloseIcon />
         </Button>
       </div>
-      {props.requestSlot}
+      {liveNode && !interactive && (
+        <div className="border-b border-line px-4 py-2.5">
+          <Banner
+            tone="accent"
+            data-testid="moved-on"
+            action={
+              <Button size="sm" onClick={() => props.onJump(liveNode.key)}>
+                Перейти
+              </Button>
+            }
+          >
+            Задача ушла дальше, сейчас: <span className="font-medium">{liveNode.title}</span>
+          </Banner>
+        </div>
+      )}
+      {interactive && props.requestSlot}
       <AgentFeed feed={props.feed} status={props.feedStatus} error={props.feedError} />
       <div className="flex flex-col gap-2.5 border-t border-line bg-surface-2/60 px-4 py-3 text-sm">
-        {props.dialogueSlot}
+        {interactive && props.dialogueSlot}
         {confirming && (
           <div className="rounded-lg border border-danger/50 bg-danger-soft p-3 text-xs" data-testid="cancel-confirm" role="alertdialog" aria-label="Отмена Задачи">
             Отменить Задачу #{task.issueNumber}? Issue будет закрыта без влитого PR, Агент погашен, worktree и PR убраны.
@@ -137,16 +166,18 @@ export function AgentPanelView(props: AgentPanelViewProps) {
               Остановить ход
             </Button>
           )}
-          <Button variant="danger" size="sm" disabled={confirming} onClick={() => setConfirming(true)}>
-            Отменить задачу
-          </Button>
+          {active && (
+            <Button variant="danger" size="sm" disabled={confirming} onClick={() => setConfirming(true)}>
+              Отменить задачу
+            </Button>
+          )}
           <span className="flex-1" />
           {props.interruptError && (
             <span className="text-xs text-danger-text" role="alert">
               Не остановлено: {props.interruptError}
             </span>
           )}
-          <span className="text-xs text-muted">Другого ручного управления нет</span>
+          <span className="text-xs text-muted">{interactive ? "Другого ручного управления нет" : "Лог завершённого шага, только чтение"}</span>
         </div>
       </div>
     </div>

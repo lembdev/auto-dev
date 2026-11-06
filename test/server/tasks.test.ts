@@ -23,7 +23,7 @@ describe("GET /api/tasks", () => {
 
   it("is empty before the first poll", async () => {
     testApp = createTestApp();
-    expect(await tasks()).toEqual({ slots: { used: 0, max: 2 }, maxQaRounds: 3, inProgress: [], ready: [], stuck: [], cancelled: [] });
+    expect(await tasks()).toEqual({ slots: { used: 0, max: 2 }, maxQaRounds: 3, inProgress: [], ready: [], stuck: [], cancelled: [], done: [] });
   });
 
   it("shows Tasks in progress, the Ready queue in order and the Slots", async () => {
@@ -62,6 +62,7 @@ describe("GET /api/tasks", () => {
             { id: 2, issueNumber: 1, from: "taken", to: "implement", reason: "implementer started", at: takenAt },
           ],
           agent: { id: 1, role: "implementer", state: "running", lastTurnAt: null, createdAt: takenAt },
+          agents: [{ id: 1, role: "implementer", state: "running", lastTurnAt: null, createdAt: takenAt }],
           request: null,
         },
         expect.objectContaining({ issueNumber: 2, title: "Second", stage: "implement", pullNumber: 2, pullUrl: "https://github.com/example/product/pull/2" }),
@@ -72,6 +73,7 @@ describe("GET /api/tasks", () => {
       ],
       stuck: [],
       cancelled: [],
+      done: [],
     });
   });
 
@@ -90,6 +92,27 @@ describe("GET /api/tasks", () => {
     expect(body.slots).toEqual({ used: 1, max: 3 });
     expect(body.inProgress.map((task) => task.issueNumber)).toEqual([3]);
     expect(body.stuck.map((task) => [task.issueNumber, task.reason])).toEqual([[2, "QA failed twice"]]);
+    expect(body.done.map((task) => task.issueNumber)).toEqual([1]);
+  });
+
+  it("keeps a merged Task on the screen for a day, newest first", async () => {
+    testApp = createTestApp();
+    testApp.index.installation.set(INSTALLATION_KEYS.maxParallelTasks, "3");
+    const { github, clock } = testApp.ports;
+    github.seedIssue({ number: 1, labels: ["ready-for-agent"] });
+    github.seedIssue({ number: 2, labels: ["ready-for-agent"] });
+    await testApp.orchestrator.pollOnce();
+
+    testApp.orchestrator.transition(1 as IssueNumber, "done", "pull request merged");
+    await clock.advance(60_000);
+    testApp.orchestrator.transition(2 as IssueNumber, "done", "pull request merged");
+    expect((await tasks()).done.map((task) => [task.issueNumber, task.reason])).toEqual([
+      [2, "pull request merged"],
+      [1, "pull request merged"],
+    ]);
+
+    await clock.advance(24 * 60 * 60 * 1000 - 30_000);
+    expect((await tasks()).done.map((task) => task.issueNumber)).toEqual([2]);
   });
 });
 

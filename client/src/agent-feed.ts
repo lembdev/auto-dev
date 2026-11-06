@@ -8,10 +8,10 @@ export type FeedStatus = "loading" | "live" | "error";
 
 export type AgentFeedHook = { feed: FeedState; status: FeedStatus; error: string | null };
 
-// The feed of the Agent of a Task: the Session history first, then the live stream from the seam
-// the server named. A new Agent of the same Task (the QA Agent after the Implementer) starts over.
+// The feed of one Agent of a Task: the Session history first, then the live stream from the seam
+// the server named. It stays on that Agent when the Task moves on to the next one.
 export function useAgentFeed(issueNumber: number, agentId: number | null): AgentFeedHook {
-  return useSessionFeed(`task:${issueNumber}`, agentId, () => fetchAgentHistory(issueNumber));
+  return useSessionFeed(`task:${issueNumber}:agent:${agentId}`, agentId, () => fetchAgentHistory(issueNumber, agentId ?? 0));
 }
 
 // The same feed for any Session: `key` names whose history `load` fetches; a new key or Agent starts over.

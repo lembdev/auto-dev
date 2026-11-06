@@ -77,6 +77,8 @@ export type TaskView = Task & {
   pullUrl: string | null;
   transitions: Transition[];
   agent: AgentView | null;
+  // Every Agent of the current attempt, oldest first: the nodes of the Pipeline.
+  agents: AgentView[];
   request: RequestView | null;
 };
 
@@ -99,6 +101,8 @@ export type TasksResponse = {
   ready: ReadyTaskView[];
   stuck: StuckTaskView[];
   cancelled: FinishedTaskView[];
+  // Merged within the last day, newest first.
+  done: FinishedTaskView[];
 };
 
 export type ProductView = { fullName: string; htmlUrl: string };
@@ -150,6 +154,8 @@ export type AgentHistoryResponse = {
   history: SDKMessage[];
   cursor: number;
 };
+
+// `GET /api/tasks/:issue/agents/:agentId/history` answers the same shape for any Agent of the Task.
 
 // `POST /api/tasks/:issue/agent/interrupt`: the Turn is interrupted, the Session stays.
 export type InterruptResponse = { agent: AgentView };

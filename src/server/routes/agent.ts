@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { AgentRunner } from "../../agents/agent-runner.js";
-import type { IssueNumber } from "../../ids.js";
+import type { AgentId, IssueNumber } from "../../ids.js";
 import type { AgentRecord } from "../../index/agents.js";
 import type { RuntimeIndex } from "../../index/runtime-index.js";
 import { isActiveStage, type Task } from "../../index/tasks.js";
@@ -46,11 +46,7 @@ export function agentRoutes(deps: AgentRoutesDeps): Hono {
     return issueNumber === undefined ? undefined : deps.index.tasks.find(issueNumber);
   };
 
-  routes.get("/:issue/agent/history", async (c) => {
-    const task = taskOf(c.req.param("issue"));
-    if (!task) return c.json({ error: "task not found" }, 404);
-    const agent = currentAgentOf(deps.index.agents, task);
-    if (!agent) return c.json({ error: "the Task has no Agent yet" }, 404);
+  const historyOf = async (agent: AgentRecord): Promise<AgentHistoryResponse> => {
     let history: AgentHistoryResponse["history"] = [];
     if (agent.sessionId !== null) {
       try {
@@ -60,13 +56,30 @@ export function agentRoutes(deps: AgentRoutesDeps): Hono {
         deps.log.warn({ err: error, agent: agent.id, session: agent.sessionId }, "session history unavailable");
       }
     }
-    const body: AgentHistoryResponse = {
+    return {
       agent: agentView(agent),
       sessionId: agent.sessionId,
       history,
       cursor: runner.feed.cursorFor(agent.id, history),
     };
-    return c.json(body);
+  };
+
+  routes.get("/:issue/agent/history", async (c) => {
+    const task = taskOf(c.req.param("issue"));
+    if (!task) return c.json({ error: "task not found" }, 404);
+    const agent = currentAgentOf(deps.index.agents, task);
+    if (!agent) return c.json({ error: "the Task has no Agent yet" }, 404);
+    return c.json(await historyOf(agent));
+  });
+
+  // Any Agent of the Task, the finished ones included: a node of the Pipeline keeps its own feed.
+  routes.get("/:issue/agents/:agentId/history", async (c) => {
+    const task = taskOf(c.req.param("issue"));
+    if (!task) return c.json({ error: "task not found" }, 404);
+    const agentId = Number(c.req.param("agentId"));
+    const agent = Number.isInteger(agentId) ? deps.index.agents.find(agentId as AgentId) : undefined;
+    if (!agent || agent.issueNumber !== task.issueNumber) return c.json({ error: "agent not found" }, 404);
+    return c.json(await historyOf(agent));
   });
 
   routes.post("/:issue/agent/interrupt", async (c) => {

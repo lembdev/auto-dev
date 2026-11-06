@@ -111,6 +111,32 @@ describe("the Agent panel API: history, live feed, interrupt and cancel", () => 
     expect(testApp.ports.driver.log.of("getSessionHistory")).toEqual([]);
   });
 
+  it("serves the history of any Agent of the Task, and none of another Task", async () => {
+    await takeIssue();
+    const at = new Date(testApp.ports.clock.now()).toISOString();
+    const qa = testApp.index.agents.create({ issueNumber: ISSUE, role: "qa", cwd: "/var/lib/auto-dev/repo/.claude/worktrees/issue-7", createdAt: at });
+    const stranger = testApp.index.agents.create({ issueNumber: 8 as IssueNumber, role: "implementer", cwd: "/tmp/elsewhere", createdAt: at });
+
+    const implementer = (await (await testApp.request(`/api/tasks/${ISSUE}/agents/1/history`)).json()) as AgentHistoryResponse;
+    expect(implementer.agent).toMatchObject({ id: 1, role: "implementer" });
+    const round = (await (await testApp.request(`/api/tasks/${ISSUE}/agents/${qa.id}/history`)).json()) as AgentHistoryResponse;
+    expect(round).toMatchObject({ agent: { id: qa.id, role: "qa", state: "stopped" }, sessionId: null, history: [] });
+    expect((await testApp.request(`/api/tasks/${ISSUE}/agents/${stranger.id}/history`)).status).toBe(404);
+    expect((await testApp.request(`/api/tasks/${ISSUE}/agents/999/history`)).status).toBe(404);
+  });
+
+  it("takes the Implementer as the current Agent while the Task is back in Implementation after a QA round", async () => {
+    await takeIssue();
+    const at = new Date(testApp.ports.clock.now()).toISOString();
+    testApp.index.agents.create({ issueNumber: ISSUE, role: "qa", cwd: "/var/lib/auto-dev/repo/.claude/worktrees/issue-7", createdAt: at });
+    const body = (await (await history()).json()) as AgentHistoryResponse;
+    expect(body.agent).toMatchObject({ id: 1, role: "implementer" });
+
+    testApp.orchestrator.transition(ISSUE, "qa", "implementer turn finished");
+    const during = (await (await history()).json()) as AgentHistoryResponse;
+    expect(during.agent).toMatchObject({ role: "qa" });
+  });
+
   it("answers 404 for an unknown Task and for a Task without an Agent", async () => {
     testApp = createTestApp();
     expect((await history(99)).status).toBe(404);
