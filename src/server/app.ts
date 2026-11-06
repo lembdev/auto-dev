@@ -45,6 +45,7 @@ import { isPublicSetupRequest, registerSetupRoutes } from "./setup-routes.js";
 import { registerSettingsRoutes } from "./settings-routes.js";
 import { agentRoutes, agentView, currentAgentOf } from "./routes/agent.js";
 import { dialogueRoutes, parseDialogueFrame } from "./routes/dialogue.js";
+import { plannerRoutes } from "./routes/planner.js";
 
 export type {
   AckEvent,
@@ -56,6 +57,10 @@ export type {
   CancelResponse,
   ClientMessage,
   DialogueFrame,
+  PlannerDialogueFrame,
+  PlannerLineView,
+  PlannerResponse,
+  StartPlannerRequest,
   DialogueMessageView,
   DialogueResponse,
   DigestResponse,
@@ -95,7 +100,7 @@ export type AppDeps = {
   index: RuntimeIndex;
   log: Logger;
   version: string;
-  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests" | "reconcile" | "dialogue" | "updates">;
+  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests" | "reconcile" | "dialogue" | "planner" | "updates">;
   // Live configuration: the password hash and the Product come from here on every request.
   config: ConfigStore;
   setup: Setup;
@@ -345,6 +350,7 @@ export function createApp(deps: AppDeps): App {
 
   app.route("/api/tasks", agentRoutes({ ports: deps.ports, index: deps.index, log: deps.log, orchestrator: deps.orchestrator }));
   app.route("/api/tasks", dialogueRoutes({ index: deps.index, log: deps.log, orchestrator: deps.orchestrator }));
+  app.route("/api/planner", plannerRoutes({ ports: deps.ports, index: deps.index, log: deps.log, orchestrator: deps.orchestrator }));
   registerStatsRoutes(app, { index: deps.index, clock: deps.ports.clock, logs: deps.logs ?? new LogBuffer() });
 
   app.put("/api/installation/pause", async (c) => {
@@ -456,7 +462,8 @@ export function createApp(deps: AppDeps): App {
     let ack: ServerEvent;
     if (parsed.ok) {
       try {
-        ack = { type: "ack", ...(await deps.orchestrator.dialogue.receive(parsed.frame)) };
+        const frame = parsed.frame;
+        ack = { type: "ack", ...(frame.type === "planner" ? deps.orchestrator.planner.receive(frame) : await deps.orchestrator.dialogue.receive(frame)) };
       } catch (error) {
         // Not refused for good: the client sends the frame again after its timeout.
         deps.log.error({ err: error, client: parsed.frame.clientId, seq: parsed.frame.seq }, "dialogue frame failed");
@@ -504,6 +511,7 @@ export function createApp(deps: AppDeps): App {
   deps.index.dialogue.onChange(({ kind, message }) => {
     if (message.requestId === null) app.broadcast({ type: "dialogue", issueNumber: message.issueNumber, messageId: message.id, state: kind });
   });
+  deps.orchestrator.planner.onChange(() => app.broadcast({ type: "planner" }));
   deps.index.installation.onChange((key) => {
     if (isUiInstallationKey(key)) app.broadcast({ type: "installation", installation: installationView() });
   });

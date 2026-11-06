@@ -5,6 +5,7 @@ import type { RuntimeIndex } from "../../index/runtime-index.js";
 import type { Logger } from "../../log.js";
 import { GITHUB_CLIENT_ID, type AnswerFrame, type DialogueFrame } from "../../orchestrator/dialogue.js";
 import type { Orchestrator } from "../../orchestrator/orchestrator.js";
+import type { PlannerFrame } from "../../orchestrator/planner.js";
 import type { DialogueMessageView, DialogueResponse, RemoveDialogueResponse } from "../api-types.js";
 
 export type DialogueRoutesDeps = {
@@ -32,7 +33,7 @@ const positiveInt = (raw: unknown): number | undefined => {
 // A frame of the Dialogue read off the socket. `undefined` means the frame is not one of ours;
 // a frame with a sender but a broken body gets a refusal the sender can act on.
 export type ParsedDialogueFrame =
-  | { ok: true; frame: DialogueFrame | AnswerFrame }
+  | { ok: true; frame: DialogueFrame | AnswerFrame | PlannerFrame }
   | { ok: false; clientId: string; seq: number; reason: string };
 
 export const parseDialogueFrame = (raw: unknown): ParsedDialogueFrame | undefined => {
@@ -43,6 +44,10 @@ export const parseDialogueFrame = (raw: unknown): ParsedDialogueFrame | undefine
   if (typeof message.clientId !== "string" || message.clientId === "" || message.clientId === GITHUB_CLIENT_ID || seq === undefined) return undefined;
   const clientId = message.clientId;
   if (typeof message.text !== "string") return { ok: false, clientId, seq, reason: "`text` must be a string" };
+  if (message.type === "dialogue" && message.to !== undefined) {
+    if (message.to !== "planner") return { ok: false, clientId, seq, reason: "`to` must be \"planner\" or absent" };
+    return { ok: true, frame: { type: "planner", clientId, seq, text: message.text } };
+  }
   if (message.type === "dialogue") {
     const issueNumber = positiveInt(message.issueNumber);
     if (issueNumber === undefined) return { ok: false, clientId, seq, reason: "`issueNumber` must be a positive integer" };

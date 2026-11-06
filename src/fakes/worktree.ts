@@ -1,5 +1,6 @@
 import type {
   BranchInput,
+  CheckoutInput,
   CloneInput,
   PushInput,
   RepoRef,
@@ -13,6 +14,8 @@ type Repo = {
   url: string;
   branches: Set<string>;
   worktrees: Map<string, WorktreeInfo>;
+  // Branch checked out in the clone itself.
+  current: string;
 };
 
 export class FakeWorktreePort implements WorktreePort {
@@ -27,7 +30,11 @@ export class FakeWorktreePort implements WorktreePort {
 
   // Pretend the Product is already cloned at `path`.
   seedRepo(path: string, url = "https://github.com/example/product.git"): void {
-    this._repos.set(path, { url, branches: new Set([this.defaultBranch]), worktrees: new Map() });
+    this._repos.set(path, { url, branches: new Set([this.defaultBranch]), worktrees: new Map(), current: this.defaultBranch });
+  }
+
+  currentBranch(repoPath: string): string {
+    return this._repo(repoPath).current;
   }
 
   branches(repoPath: string): string[] {
@@ -92,6 +99,14 @@ export class FakeWorktreePort implements WorktreePort {
   async push(input: PushInput): Promise<void> {
     this.log.record("push", input);
     this.pushes.push(input);
+  }
+
+  async checkout(input: CheckoutInput): Promise<void> {
+    this.log.record("checkout", input);
+    const repo = this._repo(input.repoPath);
+    if (input.base === undefined && !repo.branches.has(input.branch)) throw new Error(`branch does not exist: ${input.branch}`);
+    repo.branches.add(input.branch);
+    repo.current = input.branch;
   }
 
   private _repo(path: string): Repo {

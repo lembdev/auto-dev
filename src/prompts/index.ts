@@ -12,6 +12,12 @@ export type PromptName = (typeof PROMPT_NAMES)[number];
 
 export type StageName = Exclude<PromptName, "common">;
 
+// What the Planner prompt mentions: the clone it reads and the branch it stands on.
+export type PlanContext = {
+  repoPath: string;
+  baseBranch: string;
+};
+
 // `prompts/` at the package root, next to `src/` in development and `dist/` after the build.
 export const DEFAULT_PROMPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "prompts");
 
@@ -113,6 +119,12 @@ export class StagePrompts {
 
   load(name: PromptName): string {
     return readFileSync(this.pathOf(name), "utf8");
+  }
+
+  // The Planner works outside Tasks, so its prompt stands alone, without the common Stage part.
+  renderPlan(context: PlanContext): string {
+    const vars = { repo_path: context.repoPath, base_branch: context.baseBranch };
+    return `${renderTemplate("plan", this.load("plan"), vars).trimEnd()}\n`;
   }
 
   // Common part followed by the Stage part, both rendered with the same variables.

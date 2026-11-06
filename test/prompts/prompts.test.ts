@@ -94,6 +94,24 @@ describe("Stage prompts", () => {
     expect(text).toContain(NO_EPIC_TEXT);
   });
 
+  it("Planner prompt stands alone and binds it to the tracker contract, reading first and no commits", () => {
+    const text = prompts.renderPlan({ repoPath: "/var/lib/auto-dev/repo", baseBranch: "main" });
+    expect(text).not.toContain("{{");
+    expect(text).toContain("`/var/lib/auto-dev/repo`, ветка `main`");
+    expect(text).toContain("docs/agents/issue-tracker.md");
+    expect(text).toContain("Открытые milestones");
+    expect(text).toContain("gh issue list --state open");
+    expect(text).toContain("код, которого касается замысел");
+    expect(text).toContain("не делай коммитов");
+    expect(text).toContain("Существующие issues правь только по явной просьбе");
+    expect(text).toContain("ready-for-agent");
+    expect(text).toContain("Epic и Spec эту label не получают никогда");
+    for (const skill of ["/wayfinder", "/to-spec", "/to-tickets"]) expect(text).toContain(skill);
+    // The common Stage part is about worktrees and pull requests; the Planner has neither.
+    expect(text).not.toContain(prompts.load("common").split("\n")[0]);
+    expect(text).not.toMatch(/[\u2013\u2014]/);
+  });
+
   it("rejects a template with a placeholder nobody fills", () => {
     expect(() => renderTemplate("qa", "Round {{round}} of {{rounds_max}}", { round: "1" })).toThrow(PromptTemplateError);
   });

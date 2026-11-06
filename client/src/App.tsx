@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Dashboard } from "./components/Dashboard.js";
 import { Header, type Mode, type Page } from "./components/Header.js";
 import { LoginScreen } from "./components/LoginScreen.js";
-import { PlanningStub } from "./components/PlanningStub.js";
+import { PlanningScreen } from "./components/PlanningScreen.js";
 import { SettingsPage } from "./components/SettingsPage.js";
 import { SetupScreen } from "./components/SetupScreen.js";
 import { StatsPage } from "./components/Stats.js";
@@ -71,7 +71,7 @@ export function App() {
         now={now}
         onLogout={() => logout.mutate()}
       />
-      {page === "settings" ? <SettingsPage onBack={() => setPage("main")} /> : page === "stats" ? <StatsPage now={now} /> : mode === "development" ? <Dashboard now={now} /> : <PlanningStub />}
+      {page === "settings" ? <SettingsPage onBack={() => setPage("main")} /> : page === "stats" ? <StatsPage now={now} /> : mode === "development" ? <Dashboard now={now} /> : <PlanningScreen />}
     </>
   );
 }

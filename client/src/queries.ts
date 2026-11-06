@@ -9,6 +9,7 @@ import type {
   LimitHistoryResponse,
   LogsResponse,
   PauseRequest,
+  PlannerResponse,
   RemoveDialogueResponse,
   SessionResponse,
   SettingsRequest,
@@ -16,6 +17,7 @@ import type {
   SetupAccessResponse,
   SetupSmokeResponse,
   SetupStatus,
+  StartPlannerRequest,
   StatsPeriodDays,
   StatsResponse,
   TasksResponse,
@@ -33,6 +35,7 @@ export const KEYS = {
   limitHistory: (days: StatsPeriodDays) => ["stats", "limits", days] as const,
   logs: ["logs"] as const,
   dialogue: (issueNumber: number) => ["dialogue", issueNumber] as const,
+  planner: ["planner"] as const,
 };
 
 // A 401 from any query means the session is gone: the login screen takes over without a reload.
@@ -195,5 +198,33 @@ export function useRemoveDialogueMessage(issueNumber: number) {
   return useMutation({
     mutationFn: (id: number) => api<RemoveDialogueResponse>(`/api/tasks/${issueNumber}/dialogue/${id}`, { method: "DELETE" }),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: KEYS.dialogue(issueNumber) }),
+  });
+}
+
+// Planning mode
+
+// The Planner and its queue; the `planner` event refetches it.
+export const usePlanner = (enabled = true) => useQuery({ queryKey: KEYS.planner, queryFn: () => api<PlannerResponse>("/api/planner"), enabled, refetchInterval: 30_000 });
+
+export const fetchPlannerHistory = () => api<AgentHistoryResponse>("/api/planner/history");
+
+const usePlannerAction = <TVariables>(run: (variables: TVariables) => Promise<PlannerResponse>) => {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: run, onSuccess: (planner) => queryClient.setQueryData(KEYS.planner, planner) });
+};
+
+// "Продолжить прошлую" or "Начать новую".
+export const useStartPlanner = () => usePlannerAction((request: StartPlannerRequest) => api<PlannerResponse>("/api/planner/start", { method: "POST", json: request }));
+
+// "Завершить планирование": the process goes, the Session stays for the next "продолжить".
+export const useFinishPlanner = () => usePlannerAction((_: void) => api<PlannerResponse>("/api/planner/finish", { method: "POST", json: {} }));
+
+export const useInterruptPlanner = () => usePlannerAction((_: void) => api<PlannerResponse>("/api/planner/interrupt", { method: "POST", json: {} }));
+
+export function useRemovePlannerLine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api<RemoveDialogueResponse>(`/api/planner/queue/${id}`, { method: "DELETE" }),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: KEYS.planner }),
   });
 }

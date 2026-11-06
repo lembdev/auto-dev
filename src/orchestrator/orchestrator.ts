@@ -21,6 +21,7 @@ import { IntentJournal } from "./intents.js";
 import { MergeStage } from "./merge.js";
 import { Merger } from "./merger.js";
 import type { StagePrompts } from "../prompts/index.js";
+import { Planner } from "./planner.js";
 import { QaStage } from "./qa.js";
 import { HUMAN_LABEL, READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
 import { Reconciler } from "./reconcile.js";
@@ -97,6 +98,7 @@ export class Orchestrator {
   private readonly _merger: Merger;
   private readonly _recovery: Recovery;
   private readonly _updates: UpdateCoordinator;
+  private readonly _planner: Planner;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
   private readonly _seenComments = new Map<CommentId, string>();
@@ -263,6 +265,16 @@ export class Orchestrator {
       onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
       rememberIssue: (issue) => this._issues.set(issue.number, issue),
     });
+    this._planner = new Planner({
+      index: this._index,
+      runner: this._agents,
+      worktree: this._ports.worktree,
+      log: this._log,
+      clock: this._ports.clock,
+      repoPath: this._workspace.repoPath,
+      baseBranch: this._workspace.baseBranch,
+      ...(options.prompts ? { prompts: options.prompts } : {}),
+    });
     this._updates = new UpdateCoordinator({
       index: this._index,
       clock: this._ports.clock,
@@ -279,6 +291,11 @@ export class Orchestrator {
   // Updating the Installation: the daily release check, the updater button and the preparation before a stop.
   get updates(): UpdateCoordinator {
     return this._updates;
+  }
+
+  // The planning mode: one Planner on the clone of the Product, outside Slots.
+  get planner(): Planner {
+    return this._planner;
   }
 
   // Restart safety: orphans, foreign processes, the index against GitHub, resumed and hung Agents.

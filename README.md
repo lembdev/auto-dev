@@ -164,6 +164,20 @@ UI делает resume Сессии и зеркалится в issue комме�
 изменениях очереди. Клиент записывает кадр в localStorage до отправки и удаляет по ACK; раз в 2 с проверяет, что
 самый старый кадр ждёт ACK не дольше 4 с, иначе переподключает сокет и шлёт всё заново.
 
+Режим планирования (переключатель в шапке): `GET /api/planner` отдаёт `{status, open, canResume, agent, sessionId,
+queue}`; `POST /api/planner/start {mode: "resume"|"new", message?}` запускает Планировщика: Сессию Драйвера с ролью
+`planner` на самом клоне Продукта (`fetch`, затем `checkout -B main origin/main`; не worktree), с промптом
+`prompts/plan.md` или resume последней Сессии (её session id хранится в `installation` под `planner.last_session`).
+Планировщик вне Слотов и одновременно только один: второй старт 409, resume без прошлой Сессии 404.
+`POST /api/planner/finish` гасит процесс, Сессия остаётся для следующего «продолжить прошлую»;
+`POST /api/planner/interrupt` прерывает Ход. Сообщения Планировщику идут тем же кадром Диалога с адресом вместо
+issue: `{type: "dialogue", to: "planner", clientId, seq, text}`; `clientId` и `seq` общие с Диалогом, поэтому тот же
+водяной знак даёт exactly-once и тот же `ack` (`rejected`, если планирование не начато). Строки, набранные во время
+Хода, ждут его конца в памяти Оркестратора (`queue`, `DELETE /api/planner/queue/:id`); строка к погашенному по
+idle процессу возобновляет Сессию. Лента: `GET /api/planner/history` (как история Агента Задачи) и `subscribe` по
+`agentId`; событие `planner` сообщает об изменениях. `ask_human` Планировщику не дан: он спрашивает в чате.
+Созданные им Задачи с `ready-for-agent` Оркестратор берёт на следующем опросе.
+
 Страница «Статистика» (ссылка в шапке): `GET /api/stats?days=7|30` считает из `transitions` Задач взято, влито,
 Тупиков, среднее и медианное время Стадий и распределение Кругов QA по завершённым Задачам; `GET /api/stats/limits?days=`
 отдаёт снимки `limit_samples` за период для графика лимита; `GET /api/logs?lines=500` отдаёт последние строки журнала
@@ -295,7 +309,8 @@ npm run smoke:driver -- idle                       # AgentRunner гасит пр
 - `prompts/`: промпты Стадий текстом (`common.md` плюс `implement.md`, `qa.md`, `merge.md`, `plan.md`);
   `src/prompts/` собирает общую часть и часть Стадии с подстановками `{{issue_number}}`, `{{issue_title}}`,
   `{{issue_body}}`, `{{epic}}`, `{{pull_number}}`, `{{branch}}`, `{{worktree}}`, `{{round}}`,
-  `{{previous_verdict}}`, `{{stage}}`. Каталог читается из корня пакета и в dev, и из `dist/`, поэтому
+  `{{previous_verdict}}`, `{{stage}}`; `plan.md` самостоятелен (без общей части) и знает только `{{repo_path}}` и
+  `{{base_branch}}`. Каталог читается из корня пакета и в dev, и из `dist/`, поэтому
   в сборку ничего копировать не нужно; Продукт промпты не переопределяет, а влияет через свои `CLAUDE.md`,
   `GLOSSARY.md`, `docs/agents` и `docs/adr`, которые промпт обязывает прочитать.
 - `src/index/`: Рантайм-индекс (SQLite через `node:sqlite`), миграции только вперёд; таблицы `installation`,
@@ -303,8 +318,9 @@ npm run smoke:driver -- idle                       # AgentRunner гасит пр
 - `src/server/`: Hono + `ws` на одном http-сервере, `createApp(deps)` для тестов на фейках; `auth.ts`: сессии,
   проверка `Host` и `Origin`; `api-types.ts`: типы ответов, общие с клиентом; статика `dist/client` с fallback на
   `index.html`.
-- `client/`: SPA Режима разработки (React, Vite, TanStack Query, Tailwind): вход, шапка с лимитами, Слотами и Паузой,
-  «С прошлого визита», карточки В работе / Готовые / Тупики, заглушка панели Агента; обновление по WS плюс опрос.
+- `client/`: SPA (React, Vite, TanStack Query, Tailwind): вход, шапка с лимитами, Слотами и Паузой,
+  «С прошлого визита», карточки В работе / Готовые / Тупики, панель Агента с лентой и Диалогом, экран Режима
+  планирования на тех же ленте и поле Диалога; обновление по WS плюс опрос.
 - `test/`: vitest, `test/helpers/test-app.ts` поднимает сервер на фейках; `test/installer/` проверяет скрипты
   установщика (`bash -n`, shellcheck, если он есть в PATH), unit и sudo-правила из `deploy/` и состав архива релиза.
 - `ct/`, `install/`: Установщик в стиле Proxmox VE Community Scripts (ct-скрипт с `update_script()` и install-скрипт,

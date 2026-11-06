@@ -25,6 +25,11 @@ export type BranchInput = RepoRef & {
   branch: string;
 };
 
+export type CheckoutInput = BranchInput & {
+  // Resets the branch to this ref first (`git checkout -B`); absent leaves the branch where it is.
+  base?: string;
+};
+
 export type PushInput = {
   // Working directory of the push: a worktree or the main clone.
   cwd: string;
@@ -44,4 +49,6 @@ export interface WorktreePort {
   listBranches(input: RepoRef): Promise<string[]>;
   deleteBranch(input: BranchInput): Promise<void>;
   push(input: PushInput): Promise<void>;
+  // Switches the clone itself to `branch`; the Planner reads the Product from there.
+  checkout(input: CheckoutInput): Promise<void>;
 }
