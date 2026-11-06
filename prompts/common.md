@@ -21,8 +21,10 @@
 
 ## Git и GitHub
 
-- Коммиты пишутся одной строкой по Conventional Commits без scope, без тела и без trailer-строк: `feat: add token refresh`, `fix: prevent duplicate kitten on double tap`. Ломающее изменение помечается `!` перед двоеточием.
-- Заголовок pull request тоже одна строка Conventional Commits: он станет сообщением squash-коммита.
+- Каждый коммит - ровно одна строка по Conventional Commits: `<type>: <description>`, тип из `feat`, `fix`, `chore`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `revert`, без scope, описание в повелительном наклонении, со строчной буквы, без точки. Например `feat: add token refresh`, `fix: prevent duplicate kitten on double tap`.
+- В коммите нет ничего, кроме этой строки: ни тела, ни trailer-строк (`Co-Authored-By`, `Claude-Session`, `Signed-off-by`), ни «Generated with», ни ссылок на issue и сессию. Перед коммитом проверь сообщение и убери всё лишнее.
+- Единственное исключение - ломающее изменение: `!` перед двоеточием (`feat!: drop the legacy login`) и тело из одной строки `BREAKING CHANGE: <что сломано и что делать>`, максимум 2-3 строки текста, без лишних подробностей.
+- Заголовок pull request тоже одна строка Conventional Commits по тем же правилам: он станет сообщением squash-коммита. Тело squash-коммита Оркестратор берёт только из секции `## Ломающие изменения` тела pull request и только когда в заголовке есть `!`.
 - Пуш только в свою ветку `{{branch}}`. Никогда не пушь в `main` и не делай force push.
 - Не ставь и не снимай labels, assignee и milestone ни у issue, ни у pull request.
 - Не пиши в issue и pull request комментарии о статусе («начал», «готово», «жду»): статусы ведёт Оркестратор.
