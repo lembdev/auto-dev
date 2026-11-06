@@ -56,6 +56,26 @@ describe("the outbox of the Dialogue", () => {
     expect(outbox.pending(8)).toEqual([]);
   });
 
+  it("addresses a line of the planning chat to the Planner on the same counter and keeps it apart from the Tasks", () => {
+    const storage = memoryStorage();
+    const outbox = outboxOn(storage);
+    const socket = new FakeSocket();
+    outbox.attach(socket, () => {});
+    outbox.send({ kind: "dialogue", issueNumber: 7 }, "hello");
+    outbox.send({ kind: "planner" }, "план экспорта");
+    expect(socket.sent[1]).toEqual({ type: "dialogue", to: "planner", clientId: outbox.clientId, seq: 2, text: "план экспорта" });
+    expect(outbox.pending("planner").map((frame) => frame.seq)).toEqual([2]);
+    expect(outbox.pending(7).map((frame) => frame.seq)).toEqual([1]);
+
+    // A reload keeps the unconfirmed planner line and sends it again.
+    const reloaded = outboxOn(storage);
+    const again = new FakeSocket();
+    reloaded.attach(again, () => {});
+    expect(again.sent.map((frame) => frame.to ?? frame.issueNumber)).toEqual([7, "planner"]);
+    reloaded.dispatch(ack(reloaded.clientId, 2, "applied"));
+    expect(reloaded.pending("planner")).toEqual([]);
+  });
+
   it("removes a frame on its ACK, tells the listeners and raises the counter to the watermark", () => {
     const storage = memoryStorage();
     const outbox = outboxOn(storage);

@@ -25,6 +25,7 @@ export function useServerEvents(enabled: boolean): boolean {
       void queryClient.invalidateQueries({ queryKey: KEYS.tasks });
       void queryClient.invalidateQueries({ queryKey: KEYS.installation });
       void queryClient.invalidateQueries({ queryKey: ["digest"] });
+      void queryClient.invalidateQueries({ queryKey: KEYS.planner });
     };
 
     const handle = (event: ServerEvent) => {
@@ -50,6 +51,9 @@ export function useServerEvents(enabled: boolean): boolean {
           return;
         case "dialogue":
           void queryClient.invalidateQueries({ queryKey: KEYS.dialogue(event.issueNumber) });
+          return;
+        case "planner":
+          void queryClient.invalidateQueries({ queryKey: KEYS.planner });
           return;
         case "ack":
           dialogueOutbox.dispatch(event);

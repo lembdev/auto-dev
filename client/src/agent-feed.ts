@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { applyMessage, applyMessages, emptyFeed, type FeedState } from "./feed.js";
 import { liveFeeds } from "./live.js";
+import type { AgentHistoryResponse } from "../../src/server/api-types.js";
 import { fetchAgentHistory } from "./queries.js";
 
 export type FeedStatus = "loading" | "live" | "error";
@@ -10,6 +11,11 @@ export type AgentFeedHook = { feed: FeedState; status: FeedStatus; error: string
 // The feed of the Agent of a Task: the Session history first, then the live stream from the seam
 // the server named. A new Agent of the same Task (the QA Agent after the Implementer) starts over.
 export function useAgentFeed(issueNumber: number, agentId: number | null): AgentFeedHook {
+  return useSessionFeed(`task:${issueNumber}`, agentId, () => fetchAgentHistory(issueNumber));
+}
+
+// The same feed for any Session: `key` names whose history `load` fetches; a new key or Agent starts over.
+export function useSessionFeed(key: string, agentId: number | null, load: () => Promise<AgentHistoryResponse>): AgentFeedHook {
   const [feed, setFeed] = useState<FeedState>(emptyFeed);
   const [status, setStatus] = useState<FeedStatus>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +32,7 @@ export function useAgentFeed(issueNumber: number, agentId: number | null): Agent
     setStatus("loading");
     setError(null);
     if (agentId === null) return;
-    fetchAgentHistory(issueNumber)
+    load()
       .then((response) => {
         if (cancelled) return;
         update(applyMessages(current.current, response.history));
@@ -44,7 +50,8 @@ export function useAgentFeed(issueNumber: number, agentId: number | null): Agent
       cancelled = true;
       unsubscribe?.();
     };
-  }, [issueNumber, agentId]);
+    // `load` is a new closure every render; `key` names what it loads.
+  }, [key, agentId]);
 
   return { feed, status, error };
 }

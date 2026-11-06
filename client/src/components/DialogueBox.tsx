@@ -23,8 +23,11 @@ export function DialogueBox({ issueNumber, outbox }: DialogueBoxProps) {
   );
 }
 
+// A line of a chat queue: of a Task's Dialogue or of the planning chat.
+export type DialogueQueueLine = Pick<DialogueMessageView, "id" | "text" | "source">;
+
 export type DialogueBoxViewProps = {
-  queue: DialogueMessageView[];
+  queue: DialogueQueueLine[];
   pending: OutboxFrame[];
   lastAck: LastAck | null;
   onSend: (text: string) => void;
