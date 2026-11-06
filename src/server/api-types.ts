@@ -1,5 +1,6 @@
 // Wire types of the HTTP and WebSocket API, shared with the client bundle (type-only imports there).
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentId, CommentId, HumanRequestId, IssueNumber, MilestoneNumber, PendingMessageId, PlannerLineId, PullNumber, SessionId } from "../ids.js";
 import type { AgentRole, AgentState } from "../index/agents.js";
 import type { LimitSample } from "../index/limit-samples.js";
 import type { Task, TaskStage, Transition } from "../index/tasks.js";
@@ -53,7 +54,7 @@ export type LoginRequest = { password: string };
 
 // The Agent of the current attempt of a Task, as the card shows it.
 export type AgentView = {
-  id: number;
+  id: AgentId;
   role: AgentRole;
   state: AgentState;
   lastTurnAt: string | null;
@@ -62,9 +63,9 @@ export type AgentView = {
 
 // An open Request to the human of a Task; the question text comes from the Request comment.
 export type RequestView = {
-  id: number;
-  agentId: number;
-  commentId: number | null;
+  id: HumanRequestId;
+  agentId: AgentId;
+  commentId: CommentId | null;
   commentUrl: string | null;
   createdAt: string;
   question: string | null;
@@ -84,9 +85,9 @@ export type FinishedTaskView = TaskView & { reason: string | null; finishedAt: s
 export type StuckTaskView = FinishedTaskView;
 
 export type ReadyTaskView = {
-  issueNumber: number;
+  issueNumber: IssueNumber;
   title: string;
-  milestone: { number: number; title: string } | null;
+  milestone: { number: MilestoneNumber; title: string } | null;
   htmlUrl: string;
 };
 
@@ -114,17 +115,20 @@ export type InstallationResponse = InstallationSnapshot & {
 export type PauseRequest = { paused: boolean; reason?: string; source?: PauseSource };
 
 export type DigestRequest = {
-  id: number;
-  issueNumber: number;
+  id: HumanRequestId;
+  issueNumber: IssueNumber;
   title: string | null;
   createdAt: string;
   open: boolean;
   question: string | null;
 };
 
-export type DigestDone = { issueNumber: number; title: string | null; pullNumber: number | null; pullUrl: string | null; at: string };
+// A Task that left the Pipeline since the previous visit, as the digest lists it.
+export type DigestTask = { issueNumber: IssueNumber; title: string | null; at: string };
 
-export type DigestStuck = { issueNumber: number; title: string | null; reason: string | null; at: string };
+export type DigestDone = DigestTask & { pullNumber: PullNumber | null; pullUrl: string | null };
+
+export type DigestStuck = DigestTask & { reason: string | null };
 
 // What happened since the previous visit of the human: Requests, finished Tasks and dead ends.
 export type DigestResponse = {
@@ -142,7 +146,7 @@ export type AgentFeedEntry = { seq: number; message: SDKMessage };
 // The client subscribes to the live stream with `after: cursor` and misses nothing in between.
 export type AgentHistoryResponse = {
   agent: AgentView;
-  sessionId: string | null;
+  sessionId: SessionId | null;
   history: SDKMessage[];
   cursor: number;
 };
@@ -151,13 +155,13 @@ export type AgentHistoryResponse = {
 export type InterruptResponse = { agent: AgentView };
 
 // `POST /api/tasks/:issue/cancel`: the issue is closed, the Cancellation follows.
-export type CancelResponse = { issueNumber: number; stage: TaskStage };
+export type CancelResponse = { issueNumber: IssueNumber; stage: TaskStage };
 
 // One line of the Dialogue of a Task that has not reached the Session yet.
 export type DialogueMessageView = {
-  id: number;
-  issueNumber: number;
-  agentId: number | null;
+  id: PendingMessageId;
+  issueNumber: IssueNumber;
+  agentId: AgentId | null;
   // "ui" for a line typed in the panel, "github" for a comment after an Answer.
   source: "ui" | "github";
   clientId: string;
@@ -170,13 +174,16 @@ export type DialogueMessageView = {
 export type DialogueResponse = { messages: DialogueMessageView[] };
 
 // `DELETE /api/tasks/:issue/dialogue/:id`: the line never reaches the Session.
-export type RemoveDialogueResponse = { id: number };
+export type RemoveDialogueResponse = { id: PendingMessageId };
+
+// `DELETE /api/planner/queue/:id`: the line never reaches the Planner.
+export type RemovePlannerLineResponse = { id: PlannerLineId };
 
 // A frame of the Dialogue or an Answer typed in the UI. `clientId` names the tab's sender for good and
 // `seq` only grows, so the server applies each frame once and answers every repeat with an `ack`.
-export type DialogueFrame = { type: "dialogue"; clientId: string; seq: number; issueNumber: number; text: string };
-export type AnswerFrame = { type: "answer"; clientId: string; seq: number; requestId: number; text: string };
-// A line of the chat with the Planner: a Dialogue frame addressed `to: "planner"` instead of an issue.
+export type DialogueFrame = { type: "dialogue"; clientId: string; seq: number; issueNumber: IssueNumber; text: string };
+export type AnswerFrame = { type: "answer"; clientId: string; seq: number; requestId: HumanRequestId; text: string };
+// A line of the Dialogue with the Planner: a Dialogue frame addressed `to: "planner"` instead of an issue.
 // It shares the sender's `clientId` and `seq` with the Dialogue, so the same watermark makes it count once.
 export type PlannerDialogueFrame = { type: "dialogue"; to: "planner"; clientId: string; seq: number; text: string };
 
@@ -187,20 +194,20 @@ export type AckEvent = { type: "ack"; clientId: string; seq: number; watermark: 
 
 // Frames the client sends over `/ws`: the live feed of one Agent, from the message after `after`,
 // and the frames of the Dialogue.
-export type ClientMessage = { type: "subscribe"; agentId: number; after?: number } | { type: "unsubscribe"; agentId: number } | DialogueFrame | PlannerDialogueFrame | AnswerFrame;
+export type ClientMessage = { type: "subscribe"; agentId: AgentId; after?: number } | { type: "unsubscribe"; agentId: AgentId } | DialogueFrame | PlannerDialogueFrame | AnswerFrame;
 
 // Events pushed to the UI over `/ws`. They announce a change; the client refetches the affected queries.
 export type ServerEvent =
   | { type: "hello"; version: string }
-  | { type: "transition"; issueNumber: number; from: TaskStage | null; to: TaskStage; reason: string | null; at: string }
-  | { type: "task"; issueNumber: number; stage: TaskStage; round: number }
-  | { type: "agent"; agentId: number; issueNumber: number | null; role: AgentRole; state: AgentState; previous: AgentState }
-  | { type: "request"; requestId: number; issueNumber: number; open: boolean }
+  | { type: "transition"; issueNumber: IssueNumber; from: TaskStage | null; to: TaskStage; reason: string | null; at: string }
+  | { type: "task"; issueNumber: IssueNumber; stage: TaskStage; round: number }
+  | { type: "agent"; agentId: AgentId; issueNumber: IssueNumber | null; role: AgentRole; state: AgentState; previous: AgentState }
+  | { type: "request"; requestId: HumanRequestId; issueNumber: IssueNumber; open: boolean }
   | { type: "installation"; installation: InstallationResponse }
   // One message of a subscribed Agent's feed, in `seq` order.
-  | { type: "agent-message"; agentId: number; seq: number; message: SDKMessage }
+  | { type: "agent-message"; agentId: AgentId; seq: number; message: SDKMessage }
   // The queue of a Task changed; the panel refetches it.
-  | { type: "dialogue"; issueNumber: number; messageId: number; state: "queued" | "delivered" | "removed" }
+  | { type: "dialogue"; issueNumber: IssueNumber; messageId: PendingMessageId; state: "queued" | "delivered" | "removed" }
   // The Planner started, stopped, ended a Turn or its queue changed; the planning screen refetches it.
   | { type: "planner" }
   // Sent only to the socket that sent the frame.
@@ -211,7 +218,7 @@ export type ServerEvent =
 export type PlannerStatusView = "none" | "running" | "idle" | "stopped";
 
 // A line to the Planner typed during its Turn; it reaches the Session at the end of the Turn.
-export type PlannerLineView = { id: number; clientId: string; seq: number; text: string; createdAt: string };
+export type PlannerLineView = { id: PlannerLineId; clientId: string; seq: number; text: string; createdAt: string };
 
 // `GET /api/planner`: the Planner of the open Session, else the last one. `open` is true between start and
 // finish; `canResume` says whether "продолжить прошлую" has a Session to continue.
@@ -220,7 +227,7 @@ export type PlannerResponse = {
   open: boolean;
   canResume: boolean;
   agent: AgentView | null;
-  sessionId: string | null;
+  sessionId: SessionId | null;
   queue: PlannerLineView[];
 };
 

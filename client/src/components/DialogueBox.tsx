@@ -1,9 +1,10 @@
 import { useState } from "react";
+import type { IssueNumber } from "../../../src/ids.js";
 import type { DialogueMessageView } from "../../../src/server/api-types.js";
 import { useDialogueOutbox, type DialogueOutboxHook, type LastAck, type OutboxFrame } from "../dialogue.js";
 import { useDialogueQueue, useRemoveDialogueMessage } from "../queries.js";
 
-export type DialogueBoxProps = { issueNumber: number; outbox: DialogueOutboxHook };
+export type DialogueBoxProps = { issueNumber: IssueNumber; outbox: DialogueOutboxHook };
 
 // The footer of the panel: lines not yet in the Session (unconfirmed by the server, then queued),
 // the field and "Отправить". A line typed during a Turn waits here for the end of the Turn.
@@ -23,16 +24,17 @@ export function DialogueBox({ issueNumber, outbox }: DialogueBoxProps) {
   );
 }
 
-// A line of a chat queue: of a Task's Dialogue or of the planning chat.
-export type DialogueQueueLine = Pick<DialogueMessageView, "id" | "text" | "source">;
+// A line of a Dialogue queue: of a Task's Dialogue or of the Dialogue with the Planner.
+// `Id` is the id of a queued line: a pending message of a Task or a line to the Planner.
+export type DialogueQueueLine<Id extends number> = Pick<DialogueMessageView, "text" | "source"> & { id: Id };
 
-export type DialogueBoxViewProps = {
-  queue: DialogueQueueLine[];
+export type DialogueBoxViewProps<Id extends number> = {
+  queue: DialogueQueueLine<Id>[];
   pending: OutboxFrame[];
   lastAck: LastAck | null;
   onSend: (text: string) => void;
-  onRemove: (id: number) => void;
-  removing: number | null;
+  onRemove: (id: Id) => void;
+  removing: Id | null;
   error: string | null;
 };
 
@@ -49,7 +51,7 @@ export const ackLabel = ({ frame, ack }: LastAck): string => {
   }
 };
 
-export function DialogueBoxView(props: DialogueBoxViewProps) {
+export function DialogueBoxView<Id extends number>(props: DialogueBoxViewProps<Id>) {
   const [text, setText] = useState("");
   const submit = () => {
     const trimmed = text.trim();

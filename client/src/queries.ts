@@ -1,3 +1,4 @@
+import type { IssueNumber, PendingMessageId, PlannerLineId } from "../../src/ids.js";
 import { QueryCache, QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AgentHistoryResponse,
@@ -11,6 +12,7 @@ import type {
   PauseRequest,
   PlannerResponse,
   RemoveDialogueResponse,
+  RemovePlannerLineResponse,
   SessionResponse,
   SettingsRequest,
   SettingsResponse,

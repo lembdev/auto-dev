@@ -8,7 +8,7 @@ import { fetchPlannerHistory, useFinishPlanner, useInterruptPlanner, usePlanner,
 import { AgentFeed } from "./AgentFeed.js";
 import { DialogueBoxView } from "./DialogueBox.js";
 
-// The planning mode: the choice between the last Session and a new one, then the chat with the Planner
+// The planning mode: the choice between the last Session and a new one, then the Dialogue with the Planner
 // (the feed and the Dialogue box of the Agent panel) and "Завершить планирование".
 export function PlanningScreen() {
   const planner = usePlanner();
@@ -76,7 +76,7 @@ export function PlanningScreenView(props: PlanningScreenViewProps) {
       </main>
     );
   }
-  return planner.open ? <PlanningChat {...props} planner={planner} /> : <PlanningStart {...props} planner={planner} />;
+  return planner.open ? <PlanningDialogue {...props} planner={planner} /> : <PlanningStart {...props} planner={planner} />;
 }
 
 type WithPlanner = PlanningScreenViewProps & { planner: PlannerResponse };
@@ -124,7 +124,7 @@ function PlanningStart(props: WithPlanner) {
   );
 }
 
-function PlanningChat(props: WithPlanner) {
+function PlanningDialogue(props: WithPlanner) {
   const { planner } = props;
   const running = planner.status === "running";
   return (

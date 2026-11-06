@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { HumanRequestId, IssueNumber } from "../../src/ids.js";
 import type { AckEvent } from "../../src/server/api-types.js";
 import { ACK_TIMEOUT_MS, DialogueOutbox, STORAGE_KEYS, SWEEP_MS, type StorageLike } from "./dialogue.js";
+
+const ISSUE = 7 as IssueNumber;
 
 const OPEN = 1;
 
@@ -40,32 +43,32 @@ describe("the outbox of the Dialogue", () => {
     const storage = memoryStorage();
     const outbox = outboxOn(storage);
     const socket = new FakeSocket();
-    const first = outbox.send({ kind: "dialogue", issueNumber: 7 }, "hello");
+    const first = outbox.send({ kind: "dialogue", issueNumber: ISSUE }, "hello");
     expect(first).toMatchObject({ seq: 1, sentAt: null });
     expect(storage.map.get(STORAGE_KEYS.clientId)).toBe(outbox.clientId);
     expect(storage.map.get(STORAGE_KEYS.seq)).toBe("1");
-    expect(JSON.parse(storage.map.get(STORAGE_KEYS.outbox)!)).toEqual([{ kind: "dialogue", issueNumber: 7, seq: 1, text: "hello" }]);
+    expect(JSON.parse(storage.map.get(STORAGE_KEYS.outbox)!)).toEqual([{ kind: "dialogue", issueNumber: ISSUE, seq: 1, text: "hello" }]);
 
     outbox.attach(socket, () => {});
-    outbox.send({ kind: "answer", issueNumber: 7, requestId: 3 }, "blue");
+    outbox.send({ kind: "answer", issueNumber: ISSUE, requestId: 3 as HumanRequestId }, "blue");
     expect(socket.sent).toEqual([
-      { type: "dialogue", clientId: outbox.clientId, seq: 1, issueNumber: 7, text: "hello" },
-      { type: "answer", clientId: outbox.clientId, seq: 2, requestId: 3, text: "blue" },
+      { type: "dialogue", clientId: outbox.clientId, seq: 1, issueNumber: ISSUE, text: "hello" },
+      { type: "answer", clientId: outbox.clientId, seq: 2, requestId: 3 as HumanRequestId, text: "blue" },
     ]);
-    expect(outbox.pending(7).map((frame) => frame.seq)).toEqual([1, 2]);
-    expect(outbox.pending(8)).toEqual([]);
+    expect(outbox.pending(ISSUE).map((frame) => frame.seq)).toEqual([1, 2]);
+    expect(outbox.pending(8 as IssueNumber)).toEqual([]);
   });
 
-  it("addresses a line of the planning chat to the Planner on the same counter and keeps it apart from the Tasks", () => {
+  it("addresses a line of the Dialogue with the Planner to the Planner on the same counter and keeps it apart from the Tasks", () => {
     const storage = memoryStorage();
     const outbox = outboxOn(storage);
     const socket = new FakeSocket();
     outbox.attach(socket, () => {});
-    outbox.send({ kind: "dialogue", issueNumber: 7 }, "hello");
+    outbox.send({ kind: "dialogue", issueNumber: ISSUE }, "hello");
     outbox.send({ kind: "planner" }, "план экспорта");
     expect(socket.sent[1]).toEqual({ type: "dialogue", to: "planner", clientId: outbox.clientId, seq: 2, text: "план экспорта" });
     expect(outbox.pending("planner").map((frame) => frame.seq)).toEqual([2]);
-    expect(outbox.pending(7).map((frame) => frame.seq)).toEqual([1]);
+    expect(outbox.pending(ISSUE).map((frame) => frame.seq)).toEqual([1]);
 
     // A reload keeps the unconfirmed planner line and sends it again.
     const reloaded = outboxOn(storage);
@@ -83,14 +86,14 @@ describe("the outbox of the Dialogue", () => {
     outbox.attach(socket, () => {});
     const acks: [number, string][] = [];
     outbox.onAck((frame, event) => acks.push([frame.seq, event.outcome]));
-    outbox.send({ kind: "dialogue", issueNumber: 7 }, "one");
+    outbox.send({ kind: "dialogue", issueNumber: ISSUE }, "one");
     outbox.dispatch(ack("someone else", 1, "applied"));
     expect(outbox.pending()).toHaveLength(1);
     outbox.dispatch(ack(outbox.clientId, 1, "applied", 9));
     expect(outbox.pending()).toEqual([]);
     expect(acks).toEqual([[1, "applied"]]);
     expect(storage.map.get(STORAGE_KEYS.seq)).toBe("9");
-    expect(outbox.send({ kind: "dialogue", issueNumber: 7 }, "two").seq).toBe(10);
+    expect(outbox.send({ kind: "dialogue", issueNumber: ISSUE }, "two").seq).toBe(10);
     outbox.dispatch(ack(outbox.clientId, 10, "rejected", 10, "empty text"));
     expect(acks).toEqual([
       [1, "applied"],
@@ -102,8 +105,8 @@ describe("the outbox of the Dialogue", () => {
   it("keeps the client id, the counter and the unconfirmed frames across a reload and resends them on attach", () => {
     const storage = memoryStorage();
     const before = outboxOn(storage);
-    before.send({ kind: "dialogue", issueNumber: 7 }, "lost in flight");
-    before.send({ kind: "dialogue", issueNumber: 7 }, "and this one");
+    before.send({ kind: "dialogue", issueNumber: ISSUE }, "lost in flight");
+    before.send({ kind: "dialogue", issueNumber: ISSUE }, "and this one");
 
     const after = outboxOn(storage);
     expect(after.clientId).toBe(before.clientId);
@@ -114,7 +117,7 @@ describe("the outbox of the Dialogue", () => {
     const socket = new FakeSocket();
     after.attach(socket, () => {});
     expect(socket.sent.map((frame) => frame.seq)).toEqual([1, 2]);
-    expect(after.send({ kind: "dialogue", issueNumber: 7 }, "third").seq).toBe(3);
+    expect(after.send({ kind: "dialogue", issueNumber: ISSUE }, "third").seq).toBe(3);
   });
 
   it("forces a reconnect when the oldest frame waits longer than the ACK timeout, then sends everything again", () => {
@@ -122,7 +125,7 @@ describe("the outbox of the Dialogue", () => {
     const socket = new FakeSocket();
     const reconnect = vi.fn();
     outbox.attach(socket, reconnect);
-    outbox.send({ kind: "dialogue", issueNumber: 7 }, "one");
+    outbox.send({ kind: "dialogue", issueNumber: ISSUE }, "one");
     now += ACK_TIMEOUT_MS - 1;
     vi.advanceTimersByTime(SWEEP_MS);
     expect(reconnect).not.toHaveBeenCalled();
@@ -130,7 +133,7 @@ describe("the outbox of the Dialogue", () => {
     vi.advanceTimersByTime(SWEEP_MS);
     expect(reconnect).toHaveBeenCalledTimes(1);
     // Until the new socket is attached nothing is sent; the frame stays, unsent.
-    outbox.send({ kind: "dialogue", issueNumber: 7 }, "two");
+    outbox.send({ kind: "dialogue", issueNumber: ISSUE }, "two");
     expect(socket.sent).toHaveLength(1);
     expect(outbox.pending().map((frame) => frame.sentAt)).toEqual([null, null]);
 
@@ -150,7 +153,7 @@ describe("the outbox of the Dialogue", () => {
   it("works without storage: the frames live in memory and the client id is fresh", () => {
     const outbox = outboxOn(null);
     expect(outbox.clientId).not.toBe("");
-    expect(outbox.send({ kind: "dialogue", issueNumber: 7 }, "hi").seq).toBe(1);
+    expect(outbox.send({ kind: "dialogue", issueNumber: ISSUE }, "hi").seq).toBe(1);
     expect(outbox.pending()).toHaveLength(1);
   });
 });

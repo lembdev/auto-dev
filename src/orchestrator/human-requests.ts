@@ -1,6 +1,6 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentRunner } from "../agents/agent-runner.js";
-import type { CommentId, HumanRequestId, IssueNumber, PendingMessageId } from "../ids.js";
+import type { CommentId, HumanRequestId, IssueNumber, PendingMessageId, ToolUseId } from "../ids.js";
 import type { AgentRecord, AgentRole } from "../index/agents.js";
 import type { PendingMessage } from "../index/dialogue.js";
 import { githubAnswerIdentity, uiAnswerIdentity, type AnswerIdentity, type HumanRequest } from "../index/human-requests.js";
@@ -265,7 +265,7 @@ export class HumanRequests {
       return;
     }
     const issueNumber = agent.issueNumber;
-    const toolUseId = deferred?.id ?? this._lastCalls.get(issueNumber)?.toolUseId;
+    const toolUseId = (deferred?.id as ToolUseId | undefined) ?? this._lastCalls.get(issueNumber)?.toolUseId;
     if (toolUseId === undefined) {
       this._log.error({ agent: agent.id, issue: issueNumber }, "deferred turn without a tool call id; nothing to publish");
       return;

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { HumanRequestId, IssueNumber, PullNumber } from "../../../src/ids.js";
 import { Digest } from "./Digest.js";
 
 describe("Digest", () => {
@@ -11,9 +12,9 @@ describe("Digest", () => {
         onOpenRequest={onOpenRequest}
         digest={{
           since: "2026-01-01T08:14:00.000Z",
-          requests: [{ id: 1, issueNumber: 138, title: "Валидация дат вязки", createdAt: "2026-01-01T09:41:00.000Z", open: true, question: "Как валидировать?" }],
-          done: [{ issueNumber: 137, title: "Фото котят", pullNumber: 149, pullUrl: "https://github.com/acme/product/pull/149", at: "2026-01-01T10:00:00.000Z" }],
-          stuck: [{ issueNumber: 129, title: "Синхронизация с WCF", reason: "QA Круги исчерпаны", at: "2026-01-01T10:30:00.000Z" }],
+          requests: [{ id: 1 as HumanRequestId, issueNumber: 138 as IssueNumber, title: "Валидация дат вязки", createdAt: "2026-01-01T09:41:00.000Z", open: true, question: "Как валидировать?" }],
+          done: [{ issueNumber: 137 as IssueNumber, title: "Фото котят", pullNumber: 149 as PullNumber, pullUrl: "https://github.com/acme/product/pull/149", at: "2026-01-01T10:00:00.000Z" }],
+          stuck: [{ issueNumber: 129 as IssueNumber, title: "Синхронизация с WCF", reason: "QA Круги исчерпаны", at: "2026-01-01T10:30:00.000Z" }],
         }}
       />,
     );

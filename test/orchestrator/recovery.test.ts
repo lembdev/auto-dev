@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FakeAgentProcess } from "../../src/fakes/driver.js";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
-import type { IssueNumber, Pid, SessionId } from "../../src/ids.js";
+import type { IssueNumber, Pid, SessionId, ToolUseId } from "../../src/ids.js";
 import { INSTALLATION_KEYS, Orchestrator } from "../../src/orchestrator/orchestrator.js";
 import {
   CONTINUE_PROMPT,
@@ -20,7 +20,7 @@ const SECOND_SESSION = "22222222-2222-4222-8222-222222222222" as SessionId;
 const ISSUE = 42 as IssueNumber;
 const WORKTREE = `${TEST_REPO_PATH}/.claude/worktrees/issue-42`;
 const BRANCH = "worktree-issue-42";
-const CALL = { toolUseId: "toolu_01", question: "Which colour?", options: undefined };
+const CALL = { toolUseId: "toolu_01" as ToolUseId, question: "Which colour?", options: undefined };
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 3; i += 1) await new Promise<void>((resolve) => setImmediate(resolve));

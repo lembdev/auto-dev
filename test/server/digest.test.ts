@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { ASK_HUMAN_TOOL_NAME } from "../../src/adapters/ask-human.js";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
-import type { IssueNumber, SessionId } from "../../src/ids.js";
+import type { IssueNumber, SessionId, ToolUseId } from "../../src/ids.js";
 import type { DigestResponse } from "../../src/server/app.js";
 import { createTestApp, type TestApp } from "../helpers/test-app.js";
 
@@ -72,7 +72,7 @@ describe("GET /api/digest", () => {
     github.humanComment(3, "yes", "alice");
     await testApp.orchestrator.pollOnce();
     const resumed = driver.lastLaunch();
-    await resumed.askHuman({ toolUseId: "toolu_3", question: "Keep the old import?", options: ["yes", "no"] });
+    await resumed.askHuman({ toolUseId: "toolu_3" as ToolUseId, question: "Keep the old import?", options: ["yes", "no"] });
     expect((await digest(visit)).requests).toEqual([expect.objectContaining({ id: 1, open: false })]);
   });
 });

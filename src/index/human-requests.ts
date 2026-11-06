@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { AgentId, AppliedAnswerId, CommentId, HumanRequestId, IssueNumber } from "../ids.js";
+import type { AgentId, AppliedAnswerId, CommentId, HumanRequestId, IssueNumber, ToolUseId } from "../ids.js";
 import { Listeners } from "./listeners.js";
 
 // An open or answered question of an Agent: which call of ask_human in which Session, and where the
@@ -8,7 +8,7 @@ export type HumanRequest = {
   id: HumanRequestId;
   agentId: AgentId;
   issueNumber: IssueNumber;
-  toolUseId: string;
+  toolUseId: ToolUseId;
   // The Request comment in the issue; null until it is posted.
   commentId: CommentId | null;
   createdAt: string;
@@ -69,7 +69,7 @@ const toRequest = (row: RequestRow): HumanRequest => ({
   id: row.id as HumanRequestId,
   agentId: row.agent_id as AgentId,
   issueNumber: row.issue_number as IssueNumber,
-  toolUseId: row.tool_use_id,
+  toolUseId: row.tool_use_id as ToolUseId,
   commentId: row.comment_id as CommentId | null,
   createdAt: row.created_at,
   answeredAt: row.answered_at,
@@ -120,7 +120,7 @@ export class HumanRequestStore {
     return request;
   }
 
-  findByToolUse(toolUseId: string): HumanRequest | undefined {
+  findByToolUse(toolUseId: ToolUseId): HumanRequest | undefined {
     const row = this._db.prepare(`SELECT ${REQUEST_COLUMNS} FROM human_requests WHERE tool_use_id = ?`).get(toolUseId) as RequestRow | undefined;
     return row ? toRequest(row) : undefined;
   }

@@ -1,12 +1,13 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { AgentId, HumanRequestId, IssueNumber, PendingMessageId } from "../../../src/ids.js";
 import type { DialogueMessageView } from "../../../src/server/api-types.js";
 import { ackLabel, DialogueBoxView, type DialogueBoxViewProps } from "./DialogueBox.js";
 
 const message = (overrides: Partial<DialogueMessageView> = {}): DialogueMessageView => ({
-  id: 11,
-  issueNumber: 138,
-  agentId: 5,
+  id: 11 as PendingMessageId,
+  issueNumber: 138 as IssueNumber,
+  agentId: 5 as AgentId,
   source: "ui",
   clientId: "tab-a",
   seq: 3,
@@ -15,8 +16,8 @@ const message = (overrides: Partial<DialogueMessageView> = {}): DialogueMessageV
   ...overrides,
 });
 
-const renderBox = (overrides: Partial<DialogueBoxViewProps> = {}) => {
-  const props: DialogueBoxViewProps = {
+const renderBox = (overrides: Partial<DialogueBoxViewProps<PendingMessageId>> = {}) => {
+  const props: DialogueBoxViewProps<PendingMessageId> = {
     queue: [],
     pending: [],
     lastAck: null,
@@ -45,8 +46,8 @@ describe("DialogueBoxView", () => {
 
   it("lists the unconfirmed frames and the queued lines, and removes a queued line on its button", () => {
     const props = renderBox({
-      pending: [{ kind: "dialogue", issueNumber: 138, seq: 4, text: "on its way", sentAt: null }],
-      queue: [message(), message({ id: 12, source: "github", text: "from bob" })],
+      pending: [{ kind: "dialogue", issueNumber: 138 as IssueNumber, seq: 4, text: "on its way", sentAt: null }],
+      queue: [message(), message({ id: 12 as PendingMessageId, source: "github", text: "from bob" })],
     });
     const list = screen.getByRole("list", { name: "Ещё не доставлено" });
     const items = within(list).getAllByRole("listitem");
@@ -63,7 +64,7 @@ describe("DialogueBoxView", () => {
   it("shows what the server said about the last frame", () => {
     renderBox({
       lastAck: {
-        frame: { kind: "answer", issueNumber: 138, requestId: 4, seq: 2, text: "blue", sentAt: null },
+        frame: { kind: "answer", issueNumber: 138 as IssueNumber, requestId: 4 as HumanRequestId, seq: 2, text: "blue", sentAt: null },
         ack: { type: "ack", clientId: "tab-a", seq: 2, watermark: 2, outcome: "rejected", reason: "already answered; the text joins the Dialogue" },
       },
       error: "the line already reached the Session",
@@ -73,10 +74,10 @@ describe("DialogueBoxView", () => {
   });
 
   it("words every outcome", () => {
-    const frame = { kind: "dialogue" as const, issueNumber: 1, seq: 1, text: "x", sentAt: null };
+    const frame = { kind: "dialogue" as const, issueNumber: 1 as IssueNumber, seq: 1, text: "x", sentAt: null };
     const ack = (outcome: "applied" | "duplicate" | "rejected", reason: string | null = null) => ({ type: "ack" as const, clientId: "c", seq: 1, watermark: 1, outcome, reason });
     expect(ackLabel({ frame, ack: ack("applied") })).toBe("Сообщение принято");
-    expect(ackLabel({ frame: { ...frame, kind: "answer", requestId: 2 }, ack: ack("applied") })).toBe("Ответ принят");
+    expect(ackLabel({ frame: { ...frame, kind: "answer", requestId: 2 as HumanRequestId }, ack: ack("applied") })).toBe("Ответ принят");
     expect(ackLabel({ frame, ack: ack("duplicate") })).toBe("Сообщение уже принято ранее");
     expect(ackLabel({ frame, ack: ack("rejected", "empty text") })).toBe("Сообщение отклонено: empty text");
   });

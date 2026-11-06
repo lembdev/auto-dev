@@ -1,5 +1,5 @@
 import type { AgentRunner } from "../agents/agent-runner.js";
-import type { AgentId, SessionId } from "../ids.js";
+import type { AgentId, PlannerLineId, SessionId } from "../ids.js";
 import type { AgentRecord } from "../index/agents.js";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Logger } from "../log.js";
@@ -25,10 +25,10 @@ export type PlannerStatus = "none" | "running" | "idle" | "stopped";
 
 export type StartPlanner = { mode: PlannerMode; message?: string };
 
-// A frame of the chat with the Planner; the same sender identity as the Dialogue frames.
+// A frame of the Dialogue with the Planner; the same sender identity as the Dialogue frames.
 export type PlannerFrame = UiFrameIdentity & { type: "planner"; text: string };
 
-export type PlannerLineId = number & { __brand: "PlannerLineId" };
+export type { PlannerLineId };
 
 // A line typed while the Planner runs a Turn: it waits in memory for the end of the Turn.
 export type PlannerLine = UiFrameIdentity & { id: PlannerLineId; text: string; createdAt: string };
@@ -37,7 +37,7 @@ export type RemovePlannerLineOutcome = "removed" | "not-found";
 
 export type PlannerSnapshot = {
   status: PlannerStatus;
-  // True between start and finish: the chat is open and a line to a stopped process resumes the Session.
+  // True between start and finish: the Dialogue is open and a line to a stopped process resumes the Session.
   open: boolean;
   // The Agent of the open Session, else of the last one.
   agent: AgentRecord | undefined;
@@ -77,7 +77,7 @@ export type PlannerOptions = {
 };
 
 // The Planner: one Session of Claude Code on the clone of the Product, outside Tasks and Slots, that
-// turns the human's intent into milestones and issues. The human talks to it in the chat of the
+// turns the human's intent into milestones and issues. The human talks to it in the Dialogue of the
 // planning mode; lines typed during a Turn queue up and go in one per Turn. The Session survives
 // "finish" and a restart; the next entry into the mode may resume it.
 export class Planner {
@@ -193,7 +193,7 @@ export class Planner {
     return this._index.agents.get(agent.id);
   }
 
-  // One frame of the chat: queued once, seen before or refused for good. The watermark is the one
+  // One frame of the Dialogue: queued once, seen before or refused for good. The watermark is the one
   // the Dialogue keeps per client, so a tab's sequence counts once across both.
   receive(frame: PlannerFrame): Ack {
     const watermark = this._index.dialogue.watermark(frame.clientId);

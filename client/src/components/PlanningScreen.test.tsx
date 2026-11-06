@@ -1,10 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { AgentId, SessionId } from "../../../src/ids.js";
 import type { PlannerResponse } from "../../../src/server/api-types.js";
 import { emptyFeed } from "../feed.js";
 import { PlanningScreenView, type PlanningScreenViewProps } from "./PlanningScreen.js";
 
-const AGENT = { id: 9, role: "planner" as const, state: "running" as const, lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" };
+const AGENT = { id: 9 as AgentId, role: "planner" as const, state: "running" as const, lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" };
 
 const planner = (overrides: Partial<PlannerResponse> = {}): PlannerResponse => ({
   status: "none",
@@ -40,7 +41,7 @@ const renderScreen = (view: PlannerResponse | null, overrides: Partial<PlanningS
 
 describe("PlanningScreenView", () => {
   it("offers to continue the last Session or start a new one, with the first message", () => {
-    const props = renderScreen(planner({ status: "stopped", canResume: true, agent: { ...AGENT, state: "stopped" }, sessionId: "s-1" }));
+    const props = renderScreen(planner({ status: "stopped", canResume: true, agent: { ...AGENT, state: "stopped" }, sessionId: "s-1" as SessionId }));
     fireEvent.change(screen.getByRole("textbox", { name: "Первое сообщение Планировщику" }), { target: { value: "  Экспорт в CSV  " } });
     fireEvent.click(screen.getByRole("button", { name: "Продолжить прошлую" }));
     expect(props.onStart).toHaveBeenCalledWith("resume", "Экспорт в CSV");
@@ -63,8 +64,8 @@ describe("PlanningScreenView", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Планировщик уже запущен");
   });
 
-  it("an open Session shows the chat of the Agent panel and the finish button", () => {
-    const props = renderScreen(planner({ status: "running", open: true, canResume: true, agent: AGENT, sessionId: "s-1" }));
+  it("an open Session shows the Dialogue of the Agent panel and the finish button", () => {
+    const props = renderScreen(planner({ status: "running", open: true, canResume: true, agent: AGENT, sessionId: "s-1" as SessionId }));
     expect(screen.getByTestId("agent-feed")).toBeInTheDocument();
     expect(screen.getByTestId("dialogue-slot")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Начать новую" })).toBeNull();
@@ -76,7 +77,7 @@ describe("PlanningScreenView", () => {
   });
 
   it("offers no stop between Turns and blocks a second finish while one is pending", () => {
-    renderScreen(planner({ status: "idle", open: true, canResume: true, agent: { ...AGENT, state: "idle" }, sessionId: "s-1" }), { finishPending: true });
+    renderScreen(planner({ status: "idle", open: true, canResume: true, agent: { ...AGENT, state: "idle" }, sessionId: "s-1" as SessionId }), { finishPending: true });
     expect(screen.queryByRole("button", { name: "Остановить ход" })).toBeNull();
     expect(screen.getByRole("button", { name: "Завершить планирование" })).toBeDisabled();
   });

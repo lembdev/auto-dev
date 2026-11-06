@@ -75,6 +75,7 @@ export type {
   ProductView,
   ReadyTaskView,
   RemoveDialogueResponse,
+  RemovePlannerLineResponse,
   RequestView,
   ServerEvent,
   SessionResponse,
@@ -147,10 +148,11 @@ const parseClientMessage = (raw: unknown): FeedMessage | undefined => {
   if (typeof raw !== "object" || raw === null) return undefined;
   const message = raw as Record<string, unknown>;
   if (typeof message.agentId !== "number" || !Number.isInteger(message.agentId)) return undefined;
-  if (message.type === "unsubscribe") return { type: "unsubscribe", agentId: message.agentId };
+  const agentId = message.agentId as AgentId;
+  if (message.type === "unsubscribe") return { type: "unsubscribe", agentId };
   if (message.type !== "subscribe") return undefined;
   if (message.after !== undefined && typeof message.after !== "number") return undefined;
-  return { type: "subscribe", agentId: message.agentId, ...(message.after !== undefined ? { after: message.after } : {}) };
+  return { type: "subscribe", agentId, ...(message.after !== undefined ? { after: message.after } : {}) };
 };
 
 // GitHub addresses issues and pull requests under the same repository path.

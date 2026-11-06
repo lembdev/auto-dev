@@ -1,3 +1,4 @@
+import type { AgentId } from "../../src/ids.js";
 import type { AgentFeedEntry, ClientMessage, ServerEvent } from "../../src/server/api-types.js";
 
 export type FeedListener = (entry: AgentFeedEntry) => void;
@@ -12,7 +13,7 @@ const OPEN = 1;
 // has, so a reconnect asks the server for what was missed and never for what is already shown.
 export class LiveFeeds {
   private _socket: SocketLike | undefined;
-  private readonly _subscriptions = new Map<number, Subscription>();
+  private readonly _subscriptions = new Map<AgentId, Subscription>();
 
   attach(socket: SocketLike): void {
     this._socket = socket;
@@ -32,7 +33,7 @@ export class LiveFeeds {
     for (const listener of subscription.listeners) listener({ seq: event.seq, message: event.message });
   }
 
-  subscribe(agentId: number, after: number, listener: FeedListener): () => void {
+  subscribe(agentId: AgentId, after: number, listener: FeedListener): () => void {
     const existing = this._subscriptions.get(agentId);
     if (existing) {
       // One drawer per tab: a second listener of the same Agent joins the stream where it is.

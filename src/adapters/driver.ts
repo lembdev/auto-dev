@@ -17,7 +17,7 @@ import { accessSync, constants, statSync } from "node:fs";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import { promisify } from "node:util";
-import type { Pid, SessionId } from "../ids.js";
+import type { Pid, SessionId, ToolUseId } from "../ids.js";
 import type { Logger } from "../log.js";
 import type {
   AgentLaunch,
@@ -441,7 +441,7 @@ export class SdkDriver implements DriverPort {
         };
       }
       const decision = await launch.onAskHuman({
-        toolUseId: toolUseId ?? input.tool_use_id,
+        toolUseId: (toolUseId ?? input.tool_use_id) as ToolUseId,
         question: toolInput.question,
         options: toolInput.options,
       });

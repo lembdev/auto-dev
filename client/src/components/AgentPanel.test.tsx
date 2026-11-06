@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { AgentId } from "../../../src/ids.js";
 import type { IssueNumber, PullNumber } from "../../../src/ids.js";
 import type { TaskView } from "../../../src/server/api-types.js";
 import { emptyFeed } from "../feed.js";
@@ -19,7 +20,7 @@ const task = (overrides: Partial<TaskView> = {}): TaskView => ({
   updatedAt: "2026-01-01T11:00:00.000Z",
   htmlUrl: "https://github.com/acme/product/issues/138",
   pullUrl: "https://github.com/acme/product/pull/147",
-  agent: { id: 5, role: "implementer", state: "running", lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" },
+  agent: { id: 5 as AgentId, role: "implementer", state: "running", lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" },
   transitions: [],
   request: null,
   ...overrides,
@@ -54,7 +55,7 @@ describe("AgentPanelView", () => {
   });
 
   it.each(["idle", "waiting", "stopped"] as const)("hides the stop button for a %s Agent", (state) => {
-    renderPanel(task({ agent: { id: 5, role: "implementer", state, lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" } }));
+    renderPanel(task({ agent: { id: 5 as AgentId, role: "implementer", state, lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" } }));
     expect(screen.queryByRole("button", { name: "Остановить ход" })).toBeNull();
     expect(screen.getByRole("button", { name: "Отменить задачу" })).toBeInTheDocument();
   });

@@ -1,12 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { AgentId, CommentId, HumanRequestId } from "../../../src/ids.js";
 import type { RequestView } from "../../../src/server/api-types.js";
 import { RequestBlock } from "./RequestBlock.js";
 
 const request = (overrides: Partial<RequestView> = {}): RequestView => ({
-  id: 4,
-  agentId: 5,
-  commentId: 900,
+  id: 4 as HumanRequestId,
+  agentId: 5 as AgentId,
+  commentId: 900 as CommentId,
   commentUrl: "https://github.com/acme/product/issues/138#issuecomment-900",
   createdAt: "2026-01-01T10:00:00.000Z",
   question: "Which colour for the button?",

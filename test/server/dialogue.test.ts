@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ASK_HUMAN_TOOL_NAME } from "../../src/adapters/ask-human.js";
 import type { FakeAgentProcess } from "../../src/fakes/driver.js";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
-import type { IssueNumber, SessionId } from "../../src/ids.js";
+import type { IssueNumber, SessionId, ToolUseId } from "../../src/ids.js";
 import { isMarkedComment } from "../../src/orchestrator/comments.js";
 import { Orchestrator } from "../../src/orchestrator/orchestrator.js";
 import type { AskHumanCall } from "../../src/ports/driver.js";
@@ -13,7 +13,7 @@ import { WsClient } from "../helpers/ws-client.js";
 
 const SESSION = "77777777-7777-4777-8777-777777777777" as SessionId;
 const ISSUE = 42 as IssueNumber;
-const CALL: AskHumanCall = { toolUseId: "toolu_42", question: "Which colour for the button?", options: ["red", "blue"] };
+const CALL: AskHumanCall = { toolUseId: "toolu_42" as ToolUseId, question: "Which colour for the button?", options: ["red", "blue"] };
 const TAB = "tab-a";
 
 type Ack = Extract<ServerEvent, { type: "ack" }>;

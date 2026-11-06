@@ -5,7 +5,7 @@ import { AgentAlreadyRunningError, AgentNotResumableError, AgentRunner, DEFAULT_
 import { FakeClock } from "../../src/fakes/clock.js";
 import { FakeDriverPort } from "../../src/fakes/driver.js";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
-import type { AgentId, IssueNumber, SessionId } from "../../src/ids.js";
+import type { AgentId, IssueNumber, SessionId, ToolUseId } from "../../src/ids.js";
 import type { AgentState } from "../../src/index/agents.js";
 import { IN_MEMORY, openRuntimeIndex, type RuntimeIndex } from "../../src/index/runtime-index.js";
 import { createLogger } from "../../src/log.js";
@@ -138,7 +138,7 @@ describe("AgentRunner", () => {
     expect(resumed).toMatchObject({ id: agent.id, state: "running", pid: 1001, sessionId: SESSION });
     const second = driver.lastLaunch();
     expect(second.launch).toEqual({ cwd: WORKTREE, resume: SESSION, resumeInterruptedTurn: true, onAskHuman });
-    expect(await second.askHuman({ toolUseId: "toolu_01", question: "Which colour?", options: undefined })).toEqual({
+    expect(await second.askHuman({ toolUseId: "toolu_01" as ToolUseId, question: "Which colour?", options: undefined })).toEqual({
       kind: "allow",
       answer: "blue",
       source: "alice",

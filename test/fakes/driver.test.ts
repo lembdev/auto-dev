@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FakeDriverPort } from "../../src/fakes/driver.js";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
-import type { SessionId } from "../../src/ids.js";
+import type { SessionId, ToolUseId } from "../../src/ids.js";
 
 const SESSION = "11111111-1111-4111-8111-111111111111" as SessionId;
 
@@ -65,7 +65,7 @@ describe("FakeDriverPort", () => {
         return { kind: "defer" };
       },
     });
-    expect(await driver.lastLaunch().askHuman({ toolUseId: "toolu_1", question: "Which colour?", options: ["red"] })).toEqual({
+    expect(await driver.lastLaunch().askHuman({ toolUseId: "toolu_1" as ToolUseId, question: "Which colour?", options: ["red"] })).toEqual({
       kind: "defer",
     });
     expect(seen).toEqual(["Which colour?"]);

@@ -11,7 +11,7 @@ import {
   type StartPlanner,
 } from "../../orchestrator/planner.js";
 import type { Ports } from "../../ports/index.js";
-import type { AgentHistoryResponse, PlannerResponse, RemoveDialogueResponse } from "../api-types.js";
+import type { AgentHistoryResponse, PlannerResponse, RemovePlannerLineResponse } from "../api-types.js";
 import { agentView } from "./agent.js";
 
 export type PlannerRoutesDeps = {
@@ -103,9 +103,9 @@ export function plannerRoutes(deps: PlannerRoutesDeps): Hono {
   });
 
   routes.delete("/queue/:id", (c) => {
-    const id = Number(c.req.param("id"));
-    if (!Number.isInteger(id) || id <= 0 || planner().remove(id as PlannerLineId) === "not-found") return c.json({ error: "line not found" }, 404);
-    const body: RemoveDialogueResponse = { id };
+    const id = Number(c.req.param("id")) as PlannerLineId;
+    if (!Number.isInteger(id) || id <= 0 || planner().remove(id) === "not-found") return c.json({ error: "line not found" }, 404);
+    const body: RemovePlannerLineResponse = { id };
     return c.json(body);
   });
 

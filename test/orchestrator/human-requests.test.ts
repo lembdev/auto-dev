@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ASK_HUMAN_TOOL_NAME } from "../../src/adapters/ask-human.js";
 import type { FakeAgentProcess } from "../../src/fakes/driver.js";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
-import type { IssueNumber, SessionId } from "../../src/ids.js";
+import type { IssueNumber, SessionId, ToolUseId } from "../../src/ids.js";
 import { isMarkedComment } from "../../src/orchestrator/comments.js";
 import { parseRequestComment, requestCommentText } from "../../src/orchestrator/human-requests.js";
 import { Orchestrator } from "../../src/orchestrator/orchestrator.js";
@@ -12,7 +12,7 @@ import { createTestApp, TEST_REPO_PATH, type TestApp } from "../helpers/test-app
 const SESSION = "11111111-1111-4111-8111-111111111111" as SessionId;
 const ISSUE = 42 as IssueNumber;
 const WORKTREE = `${TEST_REPO_PATH}/.claude/worktrees/issue-42`;
-const TOOL_USE_ID = "toolu_01";
+const TOOL_USE_ID = "toolu_01" as ToolUseId;
 const CALL: AskHumanCall = { toolUseId: TOOL_USE_ID, question: "Which colour for the button?", options: ["red", "blue"] };
 
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));

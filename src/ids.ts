@@ -13,3 +13,7 @@ export type IntentId = number & { __brand: "IntentId" };
 export type HumanRequestId = number & { __brand: "HumanRequestId" };
 export type AppliedAnswerId = number & { __brand: "AppliedAnswerId" };
 export type PendingMessageId = number & { __brand: "PendingMessageId" };
+// A line to the Planner queued during its Turn; lives only in memory.
+export type PlannerLineId = number & { __brand: "PlannerLineId" };
+// The id of one tool call in a Session transcript (`tool_use_id` of the SDK).
+export type ToolUseId = string & { __brand: "ToolUseId" };

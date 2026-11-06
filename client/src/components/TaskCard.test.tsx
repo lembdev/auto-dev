@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { AgentId, CommentId, HumanRequestId } from "../../../src/ids.js";
 import type { IssueNumber, MilestoneNumber, PullNumber } from "../../../src/ids.js";
 import type { StuckTaskView, TaskView } from "../../../src/server/api-types.js";
 import { StuckCard, TaskCard } from "./TaskCard.js";
@@ -20,7 +21,7 @@ const task = (overrides: Partial<TaskView> = {}): TaskView => ({
   updatedAt: "2026-01-01T11:00:00.000Z",
   htmlUrl: "https://github.com/acme/product/issues/138",
   pullUrl: "https://github.com/acme/product/pull/147",
-  agent: { id: 5, role: "qa", state: "running", lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" },
+  agent: { id: 5 as AgentId, role: "qa", state: "running", lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" },
   transitions: [],
   request: null,
   ...overrides,
@@ -51,11 +52,11 @@ describe("TaskCard", () => {
     const onAnswer = vi.fn();
     const waiting = task({
       stage: "implement",
-      agent: { id: 5, role: "implementer", state: "waiting", lastTurnAt: "2026-01-01T11:41:00.000Z", createdAt: "2026-01-01T10:00:00.000Z" },
+      agent: { id: 5 as AgentId, role: "implementer", state: "waiting", lastTurnAt: "2026-01-01T11:41:00.000Z", createdAt: "2026-01-01T10:00:00.000Z" },
       request: {
-        id: 9,
-        agentId: 5,
-        commentId: 2211,
+        id: 9 as HumanRequestId,
+        agentId: 5 as AgentId,
+        commentId: 2211 as CommentId,
         commentUrl: "https://github.com/acme/product/issues/138#issuecomment-2211",
         createdAt: "2026-01-01T11:41:00.000Z",
         question: "Как валидировать даты раньше рождения?\nВ импорте 14 таких записей.",
@@ -84,7 +85,7 @@ describe("TaskCard", () => {
 
 describe("StuckCard", () => {
   it("shows the reason and the ready-for-human badge", () => {
-    const stuck: StuckTaskView = { ...task({ stage: "stuck", agent: { id: 5, role: "qa", state: "stopped", lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" } }), reason: "QA Круги исчерпаны (3 из 3)", finishedAt: "2026-01-01T11:30:00.000Z" };
+    const stuck: StuckTaskView = { ...task({ stage: "stuck", agent: { id: 5 as AgentId, role: "qa", state: "stopped", lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" } }), reason: "QA Круги исчерпаны (3 из 3)", finishedAt: "2026-01-01T11:30:00.000Z" };
     render(<StuckCard task={stuck} now={NOW} />);
     const card = screen.getByTestId("stuck-138");
     expect(card).toHaveTextContent("ready-for-human");

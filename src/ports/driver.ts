@@ -1,10 +1,10 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { Pid, SessionId } from "../ids.js";
+import type { Pid, SessionId, ToolUseId } from "../ids.js";
 
 export type { SDKMessage };
 
 export type AskHumanCall = {
-  toolUseId: string;
+  toolUseId: ToolUseId;
   question: string;
   options: string[] | undefined;
 };

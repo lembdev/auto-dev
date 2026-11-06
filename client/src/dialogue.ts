@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
+import type { HumanRequestId, IssueNumber } from "../../src/ids.js";
 import type { AckEvent, AnswerFrame, DialogueFrame, PlannerDialogueFrame, ServerEvent } from "../../src/server/api-types.js";
 
 // Where a frame goes: a line of the Dialogue of a Task, the Answer of its open Request, or a line to the Planner.
-export type OutboxTarget = { kind: "dialogue"; issueNumber: number } | { kind: "answer"; issueNumber: number; requestId: number } | { kind: "planner" };
+export type OutboxTarget = { kind: "dialogue"; issueNumber: IssueNumber } | { kind: "answer"; issueNumber: IssueNumber; requestId: HumanRequestId } | { kind: "planner" };
 
-// Which chat a frame belongs to: a Task by its issue number, or the planning chat.
-export type OutboxChat = number | "planner";
+// Which Dialogue a frame belongs to: of a Task by its issue number, or the Dialogue with the Planner.
+export type OutboxDialogue = IssueNumber | "planner";
 
-export const chatOf = (target: OutboxTarget): OutboxChat => (target.kind === "planner" ? "planner" : target.issueNumber);
+export const dialogueOf = (target: OutboxTarget): OutboxDialogue => (target.kind === "planner" ? "planner" : target.issueNumber);
 
 // A frame written down before it is sent and kept until the server confirms it.
 export type OutboxFrame = OutboxTarget & { seq: number; text: string; sentAt: number | null };
@@ -108,9 +109,9 @@ export class DialogueOutbox {
     return frame;
   }
 
-  // Frames of the tab the server has not confirmed; of one chat when `chat` is given.
-  pending(chat?: OutboxChat): OutboxFrame[] {
-    return this._frames.filter((frame) => chat === undefined || chatOf(frame) === chat).map((frame) => ({ ...frame }));
+  // Frames of the tab the server has not confirmed; of one Dialogue when `dialogue` is given.
+  pending(dialogue?: OutboxDialogue): OutboxFrame[] {
+    return this._frames.filter((frame) => dialogue === undefined || dialogueOf(frame) === dialogue).map((frame) => ({ ...frame }));
   }
 
   // The server's answer to one frame; other events are not its business.
@@ -222,24 +223,24 @@ export type DialogueOutboxHook = {
   send(target: OutboxTarget, text: string): void;
 };
 
-// The outbox as one chat sees it (the panel of a Task or the planning screen): its unconfirmed frames
+// The outbox as one Dialogue sees it (the panel of a Task or the planning screen): its unconfirmed frames
 // and the last ACK of one of them.
-export function useDialogueOutbox(chat: OutboxChat, outbox: DialogueOutbox = dialogueOutbox): DialogueOutboxHook {
-  const [pending, setPending] = useState<OutboxFrame[]>(() => outbox.pending(chat));
+export function useDialogueOutbox(dialogue: OutboxDialogue, outbox: DialogueOutbox = dialogueOutbox): DialogueOutboxHook {
+  const [pending, setPending] = useState<OutboxFrame[]>(() => outbox.pending(dialogue));
   const [lastAck, setLastAck] = useState<LastAck | null>(null);
 
   useEffect(() => {
-    setPending(outbox.pending(chat));
+    setPending(outbox.pending(dialogue));
     setLastAck(null);
-    const unsubscribeChange = outbox.onChange(() => setPending(outbox.pending(chat)));
+    const unsubscribeChange = outbox.onChange(() => setPending(outbox.pending(dialogue)));
     const unsubscribeAck = outbox.onAck((frame, ack) => {
-      if (chatOf(frame) === chat) setLastAck({ frame, ack });
+      if (dialogueOf(frame) === dialogue) setLastAck({ frame, ack });
     });
     return () => {
       unsubscribeChange();
       unsubscribeAck();
     };
-  }, [chat, outbox]);
+  }, [dialogue, outbox]);
 
   return { pending, lastAck, send: (target, text) => outbox.send(target, text) };
 }
