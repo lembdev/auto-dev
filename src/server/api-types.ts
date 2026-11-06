@@ -120,8 +120,38 @@ export type InterruptResponse = { agent: AgentView };
 // `POST /api/tasks/:issue/cancel`: the issue is closed, the Cancellation follows.
 export type CancelResponse = { issueNumber: number; stage: TaskStage };
 
-// Frames the client sends over `/ws`: the live feed of one Agent, from the message after `after`.
-export type ClientMessage = { type: "subscribe"; agentId: number; after?: number } | { type: "unsubscribe"; agentId: number };
+// One line of the Dialogue of a Task that has not reached the Session yet.
+export type DialogueMessageView = {
+  id: number;
+  issueNumber: number;
+  agentId: number | null;
+  // "ui" for a line typed in the panel, "github" for a comment after an Answer.
+  source: "ui" | "github";
+  clientId: string;
+  seq: number;
+  text: string;
+  createdAt: string;
+};
+
+// `GET /api/tasks/:issue/dialogue`: the queue of the Task, oldest first.
+export type DialogueResponse = { messages: DialogueMessageView[] };
+
+// `DELETE /api/tasks/:issue/dialogue/:id`: the line never reaches the Session.
+export type RemoveDialogueResponse = { id: number };
+
+// A frame of the Dialogue or an Answer typed in the UI. `clientId` names the tab's sender for good and
+// `seq` only grows, so the server applies each frame once and answers every repeat with an `ack`.
+export type DialogueFrame = { type: "dialogue"; clientId: string; seq: number; issueNumber: number; text: string };
+export type AnswerFrame = { type: "answer"; clientId: string; seq: number; requestId: number; text: string };
+
+export type AckOutcome = "applied" | "duplicate" | "rejected";
+
+// The answer to one frame: `watermark` is the highest `seq` of this client the server has seen.
+export type AckEvent = { type: "ack"; clientId: string; seq: number; watermark: number; outcome: AckOutcome; reason: string | null };
+
+// Frames the client sends over `/ws`: the live feed of one Agent, from the message after `after`,
+// and the frames of the Dialogue.
+export type ClientMessage = { type: "subscribe"; agentId: number; after?: number } | { type: "unsubscribe"; agentId: number } | DialogueFrame | AnswerFrame;
 
 // Events pushed to the UI over `/ws`. They announce a change; the client refetches the affected queries.
 export type ServerEvent =
@@ -132,7 +162,11 @@ export type ServerEvent =
   | { type: "request"; requestId: number; issueNumber: number; open: boolean }
   | { type: "installation"; installation: InstallationResponse }
   // One message of a subscribed Agent's feed, in `seq` order.
-  | { type: "agent-message"; agentId: number; seq: number; message: SDKMessage };
+  | { type: "agent-message"; agentId: number; seq: number; message: SDKMessage }
+  // The queue of a Task changed; the panel refetches it.
+  | { type: "dialogue"; issueNumber: number; messageId: number; state: "queued" | "delivered" | "removed" }
+  // Sent only to the socket that sent the frame.
+  | AckEvent;
 
 // Statistics page
 

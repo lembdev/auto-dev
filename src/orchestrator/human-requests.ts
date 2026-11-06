@@ -1,8 +1,9 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentRunner } from "../agents/agent-runner.js";
-import type { CommentId, HumanRequestId, IssueNumber } from "../ids.js";
+import type { CommentId, HumanRequestId, IssueNumber, PendingMessageId } from "../ids.js";
 import type { AgentRecord, AgentRole } from "../index/agents.js";
-import { githubAnswerIdentity, type AnswerIdentity, type HumanRequest } from "../index/human-requests.js";
+import type { PendingMessage } from "../index/dialogue.js";
+import { githubAnswerIdentity, uiAnswerIdentity, type AnswerIdentity, type HumanRequest } from "../index/human-requests.js";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Task } from "../index/tasks.js";
 import type { Logger } from "../log.js";
@@ -67,6 +68,22 @@ export function parseRequestComment(body: string): RequestText | undefined {
 // The one line "who and from where" the Agent sees next to the Answer.
 export const answerSourceLine = (comment: IssueComment): string => `${comment.author} in GitHub comment ${comment.htmlUrl}`;
 
+export const UI_ANSWER_SOURCE = "the human in the auto-dev UI";
+
+// Key of the comment that mirrors an Answer from the UI: one per frame, so a retry finds it posted.
+export const uiAnswerCommentKey = (clientId: string, seq: number): string => `answer:${clientId}:${seq}`;
+
+export const uiAnswerCommentText = (text: string): string => `**Ответ из UI**\n\n${text.trim()}`;
+
+// A frame of the UI names its sender and its place in that sender's sequence.
+export type UiFrameIdentity = { clientId: string; seq: number };
+
+export type UiAnswerResult =
+  | { kind: "accepted"; message: PendingMessage }
+  // The Request took its Answer from another channel first; the text belongs to the Dialogue now.
+  | { kind: "already-answered"; request: HumanRequest }
+  | { kind: "rejected"; reason: string };
+
 export type HumanRequestsOptions = {
   github: GitHubPort;
   runner: AgentRunner;
@@ -79,9 +96,10 @@ export type HumanRequestsOptions = {
 
 type Deferred = Extract<SDKMessage, { type: "result"; subtype: "success" }>;
 
-// An Answer accepted from GitHub but not yet handed to the Session; the text lives only here until the
-// PreToolUse hook of the resumed process takes it.
-type PendingAnswer = { answer: string; source: string; identity: AnswerIdentity };
+// An Answer accepted but not yet handed to the Session: the PreToolUse hook of the resumed process takes
+// it. From GitHub the text lives only here (the comment is re-read after a restart); from the UI it is
+// the pending message `messageId`, which a restart re-arms.
+type PendingAnswer = { answer: string; source: string; identity: AnswerIdentity; messageId?: PendingMessageId };
 
 const isDeferred = (message: SDKMessage): message is Deferred =>
   message.type === "result" && message.subtype === "success" && message.terminal_reason === "tool_deferred";
@@ -137,6 +155,7 @@ export class HumanRequests {
     this._index.transaction(() => {
       this._index.appliedAnswers.add({ requestId: request.id, source: pending.identity, appliedAt: now });
       this._index.humanRequests.update(request.id, { answeredAt: now });
+      if (pending.messageId !== undefined) this._index.dialogue.markDelivered(pending.messageId, now);
     });
     this._pending.delete(request.id);
     this._log.info({ issue: task.issueNumber, request: request.id, source: pending.identity }, "answer delivered");
@@ -158,13 +177,56 @@ export class HumanRequests {
     }
   }
 
+  // An Answer typed in the UI. The first Answer of a Request wins: one accepted from GitHub earlier (even
+  // if not yet in the Session) sends this one to the Dialogue. The accepted text is stored before the
+  // caller is told, mirrored as a marked comment and handed to the resumed Session like any Answer.
+  async answerFromUi(requestId: HumanRequestId, text: string, identity: UiFrameIdentity): Promise<UiAnswerResult> {
+    const request = this._index.humanRequests.find(requestId);
+    if (!request) return { kind: "rejected", reason: "unknown request" };
+    if (text.trim() === "") return { kind: "rejected", reason: "empty text" };
+    if (request.answeredAt !== null || this._pending.has(request.id)) return { kind: "already-answered", request };
+    const message = this._index.transaction(() => {
+      const created = this._index.dialogue.enqueue({
+        issueNumber: request.issueNumber,
+        agentId: request.agentId,
+        requestId: request.id,
+        clientId: identity.clientId,
+        seq: identity.seq,
+        text: text.trim(),
+        createdAt: this._iso(),
+      });
+      this._index.dialogue.advance(identity.clientId, identity.seq);
+      return created;
+    });
+    this._arm(request, message);
+    this._log.info({ issue: request.issueNumber, request: request.id, client: identity.clientId, seq: identity.seq }, "answer accepted from the UI");
+    void this._mirrorAndResume(request, message);
+    return { kind: "accepted", message };
+  }
+
+  // Whether this source already counts as the Answer of some Request: applied, or accepted and on its way.
+  claims(identity: AnswerIdentity): boolean {
+    if (this._index.appliedAnswers.find(identity)) return true;
+    for (const pending of this._pending.values()) {
+      if (pending.identity.kind === identity.kind && pending.identity.id === identity.id) return true;
+    }
+    return false;
+  }
+
+  // Whether the Request has its Answer, applied or accepted and on its way.
+  isAnswered(request: HumanRequest): boolean {
+    return request.answeredAt !== null || this._pending.has(request.id);
+  }
+
   // Once per start, looks through the issues of open Requests for Answers the poll could have missed;
-  // every cycle, resumes Sessions whose Answer is still waiting to be delivered and fills in Request comments.
+  // every cycle, re-arms Answers from the UI that a restart dropped from memory, resumes Sessions whose
+  // Answer is still waiting to be delivered and fills in Request comments.
   async deliver(): Promise<void> {
     if (!this._openChecked) {
       this._openChecked = true;
       await this._checkOpenRequests();
     }
+    await this._rearmUiAnswers();
     for (const request of this._index.humanRequests.listOpen()) {
       if (this._publishing.has(request.id)) continue;
       if (request.commentId === null) await this._fillCommentId(request);
@@ -277,6 +339,42 @@ export class HumanRequests {
       this._log.error({ err: error, comment: comment.id }, "reaction not added; retried with the pending intents");
     }
     await this._resume(request);
+  }
+
+  private _arm(request: HumanRequest, message: PendingMessage): void {
+    this._pending.set(request.id, {
+      answer: message.text,
+      source: UI_ANSWER_SOURCE,
+      identity: uiAnswerIdentity(message.clientId, message.seq),
+      messageId: message.id,
+    });
+  }
+
+  private async _mirrorAndResume(request: HumanRequest, message: PendingMessage): Promise<void> {
+    try {
+      await this._comments.post(request.issueNumber, uiAnswerCommentKey(message.clientId, message.seq), uiAnswerCommentText(message.text));
+    } catch (error) {
+      this._log.error({ err: error, issue: request.issueNumber, request: request.id }, "answer not mirrored; retried with the pending intents");
+    }
+    await this._resume(request);
+  }
+
+  // Answers from the UI stored before a restart: back into memory, or into the Dialogue when another
+  // channel answered the Request in between.
+  private async _rearmUiAnswers(): Promise<void> {
+    for (const message of this._index.dialogue.listUndeliveredAnswers()) {
+      const request = message.requestId === null ? undefined : this._index.humanRequests.find(message.requestId);
+      const identity = uiAnswerIdentity(message.clientId, message.seq);
+      if (request && this._pending.get(request.id)?.identity.id === identity.id) continue;
+      if (!request || this.isAnswered(request)) {
+        this._index.dialogue.detachRequest(message.id);
+        this._log.info({ issue: message.issueNumber, message: message.id }, "answer from the UI arrived second; it joins the Dialogue");
+        continue;
+      }
+      this._arm(request, message);
+      this._log.info({ issue: request.issueNumber, request: request.id, message: message.id }, "answer from the UI re-armed after a restart");
+      await this._mirrorAndResume(request, message);
+    }
   }
 
   private async _resume(request: HumanRequest): Promise<void> {
