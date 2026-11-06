@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { splitVerdict, type Verdict } from "../../../src/orchestrator/verdict.js";
 import { MarkdownText } from "./MarkdownText.js";
 import { childrenOf, formatInput, toolHead, topLevelOf, type FeedItem, type FeedState, type ToolItem } from "../feed.js";
 
@@ -45,13 +46,27 @@ export function AgentFeed({ feed, status, error }: AgentFeedProps) {
 
 function FeedRow({ item, items }: { item: FeedItem; items: FeedItem[] }) {
   switch (item.kind) {
-    case "text":
+    case "text": {
+      const split = item.streaming ? undefined : splitVerdict(item.text);
+      if (split) {
+        return (
+          <>
+            {split.rest !== "" && (
+              <div className="break-words" data-testid="feed-text" data-streaming={false}>
+                <MarkdownText text={split.rest} />
+              </div>
+            )}
+            <VerdictCard verdict={split.verdict} />
+          </>
+        );
+      }
       return (
         <div className="break-words" data-testid="feed-text" data-streaming={item.streaming}>
           <MarkdownText text={item.text} />
           {item.streaming && <span className="animate-pulse text-neutral-400">▍</span>}
         </div>
       );
+    }
     case "thinking":
       return (
         <details className="text-xs text-neutral-500" data-testid="feed-thinking">
@@ -74,6 +89,35 @@ function FeedRow({ item, items }: { item: FeedItem; items: FeedItem[] }) {
     case "tool":
       return <ToolRow item={item} items={items} />;
   }
+}
+
+// The QA verdict is JSON for the Orchestrator; a person reads it as a status, a summary and the blockers.
+function VerdictCard({ verdict }: { verdict: Verdict }) {
+  const tone = verdict.approved
+    ? "border-green-600 bg-green-50 dark:border-green-500 dark:bg-green-950/40"
+    : "border-red-600 bg-red-50 dark:border-red-500 dark:bg-red-950/40";
+  return (
+    <div className={`rounded-r-md border-l-[3px] px-2.5 py-2 ${tone}`} data-testid="feed-verdict" data-approved={verdict.approved}>
+      <div className={`mb-1 font-semibold ${verdict.approved ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+        {verdict.approved ? "✓ Вердикт QA: одобрено" : "✗ Вердикт QA: не одобрено"}
+      </div>
+      <div className="break-words">
+        <MarkdownText text={verdict.summary} />
+      </div>
+      {verdict.blockers.length > 0 && (
+        <div className="mt-2">
+          <div className="text-xs font-semibold tracking-wide text-neutral-500 uppercase">Blockers</div>
+          <ol className="mt-1 list-decimal pl-5">
+            {verdict.blockers.map((blocker, i) => (
+              <li key={i} className="my-1 break-words">
+                <code className="rounded bg-neutral-200/70 px-1 py-px font-mono text-[0.85em] dark:bg-neutral-800">{blocker.where}</code>: {blocker.what}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // The first message of a Session is the prompt the Orchestrator launched the Agent with: long and the

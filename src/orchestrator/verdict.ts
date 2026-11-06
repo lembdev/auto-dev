@@ -39,17 +39,26 @@ function topLevelObjects(text: string): string[] {
 // The verdict of a QA message, or undefined when the message holds no verdict or more than one.
 // `approved` is taken only with an empty blockers list: a QA that approves and names blockers blocks.
 export function parseVerdict(text: string): Verdict | undefined {
+  return splitVerdict(text)?.verdict;
+}
+
+// The verdict of a QA message and the prose around it, with the JSON and its code fence taken out.
+export function splitVerdict(text: string): { verdict: Verdict; rest: string } | undefined {
   const candidates = topLevelObjects(text).flatMap((candidate) => {
     try {
       const parsed = verdictSchema.safeParse(JSON.parse(candidate));
-      return parsed.success ? [parsed.data] : [];
+      return parsed.success ? [{ source: candidate, verdict: parsed.data }] : [];
     } catch {
       return [];
     }
   });
   if (candidates.length !== 1) return undefined;
-  const verdict = candidates[0]!;
-  return { ...verdict, approved: verdict.approved && verdict.blockers.length === 0 };
+  const { source, verdict } = candidates[0]!;
+  const rest = text
+    .replace(source, "")
+    .replace(/```[a-z]*\s*```/gi, "")
+    .trim();
+  return { verdict: { ...verdict, approved: verdict.approved && verdict.blockers.length === 0 }, rest };
 }
 
 // The verdict as the Implementer and the next QA round read it.

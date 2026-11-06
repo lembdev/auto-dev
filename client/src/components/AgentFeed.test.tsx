@@ -37,6 +37,34 @@ describe("AgentFeed", () => {
     expect(text).not.toHaveTextContent("**");
   });
 
+  it("shows an approving QA verdict as a card, not as JSON", () => {
+    renderFeed(
+      applyMessages(emptyFeed(), [
+        sdkMessages.assistantText(S, 'Checked everything.\n\n```json\n{ "approved": true, "summary": "slugify done, `npm test` green", "blockers": [] }\n```'),
+      ]),
+    );
+    const card = screen.getByTestId("feed-verdict");
+    expect(card).toHaveAttribute("data-approved", "true");
+    expect(card).toHaveTextContent("Вердикт QA: одобрено");
+    expect(within(card).getByText("npm test").tagName).toBe("CODE");
+    expect(screen.getByTestId("feed-text")).toHaveTextContent("Checked everything.");
+    expect(screen.queryByText(/"approved"/)).not.toBeInTheDocument();
+  });
+
+  it("lists the blockers of a rejecting QA verdict with where they are", () => {
+    renderFeed(
+      applyMessages(emptyFeed(), [
+        sdkMessages.assistantText(S, '{"approved": false, "summary": "Tests are weak.", "blockers": [{"where": "test/slugify.test.js", "what": "no case for empty input"}]}'),
+      ]),
+    );
+    const card = screen.getByTestId("feed-verdict");
+    expect(card).toHaveAttribute("data-approved", "false");
+    expect(card).toHaveTextContent("Вердикт QA: не одобрено");
+    expect(within(card).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(card).getByRole("listitem")).toHaveTextContent("test/slugify.test.js: no case for empty input");
+    expect(screen.queryByTestId("feed-text")).not.toBeInTheDocument();
+  });
+
   it("folds the launch prompt of the Session and unfolds it on demand", () => {
     renderFeed(applyMessages(emptyFeed(), [sdkMessages.userText(S, "# Стадия\n\nImplement issue 7"), sdkMessages.assistantText(S, "On it."), sdkMessages.userText(S, "Fix the blocker")]));
     const prompt = screen.getByTestId("feed-prompt");
