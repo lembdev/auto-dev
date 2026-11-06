@@ -1,7 +1,7 @@
 import { upgradeWebSocket } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import type { AgentRecord } from "../index/agents.js";
+import type { AgentId } from "../ids.js";
 import type { HumanRequest } from "../index/human-requests.js";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Task, Transition } from "../index/tasks.js";
@@ -11,6 +11,7 @@ import type { Orchestrator } from "../orchestrator/orchestrator.js";
 import type { Ports } from "../ports/index.js";
 import type {
   AgentView,
+  ClientMessage,
   DigestResponse,
   FinishedTaskView,
   InstallationResponse,
@@ -35,10 +36,16 @@ import {
   verifyPassword,
   type AuthOptions,
 } from "./auth.js";
+import { agentRoutes, agentView, currentAgentOf } from "./routes/agent.js";
 
 export type {
+  AgentFeedEntry,
+  AgentHistoryResponse,
   AgentView,
+  CancelResponse,
+  ClientMessage,
   DigestResponse,
+  InterruptResponse,
   FinishedTaskView,
   HealthResponse,
   InstallationResponse,
@@ -58,7 +65,7 @@ export type AppDeps = {
   index: RuntimeIndex;
   log: Logger;
   version: string;
-  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests">;
+  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests" | "reconcile">;
   auth: AuthOptions;
   // Built client bundle; without it the server answers only the API.
   clientDir?: string;
@@ -85,7 +92,17 @@ export type App = Hono & {
   broadcast(event: ServerEvent): void;
 };
 
-type Socket = { send(data: string): void };
+type Socket = { send(data: string): void; subscriptions: Map<number, () => void> };
+
+const parseClientMessage = (raw: unknown): ClientMessage | undefined => {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const message = raw as Record<string, unknown>;
+  if (typeof message.agentId !== "number" || !Number.isInteger(message.agentId)) return undefined;
+  if (message.type === "unsubscribe") return { type: "unsubscribe", agentId: message.agentId };
+  if (message.type !== "subscribe") return undefined;
+  if (message.after !== undefined && typeof message.after !== "number") return undefined;
+  return { type: "subscribe", agentId: message.agentId, ...(message.after !== undefined ? { after: message.after } : {}) };
+};
 
 // GitHub addresses issues and pull requests under the same repository path.
 const pullUrlOf = (issueUrl: string | null, pullNumber: number | null): string | null =>
@@ -165,12 +182,8 @@ export function createApp(deps: AppDeps): App {
 
   const issueUrlOf = (task: Task): string | null => deps.orchestrator.findIssue(task.issueNumber)?.htmlUrl ?? null;
 
-  // The latest Agent of the current attempt: the one the card and the panel are about.
   const agentOf = (task: Task): AgentView | null => {
-    const agent = deps.index.agents
-      .listByIssue(task.issueNumber)
-      .filter((candidate) => candidate.createdAt >= task.takenAt)
-      .at(-1);
+    const agent = currentAgentOf(deps.index.agents, task);
     return agent ? agentView(agent) : null;
   };
 
@@ -240,6 +253,8 @@ export function createApp(deps: AppDeps): App {
 
   app.get("/api/installation", (c) => c.json(installationView()));
 
+  app.route("/api/tasks", agentRoutes({ ports: deps.ports, index: deps.index, log: deps.log, orchestrator: deps.orchestrator }));
+
   app.put("/api/installation/pause", async (c) => {
     let body: unknown;
     try {
@@ -302,15 +317,35 @@ export function createApp(deps: AppDeps): App {
     "/ws",
     upgradeWebSocket(() => ({
       onOpen(_event, ws) {
-        const socket: Socket = { send: (data) => ws.send(data) };
+        const socket: Socket = { send: (data) => ws.send(data), subscriptions: new Map() };
         sockets.add(socket);
         bySocket.set(ws, socket);
         deps.log.debug({ clients: sockets.size }, "ws client connected");
         socket.send(JSON.stringify({ type: "hello", version: deps.version } satisfies ServerEvent));
       },
+      onMessage(event, ws) {
+        const socket = bySocket.get(ws);
+        if (!socket || typeof event.data !== "string") return;
+        let raw: unknown;
+        try {
+          raw = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        const message = parseClientMessage(raw);
+        if (!message) {
+          deps.log.debug({ frame: event.data.slice(0, 200) }, "ws frame ignored");
+          return;
+        }
+        socket.subscriptions.get(message.agentId)?.();
+        socket.subscriptions.delete(message.agentId);
+        if (message.type === "unsubscribe") return;
+        socket.subscriptions.set(message.agentId, subscribeFeed(socket, message.agentId as AgentId, message.after ?? 0));
+      },
       onClose(_event, ws) {
         const socket = bySocket.get(ws);
         if (socket) {
+          for (const unsubscribe of socket.subscriptions.values()) unsubscribe();
           sockets.delete(socket);
           bySocket.delete(ws);
         }
@@ -318,6 +353,24 @@ export function createApp(deps: AppDeps): App {
       },
     })),
   );
+
+  // The buffered tail after `after` goes out first, then every new message; the watermark keeps
+  // the two from overlapping. Pushes come from the Agent process in later ticks, never in between.
+  function subscribeFeed(socket: Socket, agentId: AgentId, after: number): () => void {
+    const feed = deps.orchestrator.agents.feed;
+    let watermark = after;
+    const forward = (seq: number, message: ServerEvent & { type: "agent-message" }): void => {
+      if (seq <= watermark) return;
+      watermark = seq;
+      try {
+        socket.send(JSON.stringify(message));
+      } catch (error) {
+        deps.log.warn({ err: error, agent: agentId }, "ws send failed");
+      }
+    };
+    for (const entry of feed.after(agentId, after)) forward(entry.seq, { type: "agent-message", agentId, seq: entry.seq, message: entry.message });
+    return feed.subscribe(agentId, (_, entry) => forward(entry.seq, { type: "agent-message", agentId, seq: entry.seq, message: entry.message }));
+  }
 
   // Index changes reach every open tab; the client refetches what the event names.
   deps.index.transitions.onAppend((transition: Transition) =>
@@ -350,14 +403,6 @@ export function createApp(deps: AppDeps): App {
 
   return app;
 }
-
-const agentView = (agent: AgentRecord): AgentView => ({
-  id: agent.id,
-  role: agent.role,
-  state: agent.state,
-  lastTurnAt: agent.lastTurnAt,
-  createdAt: agent.createdAt,
-});
 
 // A Task can enter the same Stage twice between visits; the digest names it once, by the latest entry.
 const lastPerIssue = (transitions: Transition[]): Transition[] => {

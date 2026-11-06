@@ -341,6 +341,14 @@ export class Orchestrator {
     );
   }
 
+  // Re-reads one issue from GitHub and applies what a human did to it (closing it, above all) now,
+  // without waiting for the next poll to notice.
+  async reconcile(number: IssueNumber): Promise<void> {
+    const issue = await this._ports.github.getIssue(number);
+    this._issues.set(issue.number, issue);
+    await this._reconciler.apply([issue]);
+  }
+
   // Last polled state of an issue, if it has been seen since start.
   findIssue(number: IssueNumber): Issue | undefined {
     const issue = this._issues.get(number);
