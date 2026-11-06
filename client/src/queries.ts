@@ -145,6 +145,15 @@ export function usePauseToggle() {
   });
 }
 
+// "Проверить снова" in the claude version banner: one more smoke query on the current CLI.
+export function useClaudeRecheck() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<InstallationResponse>("/api/installation/claude/recheck", { method: "POST" }),
+    onSuccess: (installation) => queryClient.setQueryData(KEYS.installation, installation),
+  });
+}
+
 export const fetchAgentHistory = (issueNumber: number) => api<AgentHistoryResponse>(`/api/tasks/${issueNumber}/agent/history`);
 
 // "Остановить ход": the Turn is interrupted, the Session stays; the card follows the `agent` event.

@@ -15,6 +15,9 @@ export type HeaderProps = {
   onPage: (page: Page) => void;
   onPause: (paused: boolean) => void;
   pausePending: boolean;
+  // Another smoke query on the current `claude` after a failed one.
+  onRecheck?: () => void;
+  recheckPending?: boolean;
   connected: boolean;
   now: number;
   onLogout: () => void;
@@ -59,6 +62,8 @@ const PAUSE_SOURCE_TEXT: Record<string, string> = {
 export function Header(props: HeaderProps) {
   const { installation, mode, page } = props;
   const paused = installation?.paused ?? false;
+  const tokenPause = paused && installation?.pause?.source === "token" ? installation.pause : undefined;
+  const claudeVersion = installation?.claudeVersion;
   const segment = (value: Mode, label: string) => (
     <button
       type="button"
@@ -120,9 +125,32 @@ export function Header(props: HeaderProps) {
           выйти
         </button>
       </nav>
-      {paused && installation?.pause && (
+      {tokenPause && (
+        <div className="flex w-full flex-wrap items-center gap-2 rounded-md border border-red-600 bg-red-50 px-3 py-1.5 text-sm dark:bg-red-950" role="alert" data-testid="token-banner">
+          <span>Токен подписки истёк: Claude отклонил OAuth-токен. Новые Агенты не стартуют, пока не сохранён новый токен.</span>
+          <button type="button" className="rounded border border-red-600 px-2 py-0.5 text-xs hover:bg-red-600 hover:text-white" onClick={() => props.onPage("settings")}>
+            Обновить токен в Настройках
+          </button>
+        </div>
+      )}
+      {paused && installation?.pause && !tokenPause && (
         <div className="flex w-full items-center gap-2 rounded-md border border-blue-600 bg-blue-50 px-3 py-1.5 text-sm dark:bg-blue-950" role="status">
           Пауза ({PAUSE_SOURCE_TEXT[installation.pause.source] ?? installation.pause.source}: {installation.pause.reason}). Новые Задачи и новые Круги QA не стартуют, живые Ходы дорабатываются.
+        </div>
+      )}
+      {claudeVersion?.status === "failed" && (
+        <div className="flex w-full flex-wrap items-center gap-2 rounded-md border border-red-600 bg-red-50 px-3 py-1.5 text-sm dark:bg-red-950" role="alert" data-testid="claude-version-banner">
+          <span>
+            Обновлённый claude {claudeVersion.current ?? "(версия неизвестна)"} не прошёл проверку: {claudeVersion.error}. Новые Агенты не стартуют, живые Сессии продолжают работу.
+          </span>
+          {claudeVersion.rollbackCommand && (
+            <span>
+              Откат: <code className="rounded bg-neutral-200 px-1 dark:bg-neutral-800">{claudeVersion.rollbackCommand}</code>
+            </span>
+          )}
+          <button type="button" className="rounded border border-red-600 px-2 py-0.5 text-xs hover:bg-red-600 hover:text-white" disabled={props.recheckPending} onClick={props.onRecheck}>
+            Проверить снова
+          </button>
         </div>
       )}
       {!paused && installation?.blocker === "at_limit" && installation.atLimit && (
