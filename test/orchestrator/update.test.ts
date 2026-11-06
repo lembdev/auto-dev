@@ -1,3 +1,4 @@
+import { RESTART_PROMPT } from "../../src/orchestrator/turns.js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FakeAgentProcess } from "../../src/fakes/driver.js";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
@@ -212,7 +213,7 @@ describe("update of the Installation", () => {
       expect(next.installation.findPause()).toBeUndefined();
       expect(next.updates.view()).toMatchObject({ current: "0.2.0", phase: "idle" });
       expect(testApp.ports.driver.launches.length).toBe(launches + 1);
-      expect(testApp.ports.driver.lastLaunch().launch).toMatchObject({ resume: SESSION, resumeInterruptedTurn: true });
+      expect(testApp.ports.driver.lastLaunch().launch).toMatchObject({ resume: SESSION, prompt: RESTART_PROMPT });
     });
 
     it("resumes the Planner Turn the update interrupted as the open Planner", async () => {
@@ -234,7 +235,7 @@ describe("update of the Installation", () => {
       await testApp.ports.clock.advance(ORPHAN_GRACE_MS);
       await cycle;
 
-      expect(testApp.ports.driver.lastLaunch().launch).toMatchObject({ resume: plannerSession, resumeInterruptedTurn: true, cwd: TEST_REPO_PATH });
+      expect(testApp.ports.driver.lastLaunch().launch).toMatchObject({ resume: plannerSession, prompt: RESTART_PROMPT, cwd: TEST_REPO_PATH });
       expect(next.planner.snapshot()).toMatchObject({ open: true, status: "running" });
     });
 

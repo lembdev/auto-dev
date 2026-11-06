@@ -1,3 +1,4 @@
+import { RESTART_PROMPT } from "./turns.js";
 import type { AgentRunner } from "../agents/agent-runner.js";
 import type { AgentId, PlannerLineId, SessionId } from "../ids.js";
 import type { AgentRecord } from "../index/agents.js";
@@ -191,7 +192,7 @@ export class Planner {
   resumeInterrupted(agent: AgentRecord): boolean {
     if (this._openAgentId !== undefined && this._openAgentId !== agent.id) return false;
     if (this._liveAgent()) return false;
-    this._runner.resume(agent.id, { resumeInterruptedTurn: true });
+    this._runner.resume(agent.id, { prompt: RESTART_PROMPT });
     this._openAgentId = agent.id;
     this._notify();
     return true;

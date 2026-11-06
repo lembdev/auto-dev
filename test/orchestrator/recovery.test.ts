@@ -1,3 +1,4 @@
+import { RESTART_PROMPT } from "../../src/orchestrator/turns.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { ASK_HUMAN_TOOL_NAME } from "../../src/adapters/ask-human.js";
 import type { FakeAgentProcess } from "../../src/fakes/driver.js";
@@ -232,7 +233,7 @@ describe("restart of the Orchestrator", () => {
       expect(s.index.tasks.get(ISSUE)).toMatchObject({ stage: "implement", attempt: 1 });
       expect(next.readyQueue()).toEqual([]);
       expect(driver.launches).toHaveLength(2);
-      expect(driver.lastLaunch().launch).toMatchObject({ resume: SESSION, resumeInterruptedTurn: true });
+      expect(driver.lastLaunch().launch).toMatchObject({ resume: SESSION, prompt: RESTART_PROMPT });
     });
 
     it("keeps a Task in a dead end as the human left it", async () => {
@@ -252,7 +253,7 @@ describe("restart of the Orchestrator", () => {
   });
 
   describe("resume", () => {
-    it("resumes the Turn cut short by a crash with CLAUDE_CODE_RESUME_INTERRUPTED_TURN and the ask_human handler; a waiting Agent stays waiting", async () => {
+    it("resumes the Turn cut short by a crash with a message to continue and the ask_human handler; a waiting Agent stays waiting", async () => {
       const s = await working();
       const { github, driver } = s.ports;
       github.seedIssue({ number: 43, title: "Add logout", labels: ["ready-for-agent"] });
@@ -278,8 +279,8 @@ describe("restart of the Orchestrator", () => {
 
       expect(driver.launches).toHaveLength(3);
       const resumed = driver.lastLaunch();
-      expect(resumed.launch).toMatchObject({ cwd: WORKTREE, resume: SESSION, resumeInterruptedTurn: true });
-      expect(resumed.launch.prompt).toBeUndefined();
+      expect(resumed.launch).toMatchObject({ cwd: WORKTREE, resume: SESSION, prompt: RESTART_PROMPT });
+      expect(resumed.launch.resumeInterruptedTurn).toBeUndefined();
       expect(resumed.launch.onAskHuman).toBeDefined();
       expect(await resumed.askHuman(CALL)).toEqual({ kind: "defer" });
       expect(s.index.agents.list().map((agent) => [agent.issueNumber, agent.state, agent.pid])).toEqual([
@@ -298,7 +299,7 @@ describe("restart of the Orchestrator", () => {
       await s.restart();
 
       expect(driver.launches).toHaveLength(2);
-      expect(driver.lastLaunch().launch).toMatchObject({ resume: SESSION, resumeInterruptedTurn: true });
+      expect(driver.lastLaunch().launch).toMatchObject({ resume: SESSION, prompt: RESTART_PROMPT });
     });
 
     it("does not resume an Agent whose Turn had finished before the crash; the next message resumes it", async () => {
@@ -338,7 +339,7 @@ describe("restart of the Orchestrator", () => {
 
       expect(driver.launches).toHaveLength(3);
       const resumed = driver.lastLaunch();
-      expect(resumed.launch).toMatchObject({ resume: SECOND_SESSION, resumeInterruptedTurn: true, cwd: WORKTREE });
+      expect(resumed.launch).toMatchObject({ resume: SECOND_SESSION, prompt: RESTART_PROMPT, cwd: WORKTREE });
       expect(resumed.launch.onAskHuman).toBeDefined();
       expect(s.index.agents.listByIssue(ISSUE).map((agent) => [agent.role, agent.state])).toEqual([
         ["implementer", "stopped"],
@@ -406,7 +407,7 @@ describe("restart of the Orchestrator", () => {
 
       expect(driver.launches).toHaveLength(4);
       const resumed = driver.lastLaunch();
-      expect(resumed.launch).toMatchObject({ resume: MERGER_SESSION, resumeInterruptedTurn: true });
+      expect(resumed.launch).toMatchObject({ resume: MERGER_SESSION, prompt: RESTART_PROMPT });
       expect(s.index.agents.listByIssue(ISSUE).filter((agent) => agent.role === "merger")).toHaveLength(1);
 
       github.agentPush(1, "sha-merged");
@@ -429,7 +430,7 @@ describe("restart of the Orchestrator", () => {
       const next = await s.restart();
 
       const resumed = driver.launches.find((process) => process.launch.resume === PLANNER_SESSION);
-      expect(resumed?.launch).toMatchObject({ resumeInterruptedTurn: true, cwd: TEST_REPO_PATH });
+      expect(resumed?.launch).toMatchObject({ prompt: RESTART_PROMPT, cwd: TEST_REPO_PATH });
       expect(next.planner.snapshot()).toMatchObject({ open: true, status: "running" });
       await expect(next.planner.start({ mode: "new" })).rejects.toThrow("already running");
       expect(s.index.agents.list().filter((agent) => agent.role === "planner")).toHaveLength(1);
@@ -448,7 +449,7 @@ describe("restart of the Orchestrator", () => {
       next.installation.unpause();
       await next.pollOnce();
       expect(driver.launches).toHaveLength(2);
-      expect(driver.lastLaunch().launch).toMatchObject({ resume: SESSION, resumeInterruptedTurn: true });
+      expect(driver.lastLaunch().launch).toMatchObject({ resume: SESSION, prompt: RESTART_PROMPT });
     });
 
     it("puts the Task in a dead end after three failed resumes in a row, with the reason", async () => {

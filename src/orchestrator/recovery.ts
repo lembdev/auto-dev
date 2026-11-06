@@ -13,7 +13,7 @@ import type { DeadEnds } from "./dead-end.js";
 import type { AskHumanHandler } from "./implementation.js";
 import { isUsageLimitError } from "./installation-state.js";
 import type { Reconciler } from "./reconcile.js";
-import { CONTINUE_PROMPT, isResult } from "./turns.js";
+import { CONTINUE_PROMPT, isResult, RESTART_PROMPT } from "./turns.js";
 
 // SIGTERM leaves the Turn unfinished for `resume`; a process that ignores it gets SIGKILL after this pause.
 export const ORPHAN_GRACE_MS = 10_000;
@@ -167,7 +167,7 @@ export class Recovery {
         this._log.debug({ agent: id, issue: task.issueNumber }, "interrupted turn not resumed: no new turns now");
         return;
       }
-      await this._resume(agent, task, { resumeInterruptedTurn: true });
+      await this._resume(agent, task, { prompt: RESTART_PROMPT });
     }
   }
 

@@ -8,6 +8,10 @@ const ABORTED_REASONS: ReadonlySet<string> = new Set(["aborted_streaming", "abor
 // Sent into a Session whose Turn was cut short or failed, to pick the work up where it stopped.
 export const CONTINUE_PROMPT = "Продолжай.";
 
+// A graceful stop interrupts the Turn and the Session records it as ended by the user, so the CLI
+// would wait for input; a crash leaves the Turn half-written. A message continues both the same way.
+export const RESTART_PROMPT = "Оркестратор перезапускался и прервал твой Ход. Продолжай работу с того места, где остановился.";
+
 export const isResult = (message: SDKMessage): message is Result => message.type === "result";
 
 export const isDeferred = (message: SDKMessage): boolean =>
