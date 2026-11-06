@@ -8,6 +8,8 @@ import type {
   DriverPort,
   ProcessExit,
   SessionHistoryOptions,
+  SmokeQueryOptions,
+  SmokeQueryResult,
 } from "../ports/driver.js";
 import { CallLog } from "./call-log.js";
 
@@ -113,8 +115,10 @@ export class FakeDriverPort implements DriverPort {
   readonly launches: FakeAgentProcess[] = [];
   readonly histories = new Map<SessionId, SDKMessage[]>();
   claudeVersion = "2.1.318";
+  readonly smokeQueries: SmokeQueryOptions[] = [];
   private _nextPid = 1000;
   private readonly _scripts: SDKMessage[][] = [];
+  private readonly _smokeResults: SmokeQueryResult[] = [];
 
   get calls() {
     return this.log.calls;
@@ -123,6 +127,11 @@ export class FakeDriverPort implements DriverPort {
   // Messages the next launched process emits on its own, ending the stream afterwards.
   scriptNextLaunch(messages: SDKMessage[]): void {
     this._scripts.push(messages);
+  }
+
+  // Result of the next smoke query; without a script every smoke query succeeds.
+  scriptSmokeQuery(result: SmokeQueryResult): void {
+    this._smokeResults.push(result);
   }
 
   lastLaunch(): FakeAgentProcess {
@@ -141,6 +150,12 @@ export class FakeDriverPort implements DriverPort {
       process.end();
     }
     return process;
+  }
+
+  async smokeQuery(options: SmokeQueryOptions): Promise<SmokeQueryResult> {
+    this.log.record("smokeQuery", options);
+    this.smokeQueries.push(options);
+    return this._smokeResults.shift() ?? { ok: true, claudeVersion: this.claudeVersion, model: "claude-sonnet-4-5", text: "OK" };
   }
 
   async getSessionHistory(sessionId: SessionId, options?: SessionHistoryOptions): Promise<SDKMessage[]> {

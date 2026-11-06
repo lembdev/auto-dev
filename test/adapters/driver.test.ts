@@ -323,3 +323,52 @@ describe("SdkDriver history and version", () => {
     ]);
   });
 });
+
+describe("SdkDriver.smokeQuery", () => {
+  it("runs one Turn without tools under the given token and reports the version, the model and the answer", async () => {
+    const { driver, sdk } = createDriver({
+      script: [sdkMessages.init(SESSION, { claude_code_version: "2.1.400", model: "claude-sonnet-4-5" }), sdkMessages.resultSuccess(SESSION, "OK")],
+    });
+    const result = await driver.smokeQuery({ cwd: "/var/lib/auto-dev", env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-fresh" } });
+    expect(result).toEqual({ ok: true, claudeVersion: "2.1.400", model: "claude-sonnet-4-5", text: "OK" });
+    const call = sdk.lastCall();
+    expect(call.options).toMatchObject({ cwd: "/var/lib/auto-dev", maxTurns: 1, tools: [], persistSession: false });
+    expect(call.options.env).toMatchObject({ CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-fresh", HOME: "/home/auto-dev" });
+    expect(call.options.mcpServers).toBeUndefined();
+  });
+
+  it("fails on an error result with its message", async () => {
+    const { driver } = createDriver({ script: [sdkMessages.init(SESSION), sdkMessages.resultError(SESSION, ["authentication_failed: Invalid OAuth token"])] });
+    const result = await driver.smokeQuery({ cwd: "/var/lib/auto-dev" });
+    expect(result).toMatchObject({ ok: false });
+    expect(result.ok === false && result.error).toContain("authentication_failed");
+  });
+
+  it("fails when the process ends without a result or claude is missing", async () => {
+    const { driver, sdk } = createDriver({ script: [sdkMessages.init(SESSION)] });
+    const pending = driver.smokeQuery({ cwd: "/var/lib/auto-dev" });
+    await tick();
+    sdk.lastCall().end({ code: 1, signal: null });
+    expect(await pending).toEqual({ ok: false, error: "claude exited without a result" });
+    const missing = createDriver({}, { claudePath: undefined, envSource: { ...envSource, PATH: "/nonexistent" } });
+    const result = await missing.driver.smokeQuery({ cwd: "/var/lib/auto-dev" });
+    expect(result.ok === false && result.error).toContain("claude executable not found");
+  });
+
+  it("gives up after the timeout and closes the query", async () => {
+    const { driver, sdk } = createDriver({ script: [sdkMessages.init(SESSION)], exitOnInputClose: false }, { smokeTimeoutMs: 20 });
+    const result = await driver.smokeQuery({ cwd: "/var/lib/auto-dev" });
+    expect(result.ok === false && result.error).toContain("did not answer");
+    expect(sdk.lastCall().closes).toBe(1);
+  });
+
+  it("reads the environment source again for every launch, so a stored token reaches the next Agent", async () => {
+    let token = "sk-ant-oat01-old";
+    const { driver, sdk } = createDriver({}, { envSource: () => ({ ...envSource, CLAUDE_CODE_OAUTH_TOKEN: token }) });
+    driver.launch({ cwd: "/w", prompt: "one" });
+    token = "sk-ant-oat01-new";
+    driver.launch({ cwd: "/w", prompt: "two" });
+    await tick();
+    expect(sdk.calls.map((call) => call.options.env?.CLAUDE_CODE_OAUTH_TOKEN)).toEqual(["sk-ant-oat01-old", "sk-ant-oat01-new"]);
+  });
+});

@@ -26,6 +26,8 @@ import type {
   DriverPort,
   ProcessExit,
   SessionHistoryOptions,
+  SmokeQueryOptions,
+  SmokeQueryResult,
 } from "../ports/driver.js";
 import { buildAgentEnv, type AgentEnvSource } from "./agent-env.js";
 import { ASK_HUMAN_SERVER, ASK_HUMAN_TOOL_NAME, type AskHumanInput } from "./ask-human.js";
@@ -40,9 +42,12 @@ export type ExecFn = (command: string, args: string[], options: { env: NodeJS.Pr
 
 export const DEFAULT_STOP_GRACE_MS = 2_000;
 export const DEFAULT_INTERRUPT_TIMEOUT_MS = 15_000;
+export const DEFAULT_SMOKE_TIMEOUT_MS = 120_000;
+export const SMOKE_PROMPT = "Reply with the single word OK and nothing else.";
 
 export type SdkDriverOptions = {
-  envSource: AgentEnvSource;
+  // The Installation environment, or a getter when secrets can change while it runs.
+  envSource: AgentEnvSource | (() => AgentEnvSource);
   // Arguments after `node` that start the stdio server of the `ask_human` tool.
   askHumanServerArgs: string[];
   log: Logger;
@@ -60,6 +65,7 @@ export type SdkDriverOptions = {
   // How long stop() waits for a clean exit after closing stdin before SIGTERM.
   stopGraceMs?: number;
   interruptTimeoutMs?: number;
+  smokeTimeoutMs?: number;
 };
 
 export class RootUserError extends Error {
@@ -283,7 +289,8 @@ export class SdkDriver implements DriverPort {
   private readonly _spawn: SpawnFn;
   private readonly _exec: ExecFn;
   private readonly _isRoot: () => boolean;
-  private readonly _timeouts: { stopGraceMs: number; interruptTimeoutMs: number };
+  private readonly _envSource: () => AgentEnvSource;
+  private readonly _timeouts: { stopGraceMs: number; interruptTimeoutMs: number; smokeTimeoutMs: number };
 
   constructor(private readonly _options: SdkDriverOptions) {
     this._query = _options.query ?? sdkQuery;
@@ -291,23 +298,77 @@ export class SdkDriver implements DriverPort {
     this._spawn = _options.spawn ?? defaultSpawn;
     this._exec = _options.exec ?? defaultExec;
     this._isRoot = _options.isRoot ?? defaultIsRoot;
+    const envSource = _options.envSource;
+    this._envSource = typeof envSource === "function" ? envSource : () => envSource;
     this._timeouts = {
       stopGraceMs: _options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS,
       interruptTimeoutMs: _options.interruptTimeoutMs ?? DEFAULT_INTERRUPT_TIMEOUT_MS,
+      smokeTimeoutMs: _options.smokeTimeoutMs ?? DEFAULT_SMOKE_TIMEOUT_MS,
     };
   }
 
   claudePath(): string {
     if (this._options.claudePath) return this._options.claudePath;
-    const found = findClaudeExecutable(this._options.envSource.PATH);
-    if (!found) throw new ClaudeNotFoundError(this._options.envSource.PATH);
+    const searchPath = this._envSource().PATH;
+    const found = findClaudeExecutable(searchPath);
+    if (!found) throw new ClaudeNotFoundError(searchPath);
     return found;
+  }
+
+  // A one-Turn query without tools and without a persisted Session: the cheapest proof that the
+  // CLI starts under the Installation environment and the subscription answers.
+  async smokeQuery(options: SmokeQueryOptions): Promise<SmokeQueryResult> {
+    let claudePath: string;
+    let env: Record<string, string>;
+    try {
+      if (this._isRoot()) throw new RootUserError();
+      claudePath = this.claudePath();
+      env = buildAgentEnv(this._envSource(), options.env ? { extra: options.env } : {});
+    } catch (error) {
+      return { ok: false, error: errorMessage(error) };
+    }
+    const log = this._options.log.child({ smoke: true });
+    const child = new ChildTracker();
+    const query = this._query({
+      prompt: SMOKE_PROMPT,
+      options: {
+        pathToClaudeCodeExecutable: claudePath,
+        cwd: options.cwd,
+        env,
+        maxTurns: 1,
+        tools: [],
+        persistSession: false,
+        strictMcpConfig: true,
+        spawnClaudeCodeProcess: (spawnOptions: SpawnOptions) => {
+          const spawned = this._spawn(spawnOptions.command, spawnOptions.args, {
+            ...(spawnOptions.cwd !== undefined ? { cwd: spawnOptions.cwd } : {}),
+            env: spawnOptions.env,
+            signal: spawnOptions.signal,
+          });
+          child.attach(spawned);
+          spawned.stderr?.on("data", (chunk: Buffer | string) => log.debug({ pid: spawned.pid, stderr: chunk.toString().trimEnd() }, "claude stderr"));
+          return spawned;
+        },
+      },
+    });
+    const outcome = await withTimeout(collectSmoke(query), this._timeouts.smokeTimeoutMs);
+    if (outcome === undefined) {
+      try {
+        query.close();
+      } catch (error) {
+        log.warn({ err: error }, "closing the smoke query failed");
+        child.child?.kill("SIGTERM");
+      }
+      return { ok: false, error: `claude did not answer within ${Math.round(this._timeouts.smokeTimeoutMs / 1000)} s` };
+    }
+    log.info({ ok: outcome.ok }, "smoke query finished");
+    return outcome;
   }
 
   launch(launch: AgentLaunch): AgentProcess {
     if (this._isRoot()) throw new RootUserError();
     const claudePath = this.claudePath();
-    const env = buildAgentEnv(this._options.envSource, {
+    const env = buildAgentEnv(this._envSource(), {
       ...(launch.resumeInterruptedTurn ? { resumeInterruptedTurn: true } : {}),
       ...(launch.env ? { extra: launch.env } : {}),
     });
@@ -360,7 +421,7 @@ export class SdkDriver implements DriverPort {
   }
 
   async getClaudeVersion(): Promise<string> {
-    const { stdout } = await this._exec(this.claudePath(), ["--version"], { env: buildAgentEnv(this._options.envSource) });
+    const { stdout } = await this._exec(this.claudePath(), ["--version"], { env: buildAgentEnv(this._envSource()) });
     const match = /\d+\.\d+\.\d+/.exec(stdout);
     if (!match) throw new Error(`cannot parse claude version from "${stdout.trim()}"`);
     return match[0];
@@ -388,6 +449,31 @@ export class SdkDriver implements DriverPort {
     };
   }
 }
+
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+// Reads the smoke query to its result: the init message names the CLI version and the model,
+// the result message carries the answer or the error.
+const collectSmoke = async (query: Query): Promise<SmokeQueryResult> => {
+  let claudeVersion: string | null = null;
+  let model: string | null = null;
+  try {
+    for await (const message of query) {
+      if (message.type === "system" && message.subtype === "init") {
+        claudeVersion = message.claude_code_version ?? null;
+        model = message.model ?? null;
+      }
+      if (message.type !== "result") continue;
+      if (message.subtype === "success" && !message.is_error) return { ok: true, claudeVersion, model, text: message.result };
+      const errors = "errors" in message && Array.isArray(message.errors) ? message.errors.filter((entry): entry is string => typeof entry === "string") : [];
+      const text = "result" in message && typeof message.result === "string" ? message.result : "";
+      return { ok: false, error: [text, ...errors].filter((entry) => entry !== "").join("; ") || message.subtype };
+    }
+  } catch (error) {
+    return { ok: false, error: errorMessage(error) };
+  }
+  return { ok: false, error: "claude exited without a result" };
+};
 
 const askHumanOutput = (
   toolInput: AskHumanInput,

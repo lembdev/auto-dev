@@ -51,8 +51,20 @@ export type SessionHistoryOptions = {
   cwd?: string;
 };
 
+export type SmokeQueryOptions = {
+  cwd: string;
+  // Overrides on top of the Installation environment, e.g. a token that is not stored yet.
+  env?: Record<string, string>;
+};
+
+// One short Turn without tools: proves that the CLI starts and the subscription answers.
+export type SmokeQueryResult =
+  | { ok: true; claudeVersion: string | null; model: string | null; text: string }
+  | { ok: false; error: string };
+
 export interface DriverPort {
   launch(launch: AgentLaunch): AgentProcess;
+  smokeQuery(options: SmokeQueryOptions): Promise<SmokeQueryResult>;
   // Transcript of a Session as user and assistant messages, oldest first.
   getSessionHistory(sessionId: SessionId, options?: SessionHistoryOptions): Promise<SDKMessage[]>;
   getClaudeVersion(): Promise<string>;
