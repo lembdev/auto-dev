@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
 import type { IssueNumber, MilestoneNumber, PullNumber, SessionId } from "../../src/ids.js";
 import { isMarkedComment } from "../../src/orchestrator/comments.js";
-import { criteriaOfPullBody, EPIC_CRITERIA_HEADING, tickCriteria } from "../../src/orchestrator/epic-closure.js";
+import { criteriaOfPullBody, EPIC_CRITERIA_HEADING, MILESTONE_SWEEP_INTERVAL_MS, tickCriteria } from "../../src/orchestrator/epic-closure.js";
 import type { IssueSeed } from "../../src/fakes/github.js";
 import { INSTALLATION_KEYS } from "../../src/orchestrator/orchestrator.js";
 import { createTestApp, type TestApp } from "../helpers/test-app.js";
@@ -192,6 +192,48 @@ describe("Epic criteria and milestone closure after a merge", () => {
     await s.orchestrator.pollOnce();
     expect(mutationsOf(s, EPIC)).toEqual([]);
     expect(github.commentsOf(EPIC)).toHaveLength(1);
+  });
+
+  it("closes the Epic, the Spec and the milestone once the human ticks the remaining criteria, on the next sweep", async () => {
+    const s = await approvedTask({ ...epicLayout(), pullBody: pullBody(["- [ ] Пользователь входит по email и паролю"]) });
+    const { github, clock } = s.ports;
+    await s.orchestrator.pollOnce();
+    expect(github.issue(EPIC)).toMatchObject({ state: "open", labels: ["ready-for-human"] });
+
+    github.humanUpdateIssue(EPIC, { body: github.issue(EPIC).body.replace("- [ ] Пароль можно сбросить", "- [x] Пароль можно сбросить") });
+    await s.orchestrator.pollOnce();
+    expect(github.milestone(MILESTONE.number).state).toBe("open");
+
+    await clock.advance(MILESTONE_SWEEP_INTERVAL_MS);
+    await s.orchestrator.pollOnce();
+    expect(github.issue(EPIC).state).toBe("closed");
+    expect(github.issue(SPEC).state).toBe("closed");
+    expect(github.milestone(MILESTONE.number).state).toBe("closed");
+    expect(github.commentsOf(EPIC)).toHaveLength(1);
+
+    // Closed for good: later sweeps leave it alone.
+    github.log.clear();
+    await clock.advance(MILESTONE_SWEEP_INTERVAL_MS);
+    await s.orchestrator.pollOnce();
+    expect(github.log.of("updateMilestone")).toEqual([]);
+    expect(github.log.of("getMilestone")).toEqual([]);
+  });
+
+  it("closes the milestone on the sweep when the human closes its last open issue after the merge", async () => {
+    const s = await approvedTask({
+      ...epicLayout({ otherTaskState: "open" }),
+      pullBody: pullBody(["- [ ] Пользователь входит по email и паролю", "- [ ] Пароль можно сбросить по ссылке из письма"]),
+    });
+    const { github, clock } = s.ports;
+    await s.orchestrator.pollOnce();
+    expect(s.index.tasks.get(TASK).stage).toBe("done");
+    expect(github.milestone(MILESTONE.number).state).toBe("open");
+
+    github.humanUpdateIssue(OTHER_TASK, { state: "closed" });
+    await clock.advance(MILESTONE_SWEEP_INTERVAL_MS);
+    await s.orchestrator.pollOnce();
+    expect(github.issue(EPIC).state).toBe("closed");
+    expect(github.milestone(MILESTONE.number).state).toBe("closed");
   });
 
   it("finishes a closure interrupted by a GitHub error on the next cycle without editing the body or commenting twice", async () => {

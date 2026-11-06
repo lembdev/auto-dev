@@ -242,6 +242,7 @@ export class Orchestrator {
       github: this._ports.github,
       index: this._index,
       log: this._log,
+      clock: this._ports.clock,
       journal: this._intents,
       postComment: (issueNumber, key, text) => this.postComment(issueNumber, key, text),
       findIssue: (issueNumber) => this._issueOf(issueNumber),
@@ -518,6 +519,7 @@ export class Orchestrator {
     await this._qa.startRounds();
     await this._merge.startMerges();
     await this._fillSlots();
+    await this._epicClosure.sweep();
   }
 
   private async _issueOf(issueNumber: IssueNumber): Promise<Issue> {

@@ -3,6 +3,7 @@ import type { IssueNumber, MilestoneNumber, PullNumber } from "../ids.js";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Task } from "../index/tasks.js";
 import type { Logger } from "../log.js";
+import type { Clock } from "../ports/clock.js";
 import { GitHubNotFoundError, type GitHubPort, type Issue, type IssueComment, type PullRequest } from "../ports/github.js";
 import { parentNumberOf, parseChecklist } from "./epic.js";
 import { defineIntent, type IntentJournal } from "./intents.js";
@@ -50,6 +51,9 @@ export function tickCriteria(body: string, criteria: readonly string[]): TickRes
   return { body: lines.join(newline), ticked: [...ticked] };
 }
 
+// How often the open milestones of merged Tasks are checked for what a human finished by hand.
+export const MILESTONE_SWEEP_INTERVAL_MS = 10 * 60_000;
+
 export type SettleEpicPayload = {
   pullNumber: PullNumber;
   // Parent of the Task; the Epic of a milestone without sub-issues is found by its type instead.
@@ -74,6 +78,7 @@ export type EpicClosureOptions = {
   github: GitHubPort;
   index: RuntimeIndex;
   log: Logger;
+  clock: Clock;
   journal: IntentJournal;
   postComment: (issueNumber: IssueNumber, key: string, text: string) => Promise<IssueComment>;
   findIssue: (issueNumber: IssueNumber) => Promise<Issue>;
@@ -89,6 +94,11 @@ export class EpicClosure {
   private readonly _journal: IntentJournal;
   private readonly _postComment: EpicClosureOptions["postComment"];
   private readonly _findIssue: EpicClosureOptions["findIssue"];
+  private readonly _clock: Clock;
+  // Milestones seen closed; the sweep does not look at them again.
+  private readonly _closedMilestones = new Set<MilestoneNumber>();
+  private _lastSweep: number;
+  private _sweeping = false;
 
   constructor(options: EpicClosureOptions) {
     this._github = options.github;
@@ -97,6 +107,8 @@ export class EpicClosure {
     this._journal = options.journal;
     this._postComment = options.postComment;
     this._findIssue = options.findIssue;
+    this._clock = options.clock;
+    this._lastSweep = this._clock.now();
     this._journal.handle(SETTLE_EPIC, (payload, intent) => this._settle(intent.issueNumber, payload));
   }
 
@@ -121,6 +133,45 @@ export class EpicClosure {
     });
   }
 
+  // A human may finish what a merge left open: tick the last criteria of the Epic or close the last issue.
+  // Once per interval the open milestones of merged Tasks go through the same closure as after a merge;
+  // every step looks at the state first, so a sweep with nothing to do changes nothing.
+  async sweep(): Promise<void> {
+    const now = this._clock.now();
+    if (this._sweeping || now - this._lastSweep < MILESTONE_SWEEP_INTERVAL_MS) return;
+    this._lastSweep = now;
+    this._sweeping = true;
+    try {
+      const milestones = new Map<MilestoneNumber, IssueNumber>();
+      for (const task of this._index.tasks.listByStage(["done"])) {
+        if (task.milestone && !this._closedMilestones.has(task.milestone.number)) milestones.set(task.milestone.number, task.issueNumber);
+      }
+      for (const [milestoneNumber, issueNumber] of milestones) {
+        try {
+          await this._sweepMilestone(milestoneNumber, issueNumber);
+        } catch (error) {
+          this._log.error({ err: error, milestone: milestoneNumber }, "milestone not checked; the next sweep tries again");
+        }
+      }
+    } finally {
+      this._sweeping = false;
+    }
+  }
+
+  private async _sweepMilestone(milestoneNumber: MilestoneNumber, issueNumber: IssueNumber): Promise<void> {
+    const milestone = await this._github.getMilestone(milestoneNumber);
+    if (milestone.state !== "open") {
+      this._closedMilestones.add(milestoneNumber);
+      return;
+    }
+    const members = await this._github.listIssues({ milestone: milestoneNumber, state: "all" });
+    const task = members.find((member) => member.number === issueNumber);
+    const parentNumber = (task && parentNumberOf(task)) ?? null;
+    const epic = await this._findEpic(parentNumber, members);
+    const outcome = await this._settleMilestone(issueNumber, milestoneNumber, epic, members);
+    if (outcome === "closed") this._closedMilestones.add(milestoneNumber);
+  }
+
   private _settled(issueNumber: IssueNumber, pullNumber: PullNumber): SettleEpicResult | undefined {
     const done = this._index.intents
       .listFor(issueNumber)
@@ -130,7 +181,7 @@ export class EpicClosure {
 
   private async _settle(issueNumber: IssueNumber, payload: SettleEpicPayload): Promise<SettleEpicResult> {
     const members = payload.milestoneNumber === null ? [] : await this._github.listIssues({ milestone: payload.milestoneNumber, state: "all" });
-    let epic = await this._findEpic(payload, members);
+    let epic = await this._findEpic(payload.parentNumber, members);
     const ticked: string[] = [];
     if (epic && payload.criteria.length > 0) {
       const result = tickCriteria(epic.body, payload.criteria);
@@ -142,13 +193,21 @@ export class EpicClosure {
     }
     const epicNumber = epic?.number ?? null;
     if (payload.milestoneNumber === null) return { epicNumber, ticked, milestone: "none" };
-    const milestoneNumber = payload.milestoneNumber;
+    const milestone = await this._settleMilestone(issueNumber, payload.milestoneNumber, epic, members);
+    if (milestone === "closed") this._closedMilestones.add(payload.milestoneNumber);
+    return { epicNumber, ticked, milestone };
+  }
+
+  // Closes the Epic, the Spec and the milestone once every other issue is closed and every criterion
+  // ticked; with criteria left, the Epic goes to the human.
+  private async _settleMilestone(issueNumber: IssueNumber, milestoneNumber: MilestoneNumber, epic: Issue | undefined, members: Issue[]): Promise<MilestoneOutcome> {
+    const epicNumber = epic?.number ?? null;
     const specs = epic === undefined ? [] : members.filter((member) => this._isSpec(member, epic));
     const rest = members.filter((member) => member.number !== epicNumber && !specs.includes(member));
     const open = rest.filter((member) => member.state === "open");
     if (open.length > 0) {
       this._log.debug({ issue: issueNumber, milestone: milestoneNumber, open: open.map((member) => member.number) }, "milestone still has open issues");
-      return { epicNumber, ticked, milestone: "open-issues" };
+      return "open-issues";
     }
     if (epic) {
       const unchecked = parseChecklist(epic.body)
@@ -156,7 +215,7 @@ export class EpicClosure {
         .map((item) => item.text);
       if (unchecked.length > 0) {
         await this._handToHuman(epic, milestoneNumber, unchecked);
-        return { epicNumber, ticked, milestone: "unchecked-criteria" };
+        return "unchecked-criteria";
       }
       if (epic.state === "open") await this._close(epic.number);
     }
@@ -168,14 +227,14 @@ export class EpicClosure {
       await this._github.updateMilestone(milestoneNumber, { state: "closed" });
       this._log.info({ issue: issueNumber, milestone: milestoneNumber, epic: epicNumber, specs: specs.map((spec) => spec.number) }, "milestone closed");
     }
-    return { epicNumber, ticked, milestone: "closed" };
+    return "closed";
   }
 
   // The parent of the Task is the Epic unless the repository has issue types and says otherwise; without
   // a parent the Epic is the issue of the milestone typed `Epic`, if any.
-  private async _findEpic(payload: SettleEpicPayload, members: Issue[]): Promise<Issue | undefined> {
-    if (payload.parentNumber !== null) {
-      const parent = members.find((member) => member.number === payload.parentNumber) ?? (await this._findParent(payload.parentNumber));
+  private async _findEpic(parentNumber: IssueNumber | null, members: Issue[]): Promise<Issue | undefined> {
+    if (parentNumber !== null) {
+      const parent = members.find((member) => member.number === parentNumber) ?? (await this._findParent(parentNumber));
       if (parent && (parent.type === null || parent.type === EPIC_TYPE)) return parent;
     }
     return members.find((member) => member.type === EPIC_TYPE);
@@ -216,7 +275,7 @@ export class EpicClosure {
       `Все issues вехи «${milestone}» закрыты, но в Epic не отмечены критерии:`,
       ...unchecked.map((line) => `- ${line}`),
       "",
-      "Отметь их, если они выполнены, или заведи Задачи на остаток. Оркестратор закроет Epic, Spec и веху после следующего влитого PR этой вехи; если Задач больше не будет, закрой их сам.",
+      "Отметь их, если они выполнены, или заведи Задачи на остаток. Как только все критерии отмечены и все issues вехи закрыты, Оркестратор сам закроет Epic, Spec и веху (проверка раз в 10 минут).",
     ].join("\n");
     await this._postComment(epic.number, key, text);
     this._log.warn({ epic: epic.number, milestone: milestoneNumber, unchecked }, "epic handed to the human: criteria unchecked");
