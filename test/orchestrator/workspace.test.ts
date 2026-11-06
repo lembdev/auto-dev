@@ -105,8 +105,9 @@ describe("workspace of a taken Task", () => {
     github.humanSetLabels(7, ["ready-for-agent"]);
     await s.orchestrator.pollOnce();
 
+    // The previous attempt is cleaned up before the new one gets its worktree.
     const path = `${REPO}/.claude/worktrees/issue-7-r2`;
-    expect(worktree.worktrees(REPO).map((info) => info.path)).toEqual([`${REPO}/.claude/worktrees/issue-7`, path]);
+    expect(worktree.worktrees(REPO).map((info) => info.path)).toEqual([path]);
     expect(worktree.pushes.at(-1)).toEqual({ cwd: path, branch: "worktree-issue-7-r2" });
     expect(github.pull(2)).toMatchObject({ title: "WIP: Flaky", head: { ref: "worktree-issue-7-r2" } });
     expect(s.index.tasks.get(7 as IssueNumber)).toMatchObject({

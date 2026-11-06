@@ -1,18 +1,17 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentRunner } from "../agents/agent-runner.js";
-import type { AgentId, CommentId, IssueNumber } from "../ids.js";
+import type { AgentId, IssueNumber } from "../ids.js";
 import type { AgentRecord } from "../index/agents.js";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Task, TaskStage } from "../index/tasks.js";
 import type { Logger } from "../log.js";
 import type { Clock } from "../ports/clock.js";
 import type { AskHumanCall } from "../ports/driver.js";
-import type { GitHubPort, Issue, IssueComment } from "../ports/github.js";
+import type { GitHubPort, Issue } from "../ports/github.js";
 import { StagePrompts } from "../prompts/index.js";
+import type { DeadEnds } from "./dead-end.js";
 import { findEpic } from "./epic.js";
 import type { AskHumanHandler, Implementation } from "./implementation.js";
-import { defineIntent, type IntentJournal } from "./intents.js";
-import { HUMAN_LABEL } from "./ready-tasks.js";
 import { formatBlockers, formatVerdict, parseVerdict, type Verdict } from "./verdict.js";
 
 export const DEFAULT_MAX_QA_ROUNDS = 3;
@@ -26,11 +25,7 @@ export const VERDICT_RETRY_PROMPT =
 // How many verdicts in a row may fail to parse (or Turns fail) within one round before the dead end.
 const MAX_VERDICT_FAILURES = 2;
 
-export type DeadEndPayload = { login: string; commentKey: string; text: string };
-export type DeadEndResult = { commentId: CommentId };
-
-// Marks the issue as a dead end in GitHub: label, assignee, comment with the reason. Idempotent.
-export const DEAD_END = defineIntent<DeadEndPayload, DeadEndResult>("dead-end");
+export { DEAD_END, type DeadEndPayload, type DeadEndResult } from "./dead-end.js";
 
 export type QaStageOptions = {
   github: GitHubPort;
@@ -38,11 +33,10 @@ export type QaStageOptions = {
   index: RuntimeIndex;
   log: Logger;
   clock: Clock;
-  journal: IntentJournal;
+  deadEnds: DeadEnds;
   implementation: Implementation;
   prompts?: StagePrompts;
   transition: (issueNumber: IssueNumber, to: TaskStage, reason?: string) => Task;
-  postComment: (issueNumber: IssueNumber, key: string, text: string) => Promise<IssueComment>;
   findIssue: (issueNumber: IssueNumber) => Promise<Issue>;
   // False while the Installation is paused or at the limit: no new round starts, running Turns finish.
   canStartRound?: () => boolean;
@@ -72,18 +66,16 @@ export class QaStage {
   private readonly _index: RuntimeIndex;
   private readonly _log: Logger;
   private readonly _clock: Clock;
-  private readonly _journal: IntentJournal;
+  private readonly _deadEnds: DeadEnds;
   private readonly _implementation: Implementation;
   private readonly _prompts: StagePrompts;
   private readonly _transition: QaStageOptions["transition"];
-  private readonly _postComment: QaStageOptions["postComment"];
   private readonly _findIssue: QaStageOptions["findIssue"];
   private readonly _canStartRound: () => boolean;
   private readonly _onAskHuman: AskHumanHandler | undefined;
   private readonly _rounds = new Map<IssueNumber, Round>();
   private readonly _lastVerdicts = new Map<IssueNumber, Verdict>();
   private readonly _starting = new Set<IssueNumber>();
-  private _login: string | undefined;
 
   constructor(options: QaStageOptions) {
     this._github = options.github;
@@ -91,15 +83,13 @@ export class QaStage {
     this._index = options.index;
     this._log = options.log;
     this._clock = options.clock;
-    this._journal = options.journal;
+    this._deadEnds = options.deadEnds;
     this._implementation = options.implementation;
     this._prompts = options.prompts ?? new StagePrompts();
     this._transition = options.transition;
-    this._postComment = options.postComment;
     this._findIssue = options.findIssue;
     this._canStartRound = options.canStartRound ?? (() => true);
     this._onAskHuman = options.onAskHuman;
-    this._journal.handle(DEAD_END, (payload, intent) => this._markDeadEnd(intent.issueNumber, payload));
     this._runner.onMessage((agent, message) => this._observe(agent, message));
   }
 
@@ -271,36 +261,9 @@ export class QaStage {
     this._log.info({ issue: issueNumber, round: checked, blockers: verdict.blockers.length }, "qa blockers sent to the implementer");
   }
 
-  // The Task leaves the Pipeline for good: Slot freed, every Agent stopped, the human gets the issue back
-  // with the reason. The worktree and the branch stay for the investigation.
   private async _deadEnd(issueNumber: IssueNumber, reason: string, text: string): Promise<void> {
     this._rounds.delete(issueNumber);
-    const task = this._transition(issueNumber, "stuck", reason);
-    await Promise.all(
-      this._index.agents
-        .listByIssue(issueNumber)
-        .filter((agent) => this._runner.isLive(agent.id))
-        .map((agent) => this._runner.stop(agent.id)),
-    );
-    this._log.warn({ issue: issueNumber, reason }, "task reached a dead end");
-    const login = await this._loginOf();
-    await this._journal.run(DEAD_END, issueNumber, {
-      login,
-      commentKey: `stuck:${task.attempt}`,
-      text: `Тупик: ${text}\n\nЗадача передана человеку. Worktree и ветка оставлены для разбора; чтобы запустить Задачу заново, поставь метку \`ready-for-agent\`.`,
-    });
-  }
-
-  private async _markDeadEnd(issueNumber: IssueNumber, payload: DeadEndPayload): Promise<DeadEndResult> {
-    await this._github.addLabels(issueNumber, [HUMAN_LABEL]);
-    await this._github.removeAssignees(issueNumber, [payload.login]);
-    const comment = await this._postComment(issueNumber, payload.commentKey, payload.text);
-    return { commentId: comment.id };
-  }
-
-  private async _loginOf(): Promise<string> {
-    this._login ??= (await this._github.getAuthenticatedUser()).login;
-    return this._login;
+    await this._deadEnds.enter(issueNumber, reason, text);
   }
 
   private _fireAndLog(issueNumber: IssueNumber, work: Promise<unknown>, failure: string): void {

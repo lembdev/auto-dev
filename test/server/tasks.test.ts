@@ -23,7 +23,7 @@ describe("GET /api/tasks", () => {
 
   it("is empty before the first poll", async () => {
     testApp = createTestApp();
-    expect(await tasks()).toEqual({ slots: { used: 0, max: 2 }, maxQaRounds: 3, inProgress: [], ready: [], stuck: [] });
+    expect(await tasks()).toEqual({ slots: { used: 0, max: 2 }, maxQaRounds: 3, inProgress: [], ready: [], stuck: [], cancelled: [] });
   });
 
   it("shows Tasks in progress, the Ready queue in order and the Slots", async () => {
@@ -57,6 +57,10 @@ describe("GET /api/tasks", () => {
           updatedAt: takenAt,
           htmlUrl: "https://github.com/example/product/issues/1",
           pullUrl: "https://github.com/example/product/pull/1",
+          transitions: [
+            { id: 1, issueNumber: 1, from: null, to: "taken", reason: null, at: takenAt },
+            { id: 2, issueNumber: 1, from: "taken", to: "implement", reason: "implementer started", at: takenAt },
+          ],
           agent: { id: 1, role: "implementer", state: "running", lastTurnAt: null, createdAt: takenAt },
           request: null,
         },
@@ -67,6 +71,7 @@ describe("GET /api/tasks", () => {
         { issueNumber: 3, title: "Third", milestone: null, htmlUrl: "https://github.com/example/product/issues/3" },
       ],
       stuck: [],
+      cancelled: [],
     });
   });
 

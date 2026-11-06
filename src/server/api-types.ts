@@ -1,6 +1,6 @@
 // Wire types of the HTTP and WebSocket API, shared with the client bundle (type-only imports there).
 import type { AgentRole, AgentState } from "../index/agents.js";
-import type { Task, TaskStage } from "../index/tasks.js";
+import type { Task, TaskStage, Transition } from "../index/tasks.js";
 import type { InstallationSnapshot, PauseSource } from "../orchestrator/installation-state.js";
 
 export type HealthResponse = {
@@ -41,11 +41,14 @@ export type RequestView = {
 export type TaskView = Task & {
   htmlUrl: string | null;
   pullUrl: string | null;
+  transitions: Transition[];
   agent: AgentView | null;
   request: RequestView | null;
 };
 
-export type StuckTaskView = TaskView & { reason: string | null; stuckAt: string | null };
+// A Task that left the Pipeline, with the reason and the time of its last transition.
+export type FinishedTaskView = TaskView & { reason: string | null; finishedAt: string | null };
+export type StuckTaskView = FinishedTaskView;
 
 export type ReadyTaskView = {
   issueNumber: number;
@@ -61,6 +64,7 @@ export type TasksResponse = {
   inProgress: TaskView[];
   ready: ReadyTaskView[];
   stuck: StuckTaskView[];
+  cancelled: FinishedTaskView[];
 };
 
 export type ProductView = { fullName: string; htmlUrl: string };

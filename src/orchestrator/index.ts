@@ -42,5 +42,26 @@ export {
   type HumanRequestsOptions,
   type RequestText,
 } from "./human-requests.js";
-export { QaStage, DEAD_END, DEFAULT_MAX_QA_ROUNDS, MAX_QA_ROUNDS_KEY, VERDICT_RETRY_PROMPT, type QaStageOptions } from "./qa.js";
+export { DeadEnds, DEAD_END, type DeadEndPayload, type DeadEndResult, type DeadEndsOptions } from "./dead-end.js";
+export { stopAgentsOf } from "./stop-agents.js";
+export {
+  MergeStage,
+  UNMARK_WIP,
+  MERGE_PULL,
+  DELETE_REMOTE_BRANCH,
+  CLOSE_ISSUE,
+  CHECKS_POLL_MS,
+  MERGEABLE_POLL_MS,
+  CHECKS_TIMEOUT_MS,
+  evaluateChecks,
+  stripWip,
+  type ChecksVerdict,
+  type MergeFailure,
+  type MergeFailureKind,
+  type MergeStageOptions,
+  type MergePullResult,
+} from "./merge.js";
+export { QaStage, DEFAULT_MAX_QA_ROUNDS, MAX_QA_ROUNDS_KEY, VERDICT_RETRY_PROMPT, type QaStageOptions } from "./qa.js";
 export { parseVerdict, formatVerdict, formatBlockers, type Verdict, type Blocker } from "./verdict.js";
+export { WorkspaceCleanup, CLEANUP_WORKSPACE, cleanupWorkspace, type CleanupPayload, type CleanupResult, type CleanupDeps } from "./cleanup.js";
+export { Reconciler, CANCELLED_REASON, type ReconcilerOptions } from "./reconcile.js";

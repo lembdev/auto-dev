@@ -12,6 +12,7 @@ import type { Ports } from "../ports/index.js";
 import type {
   AgentView,
   DigestResponse,
+  FinishedTaskView,
   InstallationResponse,
   HealthResponse,
   PauseRequest,
@@ -20,7 +21,6 @@ import type {
   RequestView,
   ServerEvent,
   SessionResponse,
-  StuckTaskView,
   TaskView,
   TasksResponse,
 } from "./api-types.js";
@@ -39,6 +39,7 @@ import {
 export type {
   AgentView,
   DigestResponse,
+  FinishedTaskView,
   HealthResponse,
   InstallationResponse,
   PauseRequest,
@@ -194,12 +195,20 @@ export function createApp(deps: AppDeps): App {
 
   const taskView = async (task: Task): Promise<TaskView> => {
     const htmlUrl = issueUrlOf(task);
-    return { ...task, htmlUrl, pullUrl: pullUrlOf(htmlUrl, task.pullNumber), agent: agentOf(task), request: await requestOf(task, htmlUrl) };
+    return {
+      ...task,
+      htmlUrl,
+      pullUrl: pullUrlOf(htmlUrl, task.pullNumber),
+      transitions: deps.index.transitions.listFor(task.issueNumber),
+      agent: agentOf(task),
+      request: await requestOf(task, htmlUrl),
+    };
   };
 
-  const stuckView = async (task: Task): Promise<StuckTaskView> => {
-    const last = deps.index.transitions.listFor(task.issueNumber).at(-1);
-    return { ...(await taskView(task)), reason: last?.reason ?? null, stuckAt: last?.at ?? null };
+  const finishedView = async (task: Task): Promise<FinishedTaskView> => {
+    const viewed = await taskView(task);
+    const last = viewed.transitions.at(-1);
+    return { ...viewed, reason: last?.reason ?? null, finishedAt: last?.at ?? null };
   };
 
   app.get("/api/tasks", async (c) => {
@@ -216,7 +225,8 @@ export function createApp(deps: AppDeps): App {
           htmlUrl: issue.htmlUrl,
         }),
       ),
-      stuck: await Promise.all(deps.index.tasks.listByStage(["stuck"]).map(stuckView)),
+      stuck: await Promise.all(deps.index.tasks.listByStage(["stuck"]).map(finishedView)),
+      cancelled: await Promise.all(deps.index.tasks.listByStage(["cancelled"]).map(finishedView)),
     };
     return c.json(body);
   });

@@ -21,6 +21,7 @@ const task = (overrides: Partial<TaskView> = {}): TaskView => ({
   htmlUrl: "https://github.com/acme/product/issues/138",
   pullUrl: "https://github.com/acme/product/pull/147",
   agent: { id: 5, role: "qa", state: "running", lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" },
+  transitions: [],
   request: null,
   ...overrides,
 });
@@ -83,7 +84,7 @@ describe("TaskCard", () => {
 
 describe("StuckCard", () => {
   it("shows the reason and the ready-for-human badge", () => {
-    const stuck: StuckTaskView = { ...task({ stage: "stuck", agent: { id: 5, role: "qa", state: "stopped", lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" } }), reason: "QA Круги исчерпаны (3 из 3)", stuckAt: "2026-01-01T11:30:00.000Z" };
+    const stuck: StuckTaskView = { ...task({ stage: "stuck", agent: { id: 5, role: "qa", state: "stopped", lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" } }), reason: "QA Круги исчерпаны (3 из 3)", finishedAt: "2026-01-01T11:30:00.000Z" };
     render(<StuckCard task={stuck} now={NOW} />);
     const card = screen.getByTestId("stuck-138");
     expect(card).toHaveTextContent("ready-for-human");

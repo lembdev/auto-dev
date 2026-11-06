@@ -114,7 +114,7 @@ export function StuckCard({ task, now }: { task: StuckTaskView; now: number }) {
             PR #{task.pullNumber}
           </a>
         )}
-        {task.stuckAt && <span>{elapsed(task.stuckAt, now)} назад</span>}
+        {task.finishedAt && <span>{elapsed(task.finishedAt, now)} назад</span>}
       </div>
       <div className="mt-1 text-xs text-neutral-500" data-testid="stuck-reason">
         {task.reason ?? "причина не записана"}
