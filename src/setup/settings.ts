@@ -85,8 +85,8 @@ export class Settings {
     if (Object.keys(secrets.envPatch).length > 0) {
       this._deps.config.update(secrets.envPatch);
       this._deps.log.info({ changed: Object.keys(secrets.envPatch) }, "secrets changed");
-      // A Pause caused by a rejected token ends with the new token; any other Pause stays.
-      if (secrets.tokenChanged && this._deps.state.findPause()?.source === "token") this._deps.state.unpause();
+      // A Pause caused by a rejected OAuth token ends with the new one; any other Pause stays.
+      if (secrets.oauthChanged && this._deps.state.findPause()?.source === "token") this._deps.state.unpause();
       await this._deps.runner.restartAfterTurn("secrets changed");
     }
     return this.view();
@@ -114,9 +114,9 @@ export class Settings {
   }
 
   // A new token is checked the way the wizard checks it before it replaces the stored one.
-  private async _validateSecrets(patch: SettingsPatch): Promise<{ envPatch: EnvPatch; tokenChanged: boolean }> {
+  private async _validateSecrets(patch: SettingsPatch): Promise<{ envPatch: EnvPatch; oauthChanged: boolean }> {
     const envPatch: EnvPatch = {};
-    let tokenChanged = false;
+    let oauthChanged = false;
     const config = this._deps.config.current();
     if (patch.githubToken !== undefined) {
       const token = typeof patch.githubToken === "string" ? patch.githubToken.trim() : "";
@@ -125,7 +125,6 @@ export class Settings {
       const check = await this._deps.setup.checkAccess({ ...config.github, token });
       if (!check.ok) throw new SettingsError(check.error ?? "the token failed the access check");
       envPatch[ENV_KEYS.githubToken] = token;
-      tokenChanged = true;
     }
     if (patch.oauthToken !== undefined) {
       const token = typeof patch.oauthToken === "string" ? patch.oauthToken.trim() : "";
@@ -133,12 +132,12 @@ export class Settings {
       const check = await this._deps.setup.smokeQuery(token);
       if (!check.ok) throw new SettingsError(check.error ?? "the token failed the smoke query");
       envPatch[ENV_KEYS.oauthToken] = token;
-      tokenChanged = true;
+      oauthChanged = true;
     }
     if (patch.password !== undefined) {
       if (typeof patch.password !== "string" || patch.password.trim() === "") throw new SettingsError("password must not be empty");
       envPatch[ENV_KEYS.passwordHash] = await this._hashPassword(patch.password);
     }
-    return { envPatch, tokenChanged };
+    return { envPatch, oauthChanged };
   }
 }

@@ -121,7 +121,8 @@ cookie `auto_dev_session` на 30 дней (HttpOnly, SameSite=Lax; подпис
 `localhost`, именем без точки, `*.local` или значением из `AUTO_DEV_ALLOWED_HOSTS`; иначе 403.
 
 API Режима разработки: `GET /api/tasks` (В работе с состоянием Агента и открытым Запросом, Готовые, Тупики),
-`GET /api/installation` и `PUT /api/installation/pause`, `GET /api/digest?since=<ISO>` («С прошлого визита»: Запросы,
+`GET /api/installation`, `PUT /api/installation/pause` и `POST /api/installation/claude/recheck`,
+`GET /api/digest?since=<ISO>` («С прошлого визита»: Запросы,
 завершённые Задачи и Тупики после `since`; отметку визита клиент хранит в localStorage). `GET /ws` шлёт события
 `transition`, `task`, `agent`, `request`, `installation` при изменениях индекса; клиент по ним перечитывает данные.
 
@@ -162,6 +163,15 @@ input mode на процесс Агента, системный `claude`, `bypas
 `src/agents/agent-runner.ts` ведёт процессы поверх порта и таблицу `agents`: работает во время Хода,
 idle после него до таймаута 10 мин (затем процесс гасится, Сессия жива), ждёт после отложенного
 `ask_human`, остановлен без процесса. Сообщения и смены состояния уходят подписчикам.
+
+Дрейф версии `claude` (`src/orchestrator/claude-version.ts`): last-known-good версия лежит в `installation`
+(`claude.last_known_good`); на каждом цикле опроса, до старта любого нового Агента, версия читается один раз и при
+смене делает один smoke-query под OAuth Установки. Успех записывает версию, провал (`claude.smoke_failure`)
+запрещает новых Агентов (`blocker: claude_version`), живые Сессии не трогает и отдаёт в `GET /api/installation`
+поле `claudeVersion` с ошибкой и командой отката `claude install <lastKnownGood>`; повтор только при новой смене
+версии, по `POST /api/installation/claude/recheck` или после smoke-query с новым токеном в Настройках. Отклонённый
+OAuth-токен (`api_retry` с `authentication_failed`) включает Паузу с источником `token`; баннер в шапке ведёт в
+Настройки, где новый токен снимает её.
 
 Ручной smoke под подпиской Max (вне CI, запускает настоящий `claude`):
 

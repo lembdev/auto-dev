@@ -15,6 +15,7 @@ const installation = (overrides: Partial<InstallationResponse> = {}): Installati
   },
   prearm: { enabled: true, thresholdPercent: 95, active: false },
   disk: null,
+  claudeVersion: { current: "2.1.318", lastKnownGood: "2.1.318", status: "ok", error: null, rollbackCommand: null, checkedAt: "2026-01-01T11:59:00.000Z" },
   blocker: null,
   canStartTurn: true,
   slots: { used: 1, max: 2 },
@@ -75,6 +76,58 @@ describe("Header", () => {
     expect(screen.getByRole("status")).toHaveTextContent("включена человеком: paused from the UI");
     fireEvent.click(screen.getByRole("switch", { name: "Пауза: вкл" }));
     expect(onPause).toHaveBeenLastCalledWith(false);
+  });
+
+  it("shows a failed claude update with the rollback command and asks for another check on click", () => {
+    const onRecheck = vi.fn();
+    render(
+      <Header
+        installation={installation({
+          blocker: "claude_version",
+          canStartTurn: false,
+          claudeVersion: { current: "2.2.0", lastKnownGood: "2.1.318", status: "failed", error: "process exited with code 1", rollbackCommand: "claude install 2.1.318", checkedAt: "2026-01-01T11:59:00.000Z" },
+        })}
+        mode="development"
+        onMode={vi.fn()}
+        page="main"
+        onPage={vi.fn()}
+        onPause={vi.fn()}
+        pausePending={false}
+        onRecheck={onRecheck}
+        recheckPending={false}
+        connected
+        now={NOW}
+        onLogout={vi.fn()}
+      />,
+    );
+    const banner = screen.getByTestId("claude-version-banner");
+    expect(banner).toHaveTextContent("claude 2.2.0 не прошёл проверку: process exited with code 1");
+    expect(banner).toHaveTextContent("живые Сессии продолжают работу");
+    expect(banner).toHaveTextContent("claude install 2.1.318");
+    fireEvent.click(screen.getByRole("button", { name: "Проверить снова" }));
+    expect(onRecheck).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells the human to store a new token when the Pause comes from a rejected OAuth token", () => {
+    const onPage = vi.fn();
+    render(
+      <Header
+        installation={installation({ paused: true, pause: { source: "token", reason: "the Claude OAuth token was rejected", since: "2026-01-01T11:00:00.000Z" }, blocker: "paused", canStartTurn: false })}
+        mode="development"
+        onMode={vi.fn()}
+        page="main"
+        onPage={onPage}
+        onPause={vi.fn()}
+        pausePending={false}
+        connected
+        now={NOW}
+        onLogout={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("token-banner")).toHaveTextContent("Токен подписки истёк");
+    expect(screen.queryByRole("status")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Обновить токен в Настройках" }));
+    expect(onPage).toHaveBeenCalledWith("settings");
   });
 
   it("opens the statistics page from the header and marks it current", () => {

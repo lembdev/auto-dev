@@ -285,6 +285,12 @@ export function createApp(deps: AppDeps): App {
 
   app.get("/api/installation", (c) => c.json(installationView()));
 
+  // A human asks for another smoke query on the current `claude`, e.g. after fixing it by hand.
+  app.post("/api/installation/claude/recheck", async (c) => {
+    await deps.orchestrator.installation.claudeVersion.recheck();
+    return c.json(installationView());
+  });
+
   app.route("/api/tasks", agentRoutes({ ports: deps.ports, index: deps.index, log: deps.log, orchestrator: deps.orchestrator }));
   registerStatsRoutes(app, { index: deps.index, clock: deps.ports.clock, logs: deps.logs ?? new LogBuffer() });
 
