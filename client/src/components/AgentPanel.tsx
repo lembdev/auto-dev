@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { TaskView } from "../../../src/server/api-types.js";
 import { useAgentFeed } from "../agent-feed.js";
 import { useDialogueOutbox } from "../dialogue.js";
@@ -8,6 +8,7 @@ import { useCancelTask, useInterrupt } from "../queries.js";
 import { AgentFeed } from "./AgentFeed.js";
 import { DialogueBox } from "./DialogueBox.js";
 import { RequestBlock } from "./RequestBlock.js";
+import { Badge, Button, CloseIcon, LINK } from "./ui.js";
 
 export type AgentPanelProps = {
   task: TaskView;
@@ -77,41 +78,54 @@ export function AgentPanelView(props: AgentPanelViewProps) {
   const { task, maxQaRounds, onClose } = props;
   const [confirming, setConfirming] = useState(false);
   const running = task.agent?.state === "running";
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // The drawer takes the focus when it opens (Tab then walks its controls), unless the Request field asked for it.
+  useEffect(() => {
+    if (!props.answering) dialogRef.current?.focus();
+  }, [props.answering]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col" role="dialog" aria-label={`Агент Задачи #${task.issueNumber}`}>
-      <div className="flex flex-wrap items-center gap-2 border-b border-neutral-300 px-3.5 py-2.5 dark:border-neutral-700">
-        <button type="button" className="rounded-md border border-neutral-300 px-2 py-0.5 text-xs dark:border-neutral-700" onClick={onClose}>
-          закрыть
-        </button>
-        <span className="font-semibold">
-          #{task.issueNumber} {task.title}
-        </span>
-        <span className="rounded-full border border-neutral-300 px-2 py-px text-[11px] text-neutral-500 dark:border-neutral-700">{stageLabel(task, maxQaRounds)}</span>
-        {task.agent && <span className="rounded-full border border-neutral-300 px-2 py-px text-[11px] text-neutral-500 dark:border-neutral-700">{AGENT_LABELS[task.agent.state]}</span>}
-        {task.pullUrl && task.pullNumber !== null && (
-          <a href={task.pullUrl} target="_blank" rel="noreferrer" className="text-blue-600">
-            PR #{task.pullNumber}
-          </a>
-        )}
+    <div ref={dialogRef} tabIndex={-1} className="flex h-full min-h-0 flex-col outline-none" role="dialog" aria-modal="true" aria-label={`Агент Задачи #${task.issueNumber}`}>
+      <div className="flex items-start gap-3 border-b border-line px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold">
+            <span className="font-normal text-muted tabular-nums">#{task.issueNumber}</span> {task.title}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+            <Badge tone="accent">{stageLabel(task, maxQaRounds)}</Badge>
+            {task.agent && (
+              <Badge tone={task.agent.state === "running" ? "ok" : task.agent.state === "waiting" ? "warn" : "neutral"} dot>
+                {AGENT_LABELS[task.agent.state]}
+              </Badge>
+            )}
+            {task.pullUrl && task.pullNumber !== null && (
+              <a href={task.pullUrl} target="_blank" rel="noreferrer" className={LINK}>
+                PR #{task.pullNumber}
+              </a>
+            )}
+          </div>
+        </div>
+        <Button variant="ghost" size="sm" className="-mr-1.5 h-8 w-8 px-0" aria-label="Закрыть" title="Закрыть (Esc)" onClick={onClose}>
+          <CloseIcon />
+        </Button>
       </div>
       {props.requestSlot}
       <AgentFeed feed={props.feed} status={props.feedStatus} error={props.feedError} />
-      <div className="flex flex-col gap-2 border-t border-neutral-300 px-3.5 py-2.5 text-sm dark:border-neutral-700">
+      <div className="flex flex-col gap-2.5 border-t border-line bg-surface-2/60 px-4 py-3 text-sm">
         {props.dialogueSlot}
         {confirming && (
-          <div className="rounded-md border border-red-300 bg-red-50 p-2.5 text-xs dark:border-red-800 dark:bg-red-950/40" data-testid="cancel-confirm">
+          <div className="rounded-lg border border-danger/50 bg-danger-soft p-3 text-xs" data-testid="cancel-confirm" role="alertdialog" aria-label="Отмена Задачи">
             Отменить Задачу #{task.issueNumber}? Issue будет закрыта без влитого PR, Агент погашен, worktree и PR убраны.
-            <div className="mt-2 flex gap-2">
-              <button type="button" className="rounded-md bg-red-600 px-2 py-0.5 text-white disabled:opacity-50" disabled={props.cancelPending} onClick={() => props.onCancel()}>
+            <div className="mt-2.5 flex gap-2">
+              <Button variant="danger-solid" size="sm" disabled={props.cancelPending} onClick={() => props.onCancel()}>
                 Да, отменить
-              </button>
-              <button type="button" className="rounded-md border border-neutral-300 px-2 py-0.5 dark:border-neutral-700" onClick={() => setConfirming(false)}>
+              </Button>
+              <Button size="sm" onClick={() => setConfirming(false)}>
                 Нет
-              </button>
+              </Button>
             </div>
             {props.cancelError && (
-              <div className="mt-1 text-red-600" role="alert">
+              <div className="mt-1.5 text-danger-text" role="alert">
                 Не отменено: {props.cancelError}
               </div>
             )}
@@ -119,30 +133,20 @@ export function AgentPanelView(props: AgentPanelViewProps) {
         )}
         <div className="flex flex-wrap items-center gap-2">
           {running && (
-            <button
-              type="button"
-              className="rounded-md border border-neutral-300 px-2 py-0.5 text-xs disabled:opacity-50 dark:border-neutral-700"
-              disabled={props.interruptPending}
-              onClick={props.onInterrupt}
-            >
+            <Button size="sm" disabled={props.interruptPending} onClick={props.onInterrupt}>
               Остановить ход
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
-            className="rounded-md border border-red-300 px-2 py-0.5 text-xs text-red-700 disabled:opacity-50 dark:border-red-800 dark:text-red-400"
-            disabled={confirming}
-            onClick={() => setConfirming(true)}
-          >
+          <Button variant="danger" size="sm" disabled={confirming} onClick={() => setConfirming(true)}>
             Отменить задачу
-          </button>
+          </Button>
           <span className="flex-1" />
           {props.interruptError && (
-            <span className="text-xs text-red-600" role="alert">
+            <span className="text-xs text-danger-text" role="alert">
               Не остановлено: {props.interruptError}
             </span>
           )}
-          <span className="text-xs text-neutral-500">Другого ручного управления нет</span>
+          <span className="text-xs text-muted">Другого ручного управления нет</span>
         </div>
       </div>
     </div>

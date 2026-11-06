@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useLogin } from "../queries.js";
+import { Banner, Button, Card, cx, INPUT, Spinner } from "./ui.js";
 
 export function LoginScreen({ passwordSet }: { passwordSet: boolean }) {
   const [password, setPassword] = useState("");
@@ -9,11 +10,12 @@ export function LoginScreen({ passwordSet }: { passwordSet: boolean }) {
     if (password !== "") login.mutate(password);
   };
   return (
-    <main className="mx-auto mt-24 max-w-sm px-4">
-      <h1 className="text-xl font-semibold">auto-dev</h1>
+    <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-4 py-10">
+      <Card className="p-6">
+      <Logo />
       {passwordSet ? (
-        <form onSubmit={submit} className="mt-4 flex flex-col gap-3">
-          <label className="text-sm">
+        <form onSubmit={submit} className="mt-5 flex flex-col gap-3">
+          <label className="text-sm font-medium">
             Пароль Установки
             <input
               type="password"
@@ -22,24 +24,37 @@ export function LoginScreen({ passwordSet }: { passwordSet: boolean }) {
               autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="mt-1 w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 dark:border-neutral-700 dark:bg-neutral-900"
+              className={cx(INPUT, "mt-1.5")}
             />
           </label>
           {login.isError && (
-            <div className="text-sm text-red-600" role="alert">
+            <Banner tone="danger" role="alert">
               {login.error.message}
-            </div>
+            </Banner>
           )}
-          <button type="submit" disabled={login.isPending || password === ""} className="rounded-md bg-blue-600 px-3 py-1.5 text-white disabled:opacity-50">
+          <Button type="submit" variant="primary" disabled={login.isPending || password === ""}>
+            {login.isPending && <Spinner />}
             Войти
-          </button>
+          </Button>
         </form>
       ) : (
-        <p className="mt-4 text-sm text-neutral-500">
+        <p className="mt-4 text-sm text-muted">
           Пароль Установки ещё не задан. Положите argon2-хеш в <code>AUTO_DEV_PASSWORD_HASH</code> (его печатает <code>npm run password-hash -- &lt;пароль&gt;</code>) и перезапустите
           Установку.
         </p>
       )}
+      </Card>
     </main>
+  );
+}
+
+export function Logo() {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span aria-hidden className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-accent font-mono text-sm font-bold text-accent-fg">
+        ad
+      </span>
+      <h1 className="text-lg font-semibold">auto-dev</h1>
+    </div>
   );
 }

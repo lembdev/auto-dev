@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { RequestView } from "../../../src/server/api-types.js";
+import { Button, cx, INPUT, LINK } from "./ui.js";
 
 export type RequestBlockProps = {
   request: RequestView;
@@ -21,41 +22,37 @@ export function RequestBlock({ request, autoFocus, onAnswer }: RequestBlockProps
   };
   return (
     <form
-      className="mx-3.5 mt-3 rounded-lg border border-wait-border bg-wait p-3 text-sm dark:border-wait-border-dark dark:bg-wait-dark"
+      className="mx-4 mt-3 rounded-xl border border-warn-line bg-warn-soft p-3.5 text-sm"
       aria-label="Запрос к человеку"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
       }}
     >
-      <div className="text-xs text-neutral-500">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-warn">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-warn-line" />
         Запрос к человеку
         {request.commentUrl && (
           <>
             {" · "}
-            <a href={request.commentUrl} target="_blank" rel="noreferrer" className="text-blue-600">
+            <a href={request.commentUrl} target="_blank" rel="noreferrer" className={cx(LINK, "font-normal")}>
               комментарий в issue
             </a>
           </>
         )}
       </div>
-      <div className="mt-1 whitespace-pre-wrap font-semibold">{request.question ?? "текст Запроса в комментарии issue"}</div>
+      <div className="mt-1.5 font-semibold whitespace-pre-wrap">{request.question ?? "текст Запроса в комментарии issue"}</div>
       {request.options.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {request.options.map((option) => (
-            <button
-              key={option}
-              type="button"
-              className="rounded-md border border-neutral-300 bg-white px-2 py-0.5 text-xs dark:border-neutral-700 dark:bg-neutral-900"
-              onClick={() => setText(option)}
-            >
+            <Button key={option} size="sm" aria-pressed={text === option} className={text === option ? "border-accent text-link" : undefined} onClick={() => setText(option)}>
               {option}
-            </button>
+            </Button>
           ))}
         </div>
       )}
       <textarea
-        className="mt-2 w-full rounded-md border border-neutral-300 bg-white p-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+        className={cx(INPUT, "mt-2.5 block resize-y")}
         rows={2}
         aria-label="Ответ"
         placeholder="Ответ Агенту"
@@ -66,11 +63,11 @@ export function RequestBlock({ request, autoFocus, onAnswer }: RequestBlockProps
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit();
         }}
       />
-      <div className="mt-2 flex items-center gap-2">
-        <button type="submit" className="rounded-md bg-blue-600 px-2.5 py-0.5 text-xs text-white disabled:opacity-50" disabled={text.trim() === ""}>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <Button type="submit" variant="primary" size="sm" disabled={text.trim() === ""}>
           Ответить
-        </button>
-        <span className="text-xs text-neutral-500">Ответ попадёт в Сессию и комментарием в issue</span>
+        </Button>
+        <span className="text-xs text-muted">Ответ попадёт в Сессию и комментарием в issue · ⌘/Ctrl+Enter</span>
       </div>
     </form>
   );

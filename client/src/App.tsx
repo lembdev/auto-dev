@@ -6,6 +6,7 @@ import { PlanningScreen } from "./components/PlanningScreen.js";
 import { SettingsPage } from "./components/SettingsPage.js";
 import { SetupScreen } from "./components/SetupScreen.js";
 import { StatsPage } from "./components/Stats.js";
+import { Banner, Spinner } from "./components/ui.js";
 import { useServerEvents } from "./events.js";
 import { useClaudeRecheck, useInstallation, useLogout, usePauseToggle, useSession, useSetup, useStartUpdate } from "./queries.js";
 
@@ -39,12 +40,20 @@ export function App() {
   }, [setupRequired]);
   const now = useNow();
 
-  if (session.isPending || setup.isPending) return <main className="p-6 text-neutral-500">Загрузка…</main>;
+  if (session.isPending || setup.isPending) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center gap-2 text-muted">
+        <Spinner /> Загрузка…
+      </main>
+    );
+  }
   if (session.isError || setup.isError) {
     const error = session.error ?? setup.error;
     return (
-      <main className="p-6 text-red-600" role="alert">
-        Сервер недоступен: {error?.message}
+      <main className="mx-auto flex min-h-dvh max-w-md items-center px-4">
+        <Banner tone="danger" role="alert">
+          Сервер недоступен: {error?.message}
+        </Banner>
       </main>
     );
   }
@@ -52,8 +61,10 @@ export function App() {
   if (setupRequired || wizard) return <SetupScreen status={setup.data} onFinish={() => setWizard(false)} />;
   if (!session.data.authenticated) return <LoginScreen passwordSet={session.data.passwordSet} />;
 
+  // App shell: the header stays on top, the screen below scrolls on its own; the planning screen
+  // fills the remaining height exactly, whatever banners the header shows.
   return (
-    <>
+    <div className="flex h-dvh flex-col">
       <Header
         installation={installation.data}
         mode={mode}
@@ -71,7 +82,9 @@ export function App() {
         now={now}
         onLogout={() => logout.mutate()}
       />
-      {page === "settings" ? <SettingsPage onBack={() => setPage("main")} /> : page === "stats" ? <StatsPage now={now} /> : mode === "development" ? <Dashboard now={now} /> : <PlanningScreen />}
-    </>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {page === "settings" ? <SettingsPage onBack={() => setPage("main")} /> : page === "stats" ? <StatsPage now={now} /> : mode === "development" ? <Dashboard now={now} /> : <PlanningScreen />}
+      </div>
+    </div>
   );
 }

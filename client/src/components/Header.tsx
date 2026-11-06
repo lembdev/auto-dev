@@ -1,6 +1,8 @@
 import type { LimitReading } from "../../../src/index/limit-samples.js";
 import type { InstallationResponse } from "../../../src/server/api-types.js";
+import type { ReactNode } from "react";
 import { clockTime, limitLevel, type LimitLevel } from "../format.js";
+import { Banner, Button, cx, LINK, Segmented } from "./ui.js";
 
 export type Mode = "development" | "planning";
 
@@ -27,30 +29,34 @@ export type HeaderProps = {
   onLogout: () => void;
 };
 
-const LEVEL_BAR: Record<LimitLevel, string> = { ok: "bg-green-600", warn: "bg-amber-500", danger: "bg-red-600" };
-const LEVEL_TEXT: Record<LimitLevel, string> = { ok: "", warn: "text-amber-600 dark:text-amber-400", danger: "text-red-600 dark:text-red-400" };
+const LEVEL_BAR: Record<LimitLevel, string> = { ok: "bg-ok", warn: "bg-warn-line", danger: "bg-danger" };
+const LEVEL_TEXT: Record<LimitLevel, string> = { ok: "text-fg", warn: "text-warn", danger: "text-danger-text" };
 
 function Limit({ name, reading, now }: { name: string; reading: LimitReading | null; now: number }) {
   if (!reading) {
     return (
-      <div className="min-w-36 text-xs" data-testid={`limit-${name}`} data-level="none">
-        <div>
-          {name}: <span className="text-neutral-500">нет данных</span>
+      <div className="w-32 text-xs" data-testid={`limit-${name}`} data-level="none">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-muted">{name}</span>
+          <span className="text-muted">нет данных</span>
         </div>
-        <div className="my-0.5 h-1.5 overflow-hidden rounded bg-neutral-300 dark:bg-neutral-700" />
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-subtle" />
       </div>
     );
   }
   const percent = Math.round(reading.usedPercent);
   const level = limitLevel(percent);
   return (
-    <div className="min-w-36 text-xs" data-testid={`limit-${name}`} data-level={level}>
-      <div>
-        {name}: <b className={LEVEL_TEXT[level]}>{percent} %</b>
-        {reading.resetsAt && <span className="text-neutral-500"> · сброс {clockTime(reading.resetsAt, now)}</span>}
+    <div className="w-32 text-xs" data-testid={`limit-${name}`} data-level={level} title={reading.resetsAt ? `Лимит ${name}: сброс ${clockTime(reading.resetsAt, now)}` : `Лимит ${name}`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-muted">{name}</span>
+        <span>
+          <b className={`tabular-nums ${LEVEL_TEXT[level]}`}>{percent} %</b>
+          {reading.resetsAt && <span className="text-muted"> · {clockTime(reading.resetsAt, now)}</span>}
+        </span>
       </div>
-      <div className="my-0.5 h-1.5 overflow-hidden rounded bg-neutral-300 dark:bg-neutral-700">
-        <i className={`block h-full ${LEVEL_BAR[level]}`} style={{ width: `${Math.min(100, percent)}%` }} />
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-subtle">
+        <i className={`block h-full rounded-full ${LEVEL_BAR[level]}`} style={{ width: `${Math.min(100, percent)}%` }} />
       </div>
     </div>
   );
@@ -75,133 +81,187 @@ export function Header(props: HeaderProps) {
   const tokenPause = paused && installation?.pause?.source === "token" ? installation.pause : undefined;
   const claudeVersion = installation?.claudeVersion;
   const update = installation?.update;
-  const segment = (value: Mode, label: string) => (
+  const navLink = (target: Page, label: string) => (
     <button
       type="button"
-      onClick={() => {
-        props.onMode(value);
-        props.onPage("main");
-      }}
-      aria-pressed={mode === value}
-      className={`px-3 py-1 ${mode === value ? "bg-blue-600 text-white" : "hover:bg-neutral-200 dark:hover:bg-neutral-700"}`}
+      aria-current={page === target ? "page" : undefined}
+      className={cx("rounded-md px-2 py-1 text-sm transition-colors", page === target ? "bg-subtle font-medium text-fg" : "text-muted hover:bg-subtle hover:text-fg")}
+      onClick={() => props.onPage(page === target ? "main" : target)}
     >
       {label}
     </button>
   );
-  return (
-    <header className="sticky top-0 z-20 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-neutral-300 bg-white px-4 py-2 dark:border-neutral-700 dark:bg-neutral-900">
-      <span className="text-[15px] font-semibold" data-testid="product">
-        {installation?.product ? (
-          <a className="text-inherit no-underline hover:underline" href={installation.product.htmlUrl} target="_blank" rel="noreferrer">
-            {installation.product.fullName}
-          </a>
-        ) : (
-          "Продукт не настроен"
-        )}
-      </span>
-      <div className="inline-flex overflow-hidden rounded-md border border-neutral-300 text-sm dark:border-neutral-700">
-        {segment("development", "Режим разработки")}
-        {segment("planning", "Режим планирования")}
-      </div>
-      <div className="flex gap-3">
-        <Limit name="5 ч" reading={installation?.limits.fiveHour ?? null} now={props.now} />
-        <Limit name="7 дн" reading={installation?.limits.sevenDay ?? null} now={props.now} />
-      </div>
-      <span className="rounded-full border border-neutral-300 px-2 py-0.5 text-xs text-neutral-600 dark:border-neutral-700 dark:text-neutral-400" title="Слоты: Агент работает или idle" data-testid="slots">
-        Слоты {installation ? `${installation.slots.used} / ${installation.slots.max}` : "…"}
-      </span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={paused}
-        disabled={!installation || props.pausePending}
-        onClick={() => props.onPause(!paused)}
-        className={`rounded-md border px-3 py-1 text-sm ${paused ? "border-amber-500 bg-amber-500 text-neutral-900" : "border-neutral-300 hover:border-blue-600 dark:border-neutral-700"}`}
-      >
-        {paused ? "Пауза: вкл" : "Пауза"}
-      </button>
-      <span className="flex-1" />
-      <nav className="flex gap-3 text-xs text-neutral-500">
-        <button type="button" aria-current={page === "settings" ? "page" : undefined} className={page === "settings" ? "font-semibold text-neutral-900 dark:text-neutral-100" : "hover:underline"} onClick={() => props.onPage(page === "settings" ? "main" : "settings")}>
-          Настройки
-        </button>
-        <button type="button" aria-current={page === "stats" ? "page" : undefined} className={page === "stats" ? "font-semibold text-neutral-900 dark:text-neutral-100" : "hover:underline"} onClick={() => props.onPage(page === "stats" ? "main" : "stats")}>
-          Статистика
-        </button>
-        <span title={props.connected ? "живые события подключены" : "нет связи с сервером, данные обновляются опросом"} data-testid="connection" data-connected={props.connected}>
-          {props.connected ? "● live" : "○ offline"}
-        </span>
-        <span>{installation?.version}</span>
-        <button type="button" className="underline" onClick={props.onLogout}>
-          выйти
-        </button>
-      </nav>
-      {update && update.phase !== "idle" && (
-        <div className="flex w-full flex-wrap items-center gap-2 rounded-md border border-blue-600 bg-blue-50 px-3 py-1.5 text-sm dark:bg-blue-950" role="status" data-testid="update-banner">
-          Обновление{update.latest ? ` до ${update.latest}` : ""}: {UPDATE_PHASE_TEXT[update.phase] ?? update.phase}. После перезапуска Агенты продолжат свои Ходы.
-        </div>
-      )}
-      {update?.available && update.phase === "idle" && (
-        <div className="flex w-full flex-wrap items-center gap-2 rounded-md border border-green-600 bg-green-50 px-3 py-1.5 text-sm dark:bg-green-950" role="status" data-testid="update-banner">
-          <span>
-            Доступна версия{" "}
-            {update.latestUrl ? (
-              <a className="underline" href={update.latestUrl} target="_blank" rel="noreferrer">
-                {update.latest}
-              </a>
-            ) : (
-              update.latest
-            )}{" "}
-            (сейчас {update.current}). Обновление ставит Установку на паузу, ждёт текущие Ходы до 10 минут и перезапускает сервис.
-          </span>
-          <button type="button" className="rounded border border-green-600 px-2 py-0.5 text-xs hover:bg-green-600 hover:text-white" disabled={props.updatePending || !props.onUpdate} onClick={props.onUpdate}>
+  const banners: ReactNode[] = [];
+  if (update && update.phase !== "idle") {
+    banners.push(
+      <Banner key="update" tone="accent" role="status" data-testid="update-banner">
+        Обновление{update.latest ? ` до ${update.latest}` : ""}: {UPDATE_PHASE_TEXT[update.phase] ?? update.phase}. После перезапуска Агенты продолжат свои Ходы.
+      </Banner>,
+    );
+  }
+  if (update?.available && update.phase === "idle") {
+    banners.push(
+      <Banner
+        key="available"
+        tone="ok"
+        role="status"
+        data-testid="update-banner"
+        action={
+          <Button size="sm" variant="secondary" disabled={props.updatePending || !props.onUpdate} onClick={props.onUpdate}>
             Обновить
-          </button>
-          {props.updateError && (
-            <span className="text-red-600 dark:text-red-400" role="alert">
-              Не удалось запустить обновление: {props.updateError}
-            </span>
-          )}
-        </div>
-      )}
-      {tokenPause && (
-        <div className="flex w-full flex-wrap items-center gap-2 rounded-md border border-red-600 bg-red-50 px-3 py-1.5 text-sm dark:bg-red-950" role="alert" data-testid="token-banner">
-          <span>Токен подписки истёк: Claude отклонил OAuth-токен. Новые Агенты не стартуют, пока не сохранён новый токен.</span>
-          <button type="button" className="rounded border border-red-600 px-2 py-0.5 text-xs hover:bg-red-600 hover:text-white" onClick={() => props.onPage("settings")}>
+          </Button>
+        }
+      >
+        <span>
+          Доступна версия{" "}
+          {update.latestUrl ? (
+            <a className={`${LINK} font-medium`} href={update.latestUrl} target="_blank" rel="noreferrer">
+              {update.latest}
+            </a>
+          ) : (
+            <b>{update.latest}</b>
+          )}{" "}
+          (сейчас {update.current}). <span className="text-muted">Обновление ставит Установку на паузу, ждёт текущие Ходы до 10 минут и перезапускает сервис.</span>
+        </span>
+        {props.updateError && (
+          <div className="mt-1 text-danger-text" role="alert">
+            Не удалось запустить обновление: {props.updateError}
+          </div>
+        )}
+      </Banner>,
+    );
+  }
+  if (tokenPause) {
+    banners.push(
+      <Banner
+        key="token"
+        tone="danger"
+        role="alert"
+        data-testid="token-banner"
+        action={
+          <Button size="sm" variant="danger" onClick={() => props.onPage("settings")}>
             Обновить токен в Настройках
-          </button>
-        </div>
-      )}
-      {paused && installation?.pause && !tokenPause && (
-        <div className="flex w-full items-center gap-2 rounded-md border border-blue-600 bg-blue-50 px-3 py-1.5 text-sm dark:bg-blue-950" role="status">
-          Пауза ({PAUSE_SOURCE_TEXT[installation.pause.source] ?? installation.pause.source}: {installation.pause.reason}). Новые Задачи и новые Круги QA не стартуют, живые Ходы дорабатываются.
-        </div>
-      )}
-      {claudeVersion?.status === "failed" && (
-        <div className="flex w-full flex-wrap items-center gap-2 rounded-md border border-red-600 bg-red-50 px-3 py-1.5 text-sm dark:bg-red-950" role="alert" data-testid="claude-version-banner">
-          <span>
-            Обновлённый claude {claudeVersion.current ?? "(версия неизвестна)"} не прошёл проверку: {claudeVersion.error}. Новые Агенты не стартуют, живые Сессии продолжают работу.
-          </span>
-          {claudeVersion.rollbackCommand && (
-            <span>
-              Откат: <code className="rounded bg-neutral-200 px-1 dark:bg-neutral-800">{claudeVersion.rollbackCommand}</code>
-            </span>
-          )}
-          <button type="button" className="rounded border border-red-600 px-2 py-0.5 text-xs hover:bg-red-600 hover:text-white" disabled={props.recheckPending} onClick={props.onRecheck}>
+          </Button>
+        }
+      >
+        Токен подписки истёк: Claude отклонил OAuth-токен. Новые Агенты не стартуют, пока не сохранён новый токен.
+      </Banner>,
+    );
+  }
+  if (paused && installation?.pause && !tokenPause) {
+    banners.push(
+      <Banner key="pause" tone="warn" role="status">
+        Пауза ({PAUSE_SOURCE_TEXT[installation.pause.source] ?? installation.pause.source}: {installation.pause.reason}). Новые Задачи и новые Круги QA не стартуют, живые Ходы дорабатываются.
+      </Banner>,
+    );
+  }
+  if (claudeVersion?.status === "failed") {
+    banners.push(
+      <Banner
+        key="claude"
+        tone="danger"
+        role="alert"
+        data-testid="claude-version-banner"
+        action={
+          <Button size="sm" variant="danger" disabled={props.recheckPending} onClick={props.onRecheck}>
             Проверить снова
+          </Button>
+        }
+      >
+        Обновлённый claude {claudeVersion.current ?? "(версия неизвестна)"} не прошёл проверку: {claudeVersion.error}. Новые Агенты не стартуют, живые Сессии продолжают работу.
+        {claudeVersion.rollbackCommand && (
+          <div className="mt-1">
+            Откат: <code className="rounded bg-subtle px-1 font-mono text-[0.9em]">{claudeVersion.rollbackCommand}</code>
+          </div>
+        )}
+      </Banner>,
+    );
+  }
+  if (!paused && installation?.blocker === "at_limit" && installation.atLimit) {
+    banners.push(
+      <Banner key="limit" tone="danger" role="status">
+        У стены: лимит подписки исчерпан, новые Ходы стартуют после {clockTime(installation.atLimit.until, props.now)}.
+      </Banner>,
+    );
+  }
+  if (!paused && installation?.blocker === "prearm") {
+    banners.push(
+      <Banner key="prearm" tone="warn" role="status">
+        Пре-арм: 5-часовой лимит почти исчерпан, новые Ходы ждут сброса.
+      </Banner>,
+    );
+  }
+
+  return (
+    <header className="z-20 shrink-0 border-b border-line bg-surface">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
+        <span className="min-w-0 truncate text-[15px] font-semibold" data-testid="product">
+          {installation?.product ? (
+            <a className="text-inherit no-underline hover:underline" href={installation.product.htmlUrl} target="_blank" rel="noreferrer">
+              {installation.product.fullName}
+            </a>
+          ) : (
+            <span className="text-muted">Продукт не настроен</span>
+          )}
+        </span>
+        <Segmented<Mode>
+          label="Режим"
+          value={mode}
+          onChange={(value) => {
+            props.onMode(value);
+            props.onPage("main");
+          }}
+          options={[
+            { value: "development", label: "Разработка" },
+            { value: "planning", label: "Планирование" },
+          ]}
+        />
+        <div className="order-last flex w-full flex-wrap items-center gap-x-4 gap-y-2 md:order-none md:w-auto">
+          <div className="flex gap-4">
+            <Limit name="5 ч" reading={installation?.limits.fiveHour ?? null} now={props.now} />
+            <Limit name="7 дн" reading={installation?.limits.sevenDay ?? null} now={props.now} />
+          </div>
+          <span className="rounded-md bg-subtle px-2 py-1 text-xs tabular-nums" title="Слоты: Агент работает или idle" data-testid="slots">
+            <span className="text-muted">Слоты</span> {installation ? `${installation.slots.used} / ${installation.slots.max}` : "…"}
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={paused}
+            disabled={!installation || props.pausePending}
+            onClick={() => props.onPause(!paused)}
+            title={paused ? "Снять Паузу" : "Новые Задачи и Круги QA не будут стартовать"}
+            className={cx(
+              "inline-flex h-8 items-center gap-2 rounded-md border px-2.5 text-sm font-medium transition-colors disabled:opacity-50",
+              paused ? "border-warn-line bg-warn-line text-black hover:brightness-105" : "border-line-strong hover:bg-surface-2",
+            )}
+          >
+            <span aria-hidden className={cx("relative h-4 w-7 rounded-full transition-colors", paused ? "bg-black/25" : "bg-line-strong")}>
+              <span className={cx("absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all", paused ? "left-3.5" : "left-0.5")} />
+            </span>
+            {paused ? "Пауза: вкл" : "Пауза"}
           </button>
         </div>
-      )}
-      {!paused && installation?.blocker === "at_limit" && installation.atLimit && (
-        <div className="flex w-full items-center gap-2 rounded-md border border-red-600 bg-red-50 px-3 py-1.5 text-sm dark:bg-red-950" role="status">
-          У стены: лимит подписки исчерпан, новые Ходы стартуют после {clockTime(installation.atLimit.until, props.now)}.
-        </div>
-      )}
-      {!paused && installation?.blocker === "prearm" && (
-        <div className="flex w-full items-center gap-2 rounded-md border border-amber-500 bg-amber-50 px-3 py-1.5 text-sm dark:bg-amber-950" role="status">
-          Пре-арм: 5-часовой лимит почти исчерпан, новые Ходы ждут сброса.
-        </div>
-      )}
+        <span className="hidden flex-1 md:block" />
+        <nav className="ml-auto flex items-center gap-1 md:ml-0" aria-label="Страницы">
+          {navLink("stats", "Статистика")}
+          {navLink("settings", "Настройки")}
+          <span
+            className="ml-1 inline-flex items-center gap-1.5 px-1 text-xs text-muted"
+            title={props.connected ? "живые события подключены" : "нет связи с сервером, данные обновляются опросом"}
+            data-testid="connection"
+            data-connected={props.connected}
+          >
+            <span aria-hidden className={cx("h-2 w-2 rounded-full", props.connected ? "bg-ok" : "bg-line-strong")} />
+            {props.connected ? "live" : "offline"}
+            {installation?.version && <span className="hidden sm:inline">· {installation.version}</span>}
+          </span>
+          <Button variant="ghost" size="sm" onClick={props.onLogout}>
+            Выйти
+          </Button>
+        </nav>
+      </div>
+      {banners.length > 0 && <div className="flex flex-col gap-2 px-4 pb-2.5">{banners}</div>}
     </header>
   );
 }

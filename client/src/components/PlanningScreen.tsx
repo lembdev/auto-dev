@@ -7,6 +7,7 @@ import { AGENT_LABELS } from "../format.js";
 import { fetchPlannerHistory, useFinishPlanner, useInterruptPlanner, usePlanner, useRemovePlannerLine, useStartPlanner } from "../queries.js";
 import { AgentFeed } from "./AgentFeed.js";
 import { DialogueBoxView } from "./DialogueBox.js";
+import { Badge, Banner, Button, Card, cx, INPUT, Spinner } from "./ui.js";
 
 // The planning mode: the choice between the last Session and a new one, then the Dialogue with the Planner
 // (the feed and the Dialogue box of the Agent panel) and "Завершить планирование".
@@ -71,8 +72,16 @@ export function PlanningScreenView(props: PlanningScreenViewProps) {
   const { planner } = props;
   if (!planner) {
     return (
-      <main className="mx-auto mt-16 max-w-2xl px-4 text-center text-neutral-500">
-        {props.loadError ? <span role="alert">Режим планирования недоступен: {props.loadError}</span> : "Загрузка…"}
+      <main className="mx-auto mt-16 flex max-w-2xl justify-center px-4 text-muted">
+        {props.loadError ? (
+          <Banner tone="danger" role="alert">
+            Режим планирования недоступен: {props.loadError}
+          </Banner>
+        ) : (
+          <span className="inline-flex items-center gap-2">
+            <Spinner /> Загрузка…
+          </span>
+        )}
       </main>
     );
   }
@@ -86,40 +95,39 @@ function PlanningStart(props: WithPlanner) {
   const { planner } = props;
   const start = (mode: PlannerMode) => props.onStart(mode, message.trim());
   return (
-    <main className="mx-auto mt-10 flex max-w-2xl flex-col gap-3 px-4" aria-label="Режим планирования">
-      <h1 className="text-xl font-semibold">Режим планирования</h1>
-      <p className="text-sm text-neutral-500">
-        Планировщик читает открытые milestones, issues и код Продукта на ветке main и превращает замысел в milestones, Epic, Spec и Задачи. Он ничего не коммитит; Задачи с
-        ready-for-agent Оркестратор берёт сам.
-      </p>
-      <textarea
-        className="rounded-md border border-neutral-300 bg-white p-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
-        rows={4}
-        aria-label="Первое сообщение Планировщику"
-        placeholder="Замысел или указание (необязательно)"
-        value={message}
-        onChange={(event) => setMessage(event.target.value)}
-      />
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className="rounded-md border border-neutral-300 px-3 py-1 text-sm disabled:opacity-50 dark:border-neutral-700"
-          disabled={!planner.canResume || props.startPending}
-          title={planner.canResume ? undefined : "Прошлой Сессии планирования нет"}
-          onClick={() => start("resume")}
-        >
-          Продолжить прошлую
-        </button>
-        <button type="button" className="rounded-md bg-blue-600 px-3 py-1 text-sm text-white disabled:opacity-50" disabled={props.startPending} onClick={() => start("new")}>
-          Начать новую
-        </button>
-        {!planner.canResume && <span className="text-xs text-neutral-500">Прошлой Сессии нет</span>}
-      </div>
-      {props.startError && (
-        <div className="text-sm text-red-600" role="alert">
-          Не запущено: {props.startError}
+    <main className="mx-auto max-w-2xl px-4 pt-10 pb-20" aria-label="Режим планирования">
+      <Card className="flex flex-col gap-4 p-6">
+        <div>
+          <h1 className="text-xl font-semibold">Режим планирования</h1>
+          <p className="mt-1.5 text-sm text-muted">
+            Планировщик читает открытые milestones, issues и код Продукта на ветке main и превращает замысел в milestones, Epic, Spec и Задачи. Он ничего не коммитит; Задачи с
+            ready-for-agent Оркестратор берёт сам.
+          </p>
         </div>
-      )}
+        <textarea
+          className={cx(INPUT, "resize-y")}
+          rows={4}
+          aria-label="Первое сообщение Планировщику"
+          placeholder="Замысел или указание (необязательно)"
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="primary" disabled={props.startPending} onClick={() => start("new")}>
+            {props.startPending && <Spinner />}
+            Начать новую
+          </Button>
+          <Button disabled={!planner.canResume || props.startPending} title={planner.canResume ? undefined : "Прошлой Сессии планирования нет"} onClick={() => start("resume")}>
+            Продолжить прошлую
+          </Button>
+          {!planner.canResume && <span className="text-xs text-muted">Прошлой Сессии нет</span>}
+        </div>
+        {props.startError && (
+          <Banner tone="danger" role="alert">
+            Не запущено: {props.startError}
+          </Banner>
+        )}
+      </Card>
     </main>
   );
 }
@@ -127,30 +135,31 @@ function PlanningStart(props: WithPlanner) {
 function PlanningDialogue(props: WithPlanner) {
   const { planner } = props;
   const running = planner.status === "running";
+  const state = planner.agent ? (planner.status === "stopped" ? "процесс погашен, ответ его продолжит" : AGENT_LABELS[planner.agent.state]) : null;
   return (
-    <main className="mx-auto flex h-[calc(100vh-4rem)] max-w-4xl flex-col px-4" aria-label="Режим планирования">
-      <div className="flex flex-wrap items-center gap-2 border-b border-neutral-300 py-2.5 dark:border-neutral-700">
+    <main className="mx-auto flex h-full max-w-4xl flex-col px-4" aria-label="Режим планирования">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line py-3">
         <span className="font-semibold">Планировщик</span>
-        {planner.agent && (
-          <span className="rounded-full border border-neutral-300 px-2 py-px text-[11px] text-neutral-500 dark:border-neutral-700">
-            {planner.status === "stopped" ? "процесс погашен, ответ его продолжит" : AGENT_LABELS[planner.agent.state]}
-          </span>
+        {state && (
+          <Badge tone={running ? "ok" : planner.agent?.state === "waiting" ? "warn" : "neutral"} dot>
+            {state}
+          </Badge>
         )}
         <span className="flex-1" />
         {running && (
-          <button type="button" className="rounded-md border border-neutral-300 px-2 py-0.5 text-xs disabled:opacity-50 dark:border-neutral-700" disabled={props.interruptPending} onClick={props.onInterrupt}>
+          <Button size="sm" disabled={props.interruptPending} onClick={props.onInterrupt}>
             Остановить ход
-          </button>
+          </Button>
         )}
-        <button type="button" className="rounded-md border border-red-300 px-2 py-0.5 text-xs text-red-700 disabled:opacity-50 dark:border-red-800 dark:text-red-400" disabled={props.finishPending} onClick={props.onFinish}>
+        <Button variant="danger" size="sm" disabled={props.finishPending} onClick={props.onFinish}>
           Завершить планирование
-        </button>
+        </Button>
       </div>
       <AgentFeed feed={props.feed} status={props.feedStatus} error={props.feedError} />
-      <div className="flex flex-col gap-2 border-t border-neutral-300 py-2.5 text-sm dark:border-neutral-700">
+      <div className="flex flex-col gap-2 border-t border-line py-3 text-sm">
         {props.dialogueSlot}
         {props.actionError && (
-          <span className="text-xs text-red-600" role="alert">
+          <span className="text-xs text-danger-text" role="alert">
             {props.actionError}
           </span>
         )}

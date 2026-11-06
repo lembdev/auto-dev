@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import type { SettingsRequest, SettingsResponse } from "../../../src/server/api-types.js";
+import { Banner, Button, Card, cx, INPUT as INPUT_BASE, SectionTitle } from "./ui.js";
 
 export type SettingsFormProps = {
   settings: SettingsResponse;
@@ -11,14 +12,14 @@ export type SettingsFormProps = {
   onBack: () => void;
 };
 
-const INPUT = "mt-1 w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-900";
-const BUTTON = "rounded-md bg-blue-600 px-3 py-1.5 text-white disabled:opacity-50";
+const INPUT = cx(INPUT_BASE, "mt-1.5");
+const LABEL = "block text-sm font-medium";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mt-6">
-      <h2 className="mb-2 text-[13px] font-semibold tracking-wide text-neutral-500 uppercase">{title}</h2>
-      {children}
+      <SectionTitle className="mb-2.5">{title}</SectionTitle>
+      <Card className="p-5">{children}</Card>
     </section>
   );
 }
@@ -32,17 +33,17 @@ function SecretForm({ name, label, stored, hint, busy, type, onSave }: { name: s
     setValue("");
   };
   return (
-    <form onSubmit={submit} className="mb-4 flex flex-col gap-2" data-testid={`secret-${name}`}>
-      <label className="block text-sm">
-        {label} <span className="text-neutral-500">{stored ? "(сохранён)" : "(не задан)"}</span>
-        <input type={type} name={name} autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} className={INPUT} placeholder="новое значение" />
-      </label>
-      <div className="text-xs text-neutral-500">{hint}</div>
-      <div>
-        <button type="submit" disabled={busy || value.trim() === ""} className={BUTTON}>
+    <form onSubmit={submit} className="flex flex-col gap-2 border-t border-line pt-4 first:border-t-0 first:pt-0 [&+&]:mt-4" data-testid={`secret-${name}`}>
+      <div className="flex gap-2 max-sm:flex-col sm:items-end">
+        <label className={cx(LABEL, "flex-1")}>
+          {label} <span className={cx("ml-1 text-xs font-normal", stored ? "text-ok" : "text-muted")}>{stored ? "(сохранён)" : "(не задан)"}</span>
+          <input type={type} name={name} autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} className={INPUT} placeholder={stored ? "новое значение" : "значение"} />
+        </label>
+        <Button type="submit" variant="primary" disabled={busy || value.trim() === ""}>
           Сохранить
-        </button>
+        </Button>
       </div>
+      <div className="text-xs text-muted">{hint}</div>
     </form>
   );
 }
@@ -66,48 +67,48 @@ export function SettingsForm(props: SettingsFormProps) {
   };
 
   return (
-    <main className="mx-auto max-w-2xl px-4 pt-3 pb-20" data-testid="settings">
-      <div className="flex items-center gap-3">
-        <h1 className="text-xl font-semibold">Настройки</h1>
-        <button type="button" onClick={props.onBack} className="text-sm text-blue-600 underline dark:text-blue-400">
-          к панели
-        </button>
-      </div>
-      <p className="mt-1 text-sm text-neutral-500">
-        Продукт: <b>{settings.repo ?? "не задан"}</b>
+    <main className="mx-auto max-w-2xl px-4 pt-5 pb-20" data-testid="settings">
+      <Button variant="ghost" size="sm" className="-ml-2.5" onClick={props.onBack}>
+        ← к панели
+      </Button>
+      <h1 className="mt-1 text-xl font-semibold">Настройки</h1>
+      <p className="mt-1 text-sm text-muted">
+        Продукт: <b className="text-fg">{settings.repo ?? "не задан"}</b>
       </p>
       {props.error && (
-        <div className="mt-3 rounded-md border border-red-600 bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300" role="alert">
+        <Banner tone="danger" role="alert" className="mt-4">
           {props.error}
-        </div>
+        </Banner>
       )}
       {props.saved && !props.error && (
-        <div className="mt-3 rounded-md border border-green-600 bg-green-50 px-3 py-2 text-sm dark:bg-green-950" role="status">
+        <Banner tone="ok" role="status" className="mt-4">
           Сохранено.{" "}
           {"githubToken" in props.saved || "oauthToken" in props.saved || "password" in props.saved
             ? "Новые процессы получат новый env; живые Агенты перезапустятся по концу Хода."
             : "Применится с ближайшего цикла Оркестратора."}
-        </div>
+        </Banner>
       )}
 
       <Section title="Оркестратор">
-        <form onSubmit={saveNumbers} className="flex flex-col gap-3">
-          <label className="block text-sm">
-            Параллельных Задач (max_parallel_tasks)
+        <form onSubmit={saveNumbers} className="flex flex-col gap-4">
+          <div className="grid items-end gap-4 sm:grid-cols-2">
+          <label className={LABEL}>
+            Параллельных Задач <span className="font-mono text-xs font-normal text-muted">(max_parallel_tasks)</span>
             <input type="number" name="maxParallelTasks" min={0} max={16} value={maxParallelTasks} onChange={(e) => setMaxParallelTasks(e.target.value)} className={INPUT} />
           </label>
-          <label className="block text-sm">
-            Лимит Кругов QA (max_qa_rounds)
+          <label className={LABEL}>
+            Лимит Кругов QA <span className="font-mono text-xs font-normal text-muted">(max_qa_rounds)</span>
             <input type="number" name="maxQaRounds" min={1} max={20} value={maxQaRounds} onChange={(e) => setMaxQaRounds(e.target.value)} className={INPUT} />
           </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" name="prearmEnabled" checked={prearmEnabled} onChange={(e) => setPrearmEnabled(e.target.checked)} />
+          </div>
+          <label className="flex items-start gap-2.5 text-sm">
+            <input type="checkbox" name="prearmEnabled" className="mt-0.5 h-4 w-4 accent-accent" checked={prearmEnabled} onChange={(e) => setPrearmEnabled(e.target.checked)} />
             Пре-арм: не стартовать новые Ходы при 5-часовом лимите от 95 %
           </label>
           <div>
-            <button type="submit" disabled={props.busy || !numbersChanged} className={BUTTON}>
+            <Button type="submit" variant="primary" disabled={props.busy || !numbersChanged}>
               Сохранить
-            </button>
+            </Button>
           </div>
         </form>
       </Section>

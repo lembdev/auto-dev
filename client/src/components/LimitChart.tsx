@@ -19,10 +19,10 @@ type Series = { key: "fiveHour" | "sevenDay"; label: string; stroke: string };
 
 // Two hues apart enough for colour-blind readers; the legend and the tooltip name the series by text.
 const SERIES: Series[] = [
-  { key: "fiveHour", label: "5 ч", stroke: "stroke-blue-600 dark:stroke-blue-500" },
+  { key: "fiveHour", label: "5 ч", stroke: "stroke-accent" },
   { key: "sevenDay", label: "7 дн", stroke: "stroke-orange-600" },
 ];
-const SWATCH: Record<Series["key"], string> = { fiveHour: "bg-blue-600 dark:bg-blue-500", sevenDay: "bg-orange-600" };
+const SWATCH: Record<Series["key"], string> = { fiveHour: "bg-accent", sevenDay: "bg-orange-600" };
 
 // Consecutive readings make one run; a missing reading breaks the line instead of bridging the gap.
 const runs = (samples: LimitSample[], key: Series["key"], x: (iso: string) => number, y: (percent: number) => number): string[] => {
@@ -51,7 +51,7 @@ export function LimitChart({ samples, since, now }: LimitChartProps) {
 
   if (samples.length === 0) {
     return (
-      <div className="py-6 text-center text-sm text-neutral-500" data-testid="limit-chart-empty">
+      <div className="py-6 text-center text-sm text-muted" data-testid="limit-chart-empty">
         Нет снимков лимита за период: они появляются раз в 10 минут, пока Оркестратор работает.
       </div>
     );
@@ -77,7 +77,7 @@ export function LimitChart({ samples, since, now }: LimitChartProps) {
 
   return (
     <div>
-      <div className="mb-1 flex gap-4 text-xs text-neutral-600 dark:text-neutral-400" aria-label="Легенда">
+      <div className="mb-1 flex gap-4 text-xs text-muted" aria-label="Легенда">
         {SERIES.map((series) => (
           <span key={series.key} className="inline-flex items-center gap-1.5">
             <i className={`inline-block h-2 w-2 rounded-full ${SWATCH[series.key]}`} />
@@ -96,16 +96,16 @@ export function LimitChart({ samples, since, now }: LimitChartProps) {
       >
         {ticks.map((tick) => (
           <g key={tick}>
-            <line x1={PAD.left} x2={WIDTH - PAD.right} y1={y(tick)} y2={y(tick)} className="stroke-neutral-200 dark:stroke-neutral-800" strokeWidth={1} />
-            <text x={PAD.left - 6} y={y(tick) + 3.5} textAnchor="end" className="fill-neutral-500 text-[10px]">
+            <line x1={PAD.left} x2={WIDTH - PAD.right} y1={y(tick)} y2={y(tick)} className="stroke-line" strokeWidth={1} />
+            <text x={PAD.left - 6} y={y(tick) + 3.5} textAnchor="end" className="fill-muted text-[10px]">
               {tick}
             </text>
           </g>
         ))}
-        <text x={PAD.left} y={HEIGHT - 8} className="fill-neutral-500 text-[10px]">
+        <text x={PAD.left} y={HEIGHT - 8} className="fill-muted text-[10px]">
           {dateTime(since)}
         </text>
-        <text x={WIDTH - PAD.right} y={HEIGHT - 8} textAnchor="end" className="fill-neutral-500 text-[10px]">
+        <text x={WIDTH - PAD.right} y={HEIGHT - 8} textAnchor="end" className="fill-muted text-[10px]">
           {dateTime(new Date(now).toISOString())}
         </text>
         {SERIES.map((series) =>
@@ -115,15 +115,15 @@ export function LimitChart({ samples, since, now }: LimitChartProps) {
         )}
         {hovered && (
           <g data-testid="limit-chart-hover">
-            <line x1={x(hovered.at)} x2={x(hovered.at)} y1={PAD.top} y2={PAD.top + PLOT_H} className="stroke-neutral-400" strokeWidth={1} strokeDasharray="3 3" />
+            <line x1={x(hovered.at)} x2={x(hovered.at)} y1={PAD.top} y2={PAD.top + PLOT_H} className="stroke-line-strong" strokeWidth={1} strokeDasharray="3 3" />
             {SERIES.map((series) => {
               const reading = hovered[series.key];
-              return reading === null ? null : <circle key={series.key} cx={x(hovered.at)} cy={y(reading.usedPercent)} r={4} className={`fill-white dark:fill-neutral-900 ${series.stroke}`} strokeWidth={2} />;
+              return reading === null ? null : <circle key={series.key} cx={x(hovered.at)} cy={y(reading.usedPercent)} r={4} className={`fill-surface ${series.stroke}`} strokeWidth={2} />;
             })}
           </g>
         )}
       </svg>
-      <div className="h-5 text-xs text-neutral-600 dark:text-neutral-400" data-testid="limit-chart-tooltip">
+      <div className="h-5 text-xs text-muted" data-testid="limit-chart-tooltip">
         {hovered
           ? `${dateTime(hovered.at)}: ${SERIES.map((series) => `${series.label} ${hovered[series.key] === null ? "нет данных" : `${Math.round(hovered[series.key]!.usedPercent)} %`}`).join(" · ")}`
           : "Наведите на график, чтобы увидеть значения"}

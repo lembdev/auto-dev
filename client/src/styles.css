@@ -1,14 +1,122 @@
 @import "tailwindcss";
 
-@theme {
-  --color-wait: #fff7e6;
-  --color-wait-border: #f0b429;
-  --color-wait-dark: #2a2410;
-  --color-wait-border-dark: #d9a12d;
+/*
+ * Semantic colour tokens. Components use `bg-surface`, `border-line`, `text-muted` and the like
+ * instead of raw neutral shades with a `dark:` twin: the dark theme swaps the variables once here.
+ */
+:root {
+  color-scheme: light dark;
+  --app-bg: #f5f5f4;
+  --app-surface: #ffffff;
+  --app-surface-2: #f4f4f5;
+  --app-subtle: #e9e9eb;
+  --app-line: #e2e2e5;
+  --app-line-strong: #c9c9ce;
+  --app-fg: #18181b;
+  --app-muted: #66666e;
+  --app-accent: #2563eb;
+  --app-accent-hover: #1d4ed8;
+  --app-accent-fg: #ffffff;
+  --app-accent-soft: #eef3ff;
+  --app-link: #1d4ed8;
+  --app-ok: #15803d;
+  --app-ok-soft: #effaf2;
+  --app-warn: #b45309;
+  --app-warn-soft: #fff8eb;
+  --app-warn-line: #f0b429;
+  --app-danger: #dc2626;
+  --app-danger-text: #b91c1c;
+  --app-danger-soft: #fef2f2;
+  --app-ring: #3b82f6;
 }
 
-html,
-body {
-  @apply bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100;
-  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+@media (prefers-color-scheme: dark) {
+  :root {
+    --app-bg: #0b0b0d;
+    --app-surface: #161618;
+    --app-surface-2: #1d1d20;
+    --app-subtle: #26262a;
+    --app-line: #2a2a2e;
+    --app-line-strong: #3d3d43;
+    --app-fg: #ededef;
+    --app-muted: #9a9aa3;
+    --app-accent: #3b82f6;
+    --app-accent-hover: #60a5fa;
+    --app-accent-fg: #ffffff;
+    --app-accent-soft: #14213d;
+    --app-link: #7aa7ff;
+    --app-ok: #4ade80;
+    --app-ok-soft: #0f2418;
+    --app-warn: #fbbf24;
+    --app-warn-soft: #2a2410;
+    --app-warn-line: #d9a12d;
+    --app-danger: #ef4444;
+    --app-danger-text: #f87171;
+    --app-danger-soft: #2a1314;
+    --app-ring: #60a5fa;
+  }
+}
+
+@theme inline {
+  --color-app: var(--app-bg);
+  --color-surface: var(--app-surface);
+  --color-surface-2: var(--app-surface-2);
+  --color-subtle: var(--app-subtle);
+  --color-line: var(--app-line);
+  --color-line-strong: var(--app-line-strong);
+  --color-fg: var(--app-fg);
+  --color-muted: var(--app-muted);
+  --color-accent: var(--app-accent);
+  --color-accent-hover: var(--app-accent-hover);
+  --color-accent-fg: var(--app-accent-fg);
+  --color-accent-soft: var(--app-accent-soft);
+  --color-link: var(--app-link);
+  --color-ok: var(--app-ok);
+  --color-ok-soft: var(--app-ok-soft);
+  --color-warn: var(--app-warn);
+  --color-warn-soft: var(--app-warn-soft);
+  --color-warn-line: var(--app-warn-line);
+  --color-danger: var(--app-danger);
+  --color-danger-text: var(--app-danger-text);
+  --color-danger-soft: var(--app-danger-soft);
+  --color-ring: var(--app-ring);
+}
+
+@theme {
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+@layer base {
+  html,
+  body {
+    @apply bg-app font-sans text-fg antialiased;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* Tailwind 4 resets the cursor of buttons to the default arrow. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--app-ring);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--app-accent) 25%, transparent);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }

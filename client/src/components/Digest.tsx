@@ -1,5 +1,6 @@
 import type { DigestResponse } from "../../../src/server/api-types.js";
 import { dateTime, firstLine } from "../format.js";
+import { Card, LINK } from "./ui.js";
 
 export type DigestProps = {
   since: string | null;
@@ -8,27 +9,32 @@ export type DigestProps = {
 };
 
 const join = (items: React.ReactNode[]): React.ReactNode =>
-  items.length === 0 ? "нет" : items.flatMap((item, index) => (index === 0 ? [item] : [", ", item]));
+  items.length === 0 ? <span className="text-muted">нет</span> : items.flatMap((item, index) => (index === 0 ? [item] : [", ", item]));
+
+const ROW = "grid grid-cols-[minmax(0,10rem)_1fr] gap-x-3 py-1.5 max-sm:grid-cols-1";
+const LABEL = "text-muted";
 
 // What happened since the previous visit: Requests open the panel, the rest is read-only.
 export function Digest({ since, digest, onOpenRequest }: DigestProps) {
   return (
-    <section className="rounded-lg border border-neutral-300 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900" aria-label="С прошлого визита">
-      <b>
-        С прошлого визита <span className="font-normal text-neutral-500">({since ? dateTime(since) : "первый визит"})</span>
-      </b>
+    <Card aria-label="С прошлого визита">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <h2 className="font-semibold">С прошлого визита</h2>
+        <span className="text-xs text-muted">{since ? dateTime(since) : "первый визит"}</span>
+      </div>
       {since === null ? (
-        <div className="mt-1 text-sm text-neutral-500">Это первый визит с этого браузера; дальше здесь будут Запросы, завершённые Задачи и Тупики.</div>
+        <div className="mt-1 text-sm text-muted">Это первый визит с этого браузера; дальше здесь будут Запросы, завершённые Задачи и Тупики.</div>
       ) : (
-        <ul className="mt-1.5 list-disc pl-5 text-sm">
-          <li data-testid="digest-requests">
-            Запросы к человеку:{" "}
+        <ul className="mt-2 divide-y divide-line text-sm">
+          <li data-testid="digest-requests" className={ROW}>
+            <span className={LABEL}>Запросы к человеку:</span>{" "}
+            <span>
             {join(
               (digest?.requests ?? []).map((request) => (
                 <button
                   type="button"
                   key={request.id}
-                  className={`text-blue-600 underline ${request.open ? "" : "line-through opacity-70"}`}
+                  className={`${LINK} text-left ${request.open ? "font-medium" : "line-through opacity-70"}`}
                   title={request.question ? firstLine(request.question) : undefined}
                   onClick={() => onOpenRequest(request.issueNumber)}
                 >
@@ -36,19 +42,21 @@ export function Digest({ since, digest, onOpenRequest }: DigestProps) {
                 </button>
               )),
             )}
+            </span>
           </li>
-          <li data-testid="digest-done">
-            Завершённые Задачи:{" "}
+          <li data-testid="digest-done" className={ROW}>
+            <span className={LABEL}>Завершённые Задачи:</span>{" "}
+            <span>
             {join(
               (digest?.done ?? []).map((task) => (
                 <span key={task.issueNumber}>
                   #{task.issueNumber} {task.title ?? ""}
                   {task.pullNumber !== null && (
-                    <span className="text-neutral-500">
+                    <span className="text-muted">
                       {" "}
                       (PR{" "}
                       {task.pullUrl ? (
-                        <a href={task.pullUrl} target="_blank" rel="noreferrer" className="text-blue-600">
+                        <a href={task.pullUrl} target="_blank" rel="noreferrer" className={LINK}>
                           #{task.pullNumber}
                         </a>
                       ) : (
@@ -60,9 +68,11 @@ export function Digest({ since, digest, onOpenRequest }: DigestProps) {
                 </span>
               )),
             )}
+            </span>
           </li>
-          <li data-testid="digest-stuck">
-            Тупики:{" "}
+          <li data-testid="digest-stuck" className={ROW}>
+            <span className={LABEL}>Тупики:</span>{" "}
+            <span>
             {join(
               (digest?.stuck ?? []).map((task) => (
                 <span key={task.issueNumber} title={task.reason ?? undefined}>
@@ -70,9 +80,10 @@ export function Digest({ since, digest, onOpenRequest }: DigestProps) {
                 </span>
               )),
             )}
+            </span>
           </li>
         </ul>
       )}
-    </section>
+    </Card>
   );
 }

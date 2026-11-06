@@ -3,6 +3,7 @@ import type { IssueNumber } from "../../../src/ids.js";
 import type { DialogueMessageView } from "../../../src/server/api-types.js";
 import { useDialogueOutbox, type DialogueOutboxHook, type LastAck, type OutboxFrame } from "../dialogue.js";
 import { useDialogueQueue, useRemoveDialogueMessage } from "../queries.js";
+import { Badge, Button, cx, INPUT } from "./ui.js";
 
 export type DialogueBoxProps = { issueNumber: IssueNumber; outbox: DialogueOutboxHook };
 
@@ -65,20 +66,20 @@ export function DialogueBoxView<Id extends number>(props: DialogueBoxViewProps<I
       {waiting > 0 && (
         <ul className="flex flex-col gap-1 text-xs" aria-label="Ещё не доставлено">
           {props.pending.map((frame) => (
-            <li key={`out-${frame.seq}`} className="flex items-start gap-2 text-neutral-500">
-              <span className="shrink-0 italic">отправляется…</span>
+            <li key={`out-${frame.seq}`} className="flex items-start gap-2 text-muted">
+              <Badge className="italic">отправляется…</Badge>
               <span className="whitespace-pre-wrap">{frame.text}</span>
             </li>
           ))}
           {props.queue.map((message) => (
-            <li key={message.id} className="flex items-start gap-2">
-              <span className="shrink-0 rounded-full border border-neutral-300 px-1.5 text-[11px] text-neutral-500 dark:border-neutral-700">
+            <li key={message.id} className="flex items-start gap-2 rounded-md bg-surface px-2 py-1 ring-1 ring-line">
+              <Badge tone={message.source === "github" ? "accent" : "neutral"} className="mt-px">
                 {message.source === "github" ? "из GitHub" : "ждёт конца Хода"}
-              </span>
-              <span className="flex-1 whitespace-pre-wrap">{message.text}</span>
+              </Badge>
+              <span className="min-w-0 flex-1 whitespace-pre-wrap">{message.text}</span>
               <button
                 type="button"
-                className="shrink-0 text-red-600 disabled:opacity-50"
+                className="shrink-0 rounded px-1 text-danger-text hover:underline disabled:opacity-50"
                 aria-label={`удалить сообщение ${message.id}`}
                 disabled={props.removing === message.id}
                 onClick={() => props.onRemove(message.id)}
@@ -97,27 +98,27 @@ export function DialogueBoxView<Id extends number>(props: DialogueBoxViewProps<I
         }}
       >
         <textarea
-          className="flex-1 rounded-md border border-neutral-300 bg-white p-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+          className={cx(INPUT, "min-h-[2.75rem] flex-1 resize-y")}
           rows={2}
           aria-label="Сообщение Агенту"
-          placeholder="Сообщение Агенту: во время Хода встанет в очередь"
+          placeholder="Сообщение Агенту (⌘/Ctrl+Enter): во время Хода встанет в очередь"
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit();
           }}
         />
-        <button type="submit" className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs disabled:opacity-50 dark:border-neutral-700" disabled={text.trim() === ""}>
+        <Button type="submit" variant="primary" disabled={text.trim() === ""}>
           Отправить
-        </button>
+        </Button>
       </form>
       {props.lastAck && (
-        <div className={`text-xs ${props.lastAck.ack.outcome === "rejected" ? "text-red-600" : "text-neutral-500"}`} role="status">
+        <div className={`text-xs ${props.lastAck.ack.outcome === "rejected" ? "text-danger-text" : "text-muted"}`} role="status">
           {ackLabel(props.lastAck)}
         </div>
       )}
       {props.error && (
-        <div className="text-xs text-red-600" role="alert">
+        <div className="text-xs text-danger-text" role="alert">
           Очередь Диалога: {props.error}
         </div>
       )}
