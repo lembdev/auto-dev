@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { AgentStore } from "./agents.js";
+import { DialogueStore } from "./dialogue.js";
 import { AppliedAnswerStore, HumanRequestStore } from "./human-requests.js";
 import { migrations, type Migration } from "./migrations.js";
 import { IntentStore } from "./intents.js";
@@ -57,6 +58,7 @@ export class RuntimeIndex {
   readonly humanRequests: HumanRequestStore;
   readonly appliedAnswers: AppliedAnswerStore;
   readonly limitSamples: LimitSampleStore;
+  readonly dialogue: DialogueStore;
 
   constructor(readonly db: DatabaseSync) {
     this.installation = new InstallationStore(db);
@@ -67,6 +69,7 @@ export class RuntimeIndex {
     this.humanRequests = new HumanRequestStore(db);
     this.appliedAnswers = new AppliedAnswerStore(db);
     this.limitSamples = new LimitSampleStore(db);
+    this.dialogue = new DialogueStore(db);
   }
 
   // Runs `fn` inside one SQLite transaction; a thrown error rolls everything back.

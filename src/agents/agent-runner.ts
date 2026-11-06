@@ -146,12 +146,13 @@ export class AgentRunner {
   }
 
   // Next message of the Dialogue; a stopped Agent gets its Session resumed with the text as the prompt.
-  async send(id: AgentId, text: string): Promise<void> {
+  // `options` matter only for that resume: a live process keeps the settings it was launched with.
+  async send(id: AgentId, text: string, options: AgentSessionOptions = {}): Promise<void> {
     const live = this._live.get(id);
     if (!live) {
       const record = this._deps.agents.get(id);
       if (record.state === "waiting") throw new AgentNotResumableError(id, "waiting for an Answer; resume it with onAskHuman");
-      this.resume(id, { prompt: text });
+      this.resume(id, { prompt: text, ...options });
       return;
     }
     this._clearIdleTimer(live);

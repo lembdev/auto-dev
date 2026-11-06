@@ -12,3 +12,4 @@ export type AgentId = number & { __brand: "AgentId" };
 export type IntentId = number & { __brand: "IntentId" };
 export type HumanRequestId = number & { __brand: "HumanRequestId" };
 export type AppliedAnswerId = number & { __brand: "AppliedAnswerId" };
+export type PendingMessageId = number & { __brand: "PendingMessageId" };
