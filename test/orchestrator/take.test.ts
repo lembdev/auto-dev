@@ -216,6 +216,26 @@ describe("taking Ready tasks", () => {
     expect(takenIssues(s)).toEqual([1, 2]);
   });
 
+  it("takes a blocked issue once its blocker is closed, though GitHub leaves the blocked issue untouched", async () => {
+    const s = scenario();
+    open.push(s);
+    const github = s.ports.github;
+    github.seedIssue({ number: 1, labels: [] });
+    github.seedIssue({ number: 2, labels: ["ready-for-agent"], dependencies: { blockedBy: 1, blocking: 0, totalBlockedBy: 1, totalBlocking: 0 } });
+    await s.orchestrator.start();
+    await s.ports.clock.advance(15_000);
+    expect(takenIssues(s)).toEqual([]);
+    // Other activity moves the poll cursor past the blocked issue.
+    await s.ports.clock.advance(1_000);
+    github.seedIssue({ number: 3, labels: [] });
+    await s.ports.clock.advance(15_000);
+
+    await s.ports.clock.advance(1_000);
+    github.humanCloseBlocker(1, 2);
+    await s.ports.clock.advance(15_000);
+    expect(takenIssues(s)).toEqual([2]);
+  });
+
   it("survives a failing poll and keeps polling", async () => {
     const s = scenario();
     open.push(s);

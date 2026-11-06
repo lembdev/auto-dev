@@ -233,6 +233,15 @@ export class FakeGitHubPort implements GitHubPort {
     );
   }
 
+  // Closes the blocker the way GitHub does: the issue it blocked gets a new dependency summary but
+  // keeps its update time, so a poll by `since` does not bring it back.
+  humanCloseBlocker(blocker: number, blocked: number): Issue {
+    const closed = this._patchIssue(blocker as IssueNumber, { state: "closed", stateReason: "completed" });
+    const issue = this._issue(blocked as IssueNumber);
+    issue.dependencies = { ...issue.dependencies, blockedBy: Math.max(0, issue.dependencies.blockedBy - 1) };
+    return clone(closed);
+  }
+
   humanMergePullRequest(number: number): PullRequest {
     return clone(
       this._touchPull(number as PullNumber, (pull) => {

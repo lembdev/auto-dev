@@ -591,9 +591,21 @@ export class Orchestrator {
     );
     if (issues.length === 0) return;
     for (const issue of issues) this._issues.set(issue.number, issue);
+    await this._refreshBlocked(issues);
     this._log.debug({ issues: issues.map((issue) => issue.number) }, "issues updated");
     await this._reconciler.apply(issues);
     await this._hooks.onIssuesUpdated?.(issues);
+  }
+
+  // Closing a blocker changes the dependency summary of the issues it blocked but not their update
+  // time, so polling by `since` never brings them back: they are read again when anything closes.
+  private async _refreshBlocked(polled: Issue[]): Promise<void> {
+    if (!polled.some((issue) => issue.state === "closed")) return;
+    const seen = new Set(polled.map((issue) => issue.number));
+    const blocked = [...this._issues.values()].filter((issue) => issue.state === "open" && issue.dependencies.blockedBy > 0 && !seen.has(issue.number));
+    for (const issue of blocked) {
+      this._issues.set(issue.number, await this._ports.github.getIssue(issue.number));
+    }
   }
 
   // `since` is inclusive, so the newest comment of the previous poll comes back once more after the
