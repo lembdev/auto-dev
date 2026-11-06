@@ -2,21 +2,24 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSystemPorts } from "./adapters/index.js";
-import { cloneUrlOf, ConfigError, loadConfig } from "./config.js";
+import { ConfigStore } from "./config-store.js";
+import { ConfigError } from "./config.js";
 import { openRuntimeIndex } from "./index/runtime-index.js";
 import { createLogger } from "./log.js";
 import { Orchestrator } from "./orchestrator/orchestrator.js";
 import { createApp } from "./server/app.js";
 import { startServer } from "./server/server.js";
+import { Settings } from "./setup/settings.js";
+import { Setup } from "./setup/setup.js";
 import { VERSION } from "./version.js";
 
 // The client bundle is built next to the server bundle: `dist/client` beside `dist/main.js`.
 const CLIENT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "client");
 
 async function main(): Promise<void> {
-  let config;
+  let configStore: ConfigStore;
   try {
-    config = loadConfig();
+    configStore = new ConfigStore();
   } catch (error) {
     if (error instanceof ConfigError) {
       process.stderr.write(`auto-dev: ${error.message}\n`);
@@ -24,6 +27,7 @@ async function main(): Promise<void> {
     }
     throw error;
   }
+  const config = configStore.current();
 
   const log = createLogger({ level: config.logLevel });
   log.info({ version: VERSION, envFile: config.envFile, envFileExists: config.envFileExists, dataDir: config.dataDir }, "starting");
@@ -34,30 +38,51 @@ async function main(): Promise<void> {
   const index = openRuntimeIndex(config.runtimeDbPath);
   log.info({ path: config.runtimeDbPath, schemaVersion: index.schemaVersion() }, "runtime index ready");
 
-  const ports = createSystemPorts({ config, log, version: VERSION });
-  const clone = config.github ? { repoPath: config.repoPath, cloneUrl: cloneUrlOf(config.github) } : { repoPath: config.repoPath };
-  const orchestrator = new Orchestrator({ ports, index, log, product: clone, dataDir: config.dataDir });
-  const product = config.github
-    ? { fullName: `${config.github.owner}/${config.github.repo}`, htmlUrl: `https://github.com/${config.github.owner}/${config.github.repo}` }
-    : undefined;
-  if (config.passwordHash === undefined) log.warn("AUTO_DEV_PASSWORD_HASH is not set; nobody can log in to the UI");
+  const ports = createSystemPorts({ config: configStore, log, version: VERSION });
+  const orchestrator = new Orchestrator({ ports, index, log, product: { repoPath: config.repoPath }, dataDir: config.dataDir });
+  const setup = new Setup({
+    config: configStore,
+    installation: index.installation,
+    worktree: ports.worktree,
+    driver: ports.driver,
+    github: ports.githubFor,
+    log,
+  });
+  const settings = new Settings({
+    config: configStore,
+    installation: index.installation,
+    state: orchestrator.installation,
+    runner: orchestrator.agents,
+    qa: orchestrator.qa,
+    maxParallelTasks: () => orchestrator.maxParallelTasks(),
+    setup,
+    log,
+  });
   const app = createApp({
     ports,
     index,
     log,
     version: VERSION,
     orchestrator,
-    auth: { passwordHash: config.passwordHash, allowedHosts: config.allowedHosts },
+    config: configStore,
+    setup,
+    settings,
+    auth: { allowedHosts: config.allowedHosts },
     clientDir: CLIENT_DIR,
-    ...(product ? { product } : {}),
   });
   const server = await startServer({ app, host: config.host, port: config.port, log });
 
-  if (config.github) {
-    log.info({ repo: `${config.github.owner}/${config.github.repo}` }, "orchestrator starting");
+  // The Orchestrator polls only once the wizard is through; finishing it starts the polling at once.
+  const startOrchestrator = () => {
+    const github = configStore.current().github;
+    log.info({ repo: github ? `${github.owner}/${github.repo}` : null }, "orchestrator starting");
     void orchestrator.start();
+  };
+  if (await setup.isComplete()) {
+    startOrchestrator();
   } else {
-    log.warn("GITHUB_TOKEN and GITHUB_REPO are not set; the orchestrator stays idle");
+    log.warn({ step: (await setup.status()).current }, "first-run setup is not finished; open the UI to continue it");
+    setup.onComplete(startOrchestrator);
   }
 
   let stopping = false;

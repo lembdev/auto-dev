@@ -1,9 +1,14 @@
+import argon2 from "argon2";
 import { Writable } from "node:stream";
+import { ConfigStore, MemoryEnvFileAccess, patchEnvFile } from "../../src/config-store.js";
+import type { GitHubConfig } from "../../src/config.js";
 import { createFakePorts, type FakePorts } from "../../src/fakes/index.js";
 import { IN_MEMORY, openRuntimeIndex, type RuntimeIndex } from "../../src/index/runtime-index.js";
 import { createLogger, type LogLevel, type Logger } from "../../src/log.js";
 import { Orchestrator, type OrchestratorHooks } from "../../src/orchestrator/orchestrator.js";
 import { createApp, type App } from "../../src/server/app.js";
+import { Settings } from "../../src/setup/settings.js";
+import { Setup } from "../../src/setup/setup.js";
 
 export type LogSink = Writable & { lines(): Record<string, unknown>[] };
 
@@ -30,6 +35,13 @@ export type TestApp = {
   ports: FakePorts;
   index: RuntimeIndex;
   orchestrator: Orchestrator;
+  config: ConfigStore;
+  // The in-memory env file of the Installation; `files.read(TEST_ENV_FILE)` is what the wizard wrote.
+  files: MemoryEnvFileAccess;
+  setup: Setup;
+  settings: Settings;
+  // Token and repository every GitHub port built for a check was given, in order.
+  githubConfigs: GitHubConfig[];
   log: Logger;
   sink: LogSink;
   // Logs in with the test password and returns the `Cookie` header of the session.
@@ -45,6 +57,10 @@ export type TestAppOptions = {
   hooks?: OrchestratorHooks;
   // undefined keeps the test password; null leaves the Installation without a password.
   passwordHash?: string | null;
+  // Further lines of the env file, e.g. GITHUB_REPO and the tokens of a configured Installation.
+  env?: Record<string, string>;
+  // Whether the fake Product clone exists from the start.
+  cloned?: boolean;
   allowedHosts?: string[];
   clientDir?: string;
 };
@@ -57,13 +73,25 @@ export const TEST_HOST = "192.168.1.10:8080";
 // Where the fakes pretend the Installation keeps its data and the Product is cloned.
 export const TEST_DATA_DIR = "/var/lib/auto-dev";
 export const TEST_REPO_PATH = `${TEST_DATA_DIR}/repo`;
+export const TEST_ENV_FILE = "/etc/auto-dev/env";
+
+// A configured Installation, as the wizard leaves it.
+export const TEST_ENV = { GITHUB_REPO: "acme/product", GITHUB_TOKEN: "ghp_test", CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test" };
+
+// argon2id with the cheapest parameters: the wizard and the Settings page hash in tests too.
+export const cheapHash = (password: string): Promise<string> => argon2.hash(password, { memoryCost: 4096, timeCost: 1, parallelism: 1 });
 
 // The server and the Orchestrator on fakes and an in-memory index: the seam every scenario test goes through.
 // The Orchestrator is not started; tests call `pollOnce()` or `start()` themselves.
 export function createTestApp(options: TestAppOptions = {}): TestApp {
   const ports = createFakePorts();
-  ports.worktree.seedRepo(TEST_REPO_PATH);
+  if (options.cloned ?? true) ports.worktree.seedRepo(TEST_REPO_PATH);
   const index = openRuntimeIndex(IN_MEMORY);
+  const passwordHash = options.passwordHash === null ? undefined : (options.passwordHash ?? TEST_PASSWORD_HASH);
+  const envValues = { ...(passwordHash ? { AUTO_DEV_PASSWORD_HASH: passwordHash } : {}), ...options.env };
+  const files = new MemoryEnvFileAccess(Object.keys(envValues).length > 0 ? { [TEST_ENV_FILE]: patchEnvFile(undefined, envValues) } : {});
+  const config = new ConfigStore({ files, env: { AUTO_DEV_ENV_FILE: TEST_ENV_FILE, AUTO_DEV_DATA_DIR: TEST_DATA_DIR } });
+  const githubConfigs: GitHubConfig[] = [];
   const sink = createLogSink();
   const log = createLogger({ level: options.logLevel ?? "silent", destination: sink });
   const product = { repoPath: TEST_REPO_PATH };
@@ -71,13 +99,39 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
   const orchestrator = new Orchestrator(
     options.hooks ? { ports, index, log, hooks: options.hooks, product, dataDir } : { ports, index, log, product, dataDir },
   );
+  const setup = new Setup({
+    config,
+    installation: index.installation,
+    worktree: ports.worktree,
+    driver: ports.driver,
+    github: (github) => {
+      githubConfigs.push(github);
+      return ports.github;
+    },
+    log,
+    hashPassword: cheapHash,
+  });
+  const settings = new Settings({
+    config,
+    installation: index.installation,
+    state: orchestrator.installation,
+    runner: orchestrator.agents,
+    qa: orchestrator.qa,
+    maxParallelTasks: () => orchestrator.maxParallelTasks(),
+    setup,
+    log,
+    hashPassword: cheapHash,
+  });
   const app = createApp({
     ports,
     index,
     log,
     version: options.version ?? "0.0.0-test",
     orchestrator,
-    auth: { passwordHash: options.passwordHash === null ? undefined : (options.passwordHash ?? TEST_PASSWORD_HASH), allowedHosts: options.allowedHosts ?? [] },
+    config,
+    setup,
+    settings,
+    auth: { allowedHosts: options.allowedHosts ?? [] },
     ...(options.clientDir !== undefined ? { clientDir: options.clientDir } : {}),
   });
   let cookie: string | undefined;
@@ -97,6 +151,11 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
     ports,
     index,
     orchestrator,
+    config,
+    files,
+    setup,
+    settings,
+    githubConfigs,
     log,
     sink,
     login,
