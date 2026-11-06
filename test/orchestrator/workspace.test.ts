@@ -62,6 +62,7 @@ describe("workspace of a taken Task", () => {
     });
     expect(s.index.intents.listPending()).toEqual([]);
     expect(s.index.intents.listFor(42 as IssueNumber)).toEqual([
+      expect.objectContaining({ kind: "take", state: "done", payload: { login: "auto-dev-bot", labels: ["ready-for-agent"] } }),
       expect.objectContaining({
         kind: "prepare-workspace",
         state: "done",

@@ -18,6 +18,9 @@ export const defineIntent = <P, R = void>(name: string): IntentKind<P, R> => ({ 
 // already have happened, so it checks what exists (PR for the branch, worktree, marked comment) before creating.
 export type IntentHandler<P, R> = (payload: P, intent: Intent) => Promise<R>;
 
+// An intent written by `record()`; the phantom field carries the result type to `perform()`.
+export type RecordedIntent<R> = Intent & { readonly __result?: R };
+
 export type RecoverSummary = { completed: number; failed: number };
 
 export class UnknownIntentError extends Error {
@@ -54,8 +57,17 @@ export class IntentJournal {
 
   // Records the intent, performs it and marks it done. A failed action stays pending for `recover()`.
   async run<P, R>(kind: IntentKind<P, R>, issueNumber: IssueNumber, payload: P): Promise<R> {
+    return this.perform(this.record(kind, issueNumber, payload));
+  }
+
+  // Only writes the intent down, so it can share a transaction with other index rows; `perform()` or
+  // `recover()` carries it out.
+  record<P, R>(kind: IntentKind<P, R>, issueNumber: IssueNumber, payload: P): RecordedIntent<R> {
     if (!this._handlers.has(kind.name)) throw new UnknownIntentError(kind.name);
-    const intent = this._index.intents.add({ kind: kind.name, issueNumber, payload }, this._iso());
+    return this._index.intents.add({ kind: kind.name, issueNumber, payload }, this._iso()) as RecordedIntent<R>;
+  }
+
+  async perform<R>(intent: RecordedIntent<R>): Promise<R> {
     return (await this._perform(intent)) as R;
   }
 

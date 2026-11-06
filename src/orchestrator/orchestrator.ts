@@ -17,7 +17,7 @@ import { EpicClosure } from "./epic-closure.js";
 import { HumanRequests } from "./human-requests.js";
 import { Implementation, type AskHumanHandler } from "./implementation.js";
 import { InstallationState } from "./installation-state.js";
-import { IntentJournal } from "./intents.js";
+import { defineIntent, IntentJournal } from "./intents.js";
 import { MergeStage } from "./merge.js";
 import { Merger } from "./merger.js";
 import type { StagePrompts } from "../prompts/index.js";
@@ -74,6 +74,10 @@ export type OrchestratorOptions = {
 
 export type Slots = { used: number; max: number };
 
+// Assignee and labels of a take in GitHub.
+export type TakePayload = { login: string; labels: string[] };
+export const TAKE = defineIntent<TakePayload>("take");
+
 // Polls GitHub, keeps the Ready queue and takes Ready tasks into free Slots.
 export class Orchestrator {
   private readonly _ports: Ports;
@@ -115,6 +119,7 @@ export class Orchestrator {
     this._pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this._hooks = options.hooks ?? {};
     this._intents = new IntentJournal({ index: this._index, log: this._log, clock: this._ports.clock });
+    this._intents.handle(TAKE, (payload, intent) => this._applyTake(intent.issueNumber, payload));
     this._workspace = new Workspace({
       worktree: this._ports.worktree,
       github: this._ports.github,
@@ -500,6 +505,7 @@ export class Orchestrator {
     await this._pollComments();
     await this._humanRequests.deliver();
     await this._dialogue.deliver();
+    await this._prepareTaken();
     await this._startImplementers();
     await this._qa.startRounds();
     await this._merge.startMerges();
@@ -509,6 +515,20 @@ export class Orchestrator {
   private async _issueOf(issueNumber: IssueNumber): Promise<Issue> {
     const known = this._issues.get(issueNumber);
     return known ? structuredClone(known) : this._ports.github.getIssue(issueNumber);
+  }
+
+  // Tasks taken but left without a workspace (a take finished by the journal after a failure or a crash)
+  // get one now. A Task with a pending intent waits for the journal to finish it first.
+  private async _prepareTaken(): Promise<void> {
+    const pending = new Set<number>(this._intents.pending().map((intent) => intent.issueNumber));
+    for (const task of this._index.tasks.listByStage(["taken"])) {
+      if (task.pullNumber !== null || pending.has(task.issueNumber)) continue;
+      try {
+        await this._workspace.prepare(task, await this._issueOf(task.issueNumber));
+      } catch (error) {
+        this._log.error({ err: error, issue: task.issueNumber }, "workspace not ready");
+      }
+    }
   }
 
   // Tasks taken but left without an Implementer (a failed launch, a crash in between) get one now.
@@ -620,31 +640,36 @@ export class Orchestrator {
     }
   }
 
+  // The Task, its transition and the intents of the take are written in one transaction before any call
+  // to GitHub: a failure or a crash in between leaves pending intents that the journal finishes, and the
+  // next cycle prepares the workspace (`_prepareTaken`).
   private async _take(issue: Issue): Promise<void> {
     const login = this._login ?? "";
-    const github = this._ports.github;
-    await github.addAssignees(issue.number, [login]);
     // A Task returned from a dead end also drops the label of the human.
     const labels = issue.labels.includes(HUMAN_LABEL) ? [READY_LABEL, HUMAN_LABEL] : [READY_LABEL];
-    for (const label of labels) {
-      try {
-        await github.removeLabel(issue.number, label);
-      } catch (error) {
-        // Already removed by a human in between: the issue is still ours.
-        if (!(error instanceof GitHubNotFoundError)) throw error;
-      }
-    }
     const now = this._iso();
     const previous = this._index.tasks.find(issue.number);
-    const task = this._index.transaction(() => this._recordTake(issue, now));
-    const known = this._issues.get(issue.number);
-    if (known) {
-      known.assignees = [login];
-      known.labels = known.labels.filter((label) => !labels.includes(label));
-    }
+    const { task, take, retire } = this._index.transaction(() => ({
+      // The old pull request, worktree and branch go before the new attempt gets its own.
+      retire: previous ? this._cleanup.record(previous) : undefined,
+      task: this._recordTake(issue, now),
+      take: this._intents.record(TAKE, issue.number, { login, labels }),
+    }));
     this._log.info({ issue: issue.number, milestone: issue.milestone?.number ?? null, attempt: task.attempt }, "task taken");
-    // The old pull request, worktree and branch go before the new attempt gets its own.
-    if (previous) await this._cleanup.retire(previous);
+    try {
+      await this._intents.perform(take);
+    } catch (error) {
+      this._log.error({ err: error, issue: issue.number }, "take not finished in GitHub; the journal retries it");
+      return;
+    }
+    if (retire) {
+      try {
+        await this._intents.perform(retire);
+      } catch (error) {
+        // The new attempt uses other names; the journal retries the cleanup.
+        this._log.error({ err: error, issue: issue.number, attempt: previous?.attempt }, "previous attempt not cleaned up");
+      }
+    }
     let prepared: Task;
     try {
       prepared = await this._workspace.prepare(task, issue);
@@ -664,6 +689,25 @@ export class Orchestrator {
       await this._hooks.afterTake?.(this._index.tasks.get(issue.number), structuredClone(issue));
     } catch (error) {
       this._log.error({ err: error, issue: issue.number }, "after-take hook failed");
+    }
+  }
+
+  // Assignee on, `ready-for-agent` (and the human label) off. Idempotent: the journal repeats it after a crash.
+  private async _applyTake(issueNumber: IssueNumber, payload: TakePayload): Promise<void> {
+    const github = this._ports.github;
+    await github.addAssignees(issueNumber, [payload.login]);
+    for (const label of payload.labels) {
+      try {
+        await github.removeLabel(issueNumber, label);
+      } catch (error) {
+        // Already removed by a human in between: the issue is still ours.
+        if (!(error instanceof GitHubNotFoundError)) throw error;
+      }
+    }
+    const known = this._issues.get(issueNumber);
+    if (known) {
+      known.assignees = [...new Set([...known.assignees, payload.login])];
+      known.labels = known.labels.filter((label) => !payload.labels.includes(label));
     }
   }
 

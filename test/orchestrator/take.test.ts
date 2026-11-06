@@ -232,4 +232,60 @@ describe("taking Ready tasks", () => {
     await s.ports.clock.advance(15_000);
     expect(takenIssues(s)).toEqual([1]);
   });
+
+  it("records the Task and the take intent before touching GitHub and finishes a half-done take on the next cycle", async () => {
+    const s = scenario();
+    open.push(s);
+    const github = s.ports.github;
+    github.seedIssue({ number: 4, title: "Add search", labels: ["ready-for-agent"] });
+    const seen: { stage: string | undefined; pending: string[] }[] = [];
+    const originalAssign = github.addAssignees.bind(github);
+    github.addAssignees = async (...args) => {
+      seen.push({ stage: s.index.tasks.find(4 as IssueNumber)?.stage, pending: s.index.intents.listPending().map((intent) => intent.kind) });
+      return originalAssign(...args);
+    };
+    const originalRemove = github.removeLabel.bind(github);
+    github.removeLabel = async () => {
+      throw new Error("connection reset");
+    };
+
+    await s.orchestrator.pollOnce();
+
+    expect(seen).toEqual([{ stage: "taken", pending: ["take"] }]);
+    expect(github.issue(4)).toMatchObject({ assignees: ["auto-dev-bot"], labels: ["ready-for-agent"] });
+    expect(s.index.tasks.get(4 as IssueNumber)).toMatchObject({ stage: "taken", pullNumber: null });
+    expect(s.index.intents.listPending().map((intent) => intent.kind)).toEqual(["take"]);
+    expect(s.ports.driver.launches).toHaveLength(0);
+
+    github.removeLabel = originalRemove;
+    await s.orchestrator.pollOnce();
+
+    expect(github.issue(4)).toMatchObject({ assignees: ["auto-dev-bot"], labels: [] });
+    expect(s.index.intents.listPending()).toEqual([]);
+    expect(s.index.tasks.get(4 as IssueNumber)).toMatchObject({ stage: "implement", attempt: 1, pullNumber: 1 });
+    expect(s.index.transitions.listFor(4 as IssueNumber).map((t) => t.to)).toEqual(["taken", "implement"]);
+    expect(s.ports.driver.launches).toHaveLength(1);
+  });
+
+  it("finishes a take cut short by a restart: the new process completes the intent and prepares the workspace", async () => {
+    const first = scenario();
+    const github = first.ports.github;
+    github.seedIssue({ number: 4, labels: ["ready-for-agent"] });
+    const originalAssign = github.addAssignees.bind(github);
+    github.addAssignees = async () => {
+      throw new Error("process died");
+    };
+    await first.orchestrator.pollOnce();
+    expect(first.index.tasks.get(4 as IssueNumber).stage).toBe("taken");
+    first.orchestrator.stop();
+
+    github.addAssignees = originalAssign;
+    const second = new Orchestrator({ ports: first.ports, index: first.index, log });
+    open.push({ ...first, orchestrator: second });
+    await second.pollOnce();
+
+    expect(github.issue(4)).toMatchObject({ assignees: ["auto-dev-bot"], labels: [] });
+    expect(first.index.tasks.get(4 as IssueNumber)).toMatchObject({ stage: "implement", attempt: 1, pullNumber: 1 });
+    expect(first.ports.driver.launches).toHaveLength(1);
+  });
 });

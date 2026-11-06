@@ -5,7 +5,7 @@ import type { Logger } from "../log.js";
 import type { Clock } from "../ports/clock.js";
 import { GitHubNotFoundError, type GitHubPort } from "../ports/github.js";
 import type { WorktreePort } from "../ports/worktree.js";
-import { defineIntent, type IntentJournal } from "./intents.js";
+import { defineIntent, type IntentJournal, type RecordedIntent } from "./intents.js";
 
 // What an attempt leaves behind. Every field may be null: a half-taken Task has no pull request yet,
 // a Task cleaned once before has no worktree.
@@ -111,14 +111,14 @@ export class WorkspaceCleanup {
     });
   }
 
-  // Cleanup of the previous attempt before a new one. Never throws: the new attempt uses other
-  // names, and a failed cleanup is retried by the journal.
-  async retire(previous: Task): Promise<void> {
-    try {
-      await this.run(previous);
-    } catch (error) {
-      this._deps.log.error({ err: error, issue: previous.issueNumber, attempt: previous.attempt }, "previous attempt not cleaned up");
-    }
+  // Writes the cleanup of what the Task references now without doing it; undefined when there is nothing.
+  record(task: Task): RecordedIntent<CleanupResult> | undefined {
+    if (task.pullNumber === null && task.branch === null && task.worktreePath === null) return undefined;
+    return this._journal.record(CLEANUP_WORKSPACE, task.issueNumber, {
+      pullNumber: task.pullNumber,
+      branch: task.branch,
+      worktreePath: task.worktreePath,
+    });
   }
 
   private async _perform(issueNumber: IssueNumber, payload: CleanupPayload): Promise<CleanupResult> {
