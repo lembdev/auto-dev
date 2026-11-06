@@ -38,6 +38,32 @@ export function requestCommentText(role: AgentRole, text: RequestText): string {
   return lines.join("\n");
 }
 
+const REQUEST_HEADER = /^\*\*Запрос к человеку\*\*/;
+const OPTIONS_HEADER = "Варианты:";
+const REQUEST_FOOTER = "Ответьте комментарием здесь или в UI.";
+
+// Reads the question and the options back out of a Request comment; the inverse of `requestCommentText`.
+export function parseRequestComment(body: string): RequestText | undefined {
+  const lines = body.split(/\r?\n/);
+  if (!lines[0] || !REQUEST_HEADER.test(lines[0])) return undefined;
+  const question: string[] = [];
+  const options: string[] = [];
+  let inOptions = false;
+  for (const line of lines.slice(1)) {
+    if (line.startsWith("<!--") || line.trim() === REQUEST_FOOTER) continue;
+    if (line.trim() === OPTIONS_HEADER) {
+      inOptions = true;
+      continue;
+    }
+    if (inOptions) {
+      if (line.startsWith("- ")) options.push(line.slice(2));
+      continue;
+    }
+    question.push(line);
+  }
+  return { question: question.join("\n").trim(), options: options.length > 0 ? options : undefined };
+}
+
 // The one line "who and from where" the Agent sees next to the Answer.
 export const answerSourceLine = (comment: IssueComment): string => `${comment.author} in GitHub comment ${comment.htmlUrl}`;
 
@@ -75,6 +101,8 @@ export class HumanRequests {
   private readonly _publishing = new Set<HumanRequestId>();
   // The last deferred call per issue, in case the result message comes without `deferred_tool_use`.
   private readonly _lastCalls = new Map<IssueNumber, AskHumanCall>();
+  // Texts of Requests published by this process; after a restart they are read back from the comments.
+  private readonly _texts = new Map<HumanRequestId, RequestText>();
   private _openChecked = false;
 
   constructor(options: HumanRequestsOptions) {
@@ -148,6 +176,24 @@ export class HumanRequests {
     return this._index.humanRequests.listOpen();
   }
 
+  // The question of a Request for the UI: from memory, else from its comment in GitHub.
+  async findText(request: HumanRequest): Promise<RequestText | undefined> {
+    const known = this._texts.get(request.id);
+    if (known) return known;
+    if (request.commentId === null) return undefined;
+    let comments: IssueComment[];
+    try {
+      comments = await this._github.listIssueComments(request.issueNumber);
+    } catch (error) {
+      this._log.warn({ err: error, issue: request.issueNumber, request: request.id }, "request text not read from GitHub");
+      return undefined;
+    }
+    const comment = comments.find((candidate) => candidate.id === request.commentId);
+    const text = comment ? parseRequestComment(comment.body) : undefined;
+    if (text) this._texts.set(request.id, text);
+    return text;
+  }
+
   // Internals
 
   private async _publish(agent: AgentRecord, message: Deferred): Promise<void> {
@@ -167,6 +213,7 @@ export class HumanRequests {
     const existing = this._index.humanRequests.findByToolUse(toolUseId);
     if (existing && existing.commentId !== null) return;
     const request = existing ?? this._index.humanRequests.create({ agentId: agent.id, issueNumber, toolUseId, createdAt: this._iso() });
+    if (text) this._texts.set(request.id, text);
     if (!text) {
       this._log.error({ issue: issueNumber, request: request.id, toolUseId }, "deferred call without its question; the Request stays unpublished");
       return;

@@ -9,13 +9,13 @@ describe("/api/installation", () => {
   });
 
   const get = async (): Promise<InstallationResponse> => {
-    const response = await testApp.app.request("/api/installation");
+    const response = await testApp.request("/api/installation");
     expect(response.status).toBe(200);
     return (await response.json()) as InstallationResponse;
   };
 
   const put = (body: unknown) =>
-    testApp.app.request("/api/installation/pause", {
+    testApp.request("/api/installation/pause", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: typeof body === "string" ? body : JSON.stringify(body),
@@ -33,6 +33,8 @@ describe("/api/installation", () => {
       blocker: null,
       canStartTurn: true,
       slots: { used: 0, max: 2 },
+      product: null,
+      version: "0.0.0-test",
     });
   });
 

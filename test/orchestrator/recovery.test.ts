@@ -81,7 +81,7 @@ describe("restart of the Orchestrator", () => {
 
   const signalsOf = (s: TestApp, pid: number): string[] => s.ports.processes.signals.filter((record) => record.pid === pid).map((record) => record.signal);
   const issueMutations = (s: TestApp) => s.ports.github.calls.filter((call) => ISSUE_MUTATIONS.includes(call.method));
-  const tasks = async (s: TestApp): Promise<TasksResponse> => (await s.app.request("/api/tasks")).json() as Promise<TasksResponse>;
+  const tasks = async (s: TestApp): Promise<TasksResponse> => (await s.request("/api/tasks")).json() as Promise<TasksResponse>;
 
   describe("processes", () => {
     it("terminates the orphaned PIDs of the index and the foreign claude processes of the installation user, SIGKILL after the pause for a stubborn one", async () => {

@@ -18,6 +18,7 @@ import { Implementation, type AskHumanHandler } from "./implementation.js";
 import { InstallationState } from "./installation-state.js";
 import { IntentJournal } from "./intents.js";
 import { MergeStage } from "./merge.js";
+import { Merger } from "./merger.js";
 import type { StagePrompts } from "../prompts/index.js";
 import { QaStage } from "./qa.js";
 import { HUMAN_LABEL, READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
@@ -88,6 +89,7 @@ export class Orchestrator {
   private readonly _reconciler: Reconciler;
   private readonly _epicClosure: EpicClosure;
   private readonly _merge: MergeStage;
+  private readonly _merger: Merger;
   private readonly _recovery: Recovery;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
@@ -189,6 +191,22 @@ export class Orchestrator {
       transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
       login: () => this._login ?? "",
     });
+    this._merger = new Merger({
+      github: this._ports.github,
+      runner: this._agents,
+      index: this._index,
+      log: this._log,
+      clock: this._ports.clock,
+      deadEnds: this._deadEnds,
+      implementation: this._implementation,
+      qa: this._qa,
+      transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
+      findIssue: (issueNumber) => this._issueOf(issueNumber),
+      baseBranch: this._workspace.baseBranch,
+      canStart: () => this.canStartTurn(),
+      ...(options.prompts ? { prompts: options.prompts } : {}),
+      onAskHuman: options.onAskHuman ?? ((task, call) => this._humanRequests.askHuman(task, call)),
+    });
     this._epicClosure = new EpicClosure({
       github: this._ports.github,
       index: this._index,
@@ -211,6 +229,8 @@ export class Orchestrator {
       transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
       postComment: (issueNumber, key, text) => this.postComment(issueNumber, key, text),
       baseBranch: this._workspace.baseBranch,
+      onFailure: (task, failure) => this._merger.onFailure(task, failure),
+      isHeld: (task) => this._merger.isResolving(task),
     });
     this._recovery = new Recovery({
       github: this._ports.github,
@@ -263,6 +283,11 @@ export class Orchestrator {
 
   get merge(): MergeStage {
     return this._merge;
+  }
+
+  // Conflicts and red checks of the Merge Stage: the Merger Agent and the remark to the Implementer.
+  get merger(): Merger {
+    return this._merger;
   }
 
   // Criteria of the Epic and closure of the milestone after a merge.

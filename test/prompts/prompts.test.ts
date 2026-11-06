@@ -62,6 +62,18 @@ describe("Stage prompts", () => {
     expect(implement).not.toMatch(/[–—]/);
   });
 
+  it("Merger part is only about the conflict: merge of the base branch, push, no other changes, ask_human as the way out", () => {
+    const merge = prompts.load("merge");
+    for (const phrase of ["git merge origin/{{base_branch}}", "Не делай rebase и force push", "Не меняй код сверх", "`ask_human`"]) {
+      expect(merge, phrase).toContain(phrase);
+    }
+    expect(merge).not.toMatch(/[–—]/);
+    const text = prompts.render({ ...context, stage: "merge", baseBranch: "develop" });
+    expect(text).toContain("Стадии «Merge»");
+    expect(text).toContain("git merge origin/develop");
+    expect(text).not.toMatch(/\{\{/);
+  });
+
   it("renders the common part and the Stage part with the issue, Epic, criteria, pull request and branch", () => {
     const text = prompts.render(context);
     expect(text).toContain("Стадии «Реализация» Задачи #42");

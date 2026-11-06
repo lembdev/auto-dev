@@ -61,6 +61,7 @@ export {
   type MergeStageOptions,
   type MergePullResult,
 } from "./merge.js";
+export { Merger, MERGER_STARTED_REASON, EXTRA_ROUND_REASON, redChecksMessage, type MergerOptions } from "./merger.js";
 export {
   EpicClosure,
   SETTLE_EPIC,

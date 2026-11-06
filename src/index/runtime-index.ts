@@ -4,13 +4,21 @@ import { AppliedAnswerStore, HumanRequestStore } from "./human-requests.js";
 import { migrations, type Migration } from "./migrations.js";
 import { IntentStore } from "./intents.js";
 import { LimitSampleStore } from "./limit-samples.js";
+import { Listeners } from "./listeners.js";
 import { TaskStore, TransitionStore } from "./tasks.js";
 
 export const IN_MEMORY = ":memory:";
 
 // Key-value settings of the Installation: cursors, pause state, last-known-good versions.
 export class InstallationStore {
+  private readonly _changes = new Listeners<string>();
+
   constructor(private readonly _db: DatabaseSync) {}
+
+  // Called with the key after every set or delete.
+  onChange(listener: (key: string) => void): () => void {
+    return this._changes.add(listener);
+  }
 
   find(key: string): string | undefined {
     const row = this._db.prepare("SELECT value FROM installation WHERE key = ?").get(key) as
@@ -23,10 +31,12 @@ export class InstallationStore {
     this._db
       .prepare("INSERT INTO installation (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .run(key, value);
+    this._changes.emit(key);
   }
 
   delete(key: string): void {
     this._db.prepare("DELETE FROM installation WHERE key = ?").run(key);
+    this._changes.emit(key);
   }
 
   all(): Record<string, string> {

@@ -15,9 +15,10 @@ export class WsClient {
     });
   }
 
-  static connect(url: string): Promise<WsClient> {
+  // `headers` carries the session cookie and the `Origin` a browser would send.
+  static connect(url: string, headers: Record<string, string> = {}): Promise<WsClient> {
     return new Promise((resolve, reject) => {
-      const socket = new WebSocket(url);
+      const socket = new WebSocket(url, { headers });
       const client = new WsClient(socket);
       socket.once("open", () => resolve(client));
       socket.once("error", reject);

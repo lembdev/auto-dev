@@ -287,9 +287,10 @@ export class Recovery {
 
   // Internals: resume
 
-  // QA rounds are disposable and restart from scratch; the Planner works with the human, not alone.
+  // QA rounds and conflict resolutions are disposable and restart from scratch; the Planner works with
+  // the human, not alone. Only the Implementer keeps a Turn worth continuing.
   private _isResumable(agent: AgentRecord): boolean {
-    return agent.issueNumber !== null && agent.role !== "qa" && agent.role !== "planner";
+    return agent.issueNumber !== null && agent.role === "implementer";
   }
 
   private async _resume(agent: AgentRecord, task: Task, spec: { resumeInterruptedTurn?: boolean; prompt?: string }): Promise<void> {

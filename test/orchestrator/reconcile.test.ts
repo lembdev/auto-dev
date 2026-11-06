@@ -62,7 +62,7 @@ describe("cancellation, return from a dead end and restoration of the issue", ()
   };
 
   const issueMutations = (s: TestApp) => s.ports.github.calls.filter((call) => ISSUE_MUTATIONS.includes(call.method));
-  const tasks = async (s: TestApp): Promise<TasksResponse> => (await s.app.request("/api/tasks")).json() as Promise<TasksResponse>;
+  const tasks = async (s: TestApp): Promise<TasksResponse> => (await s.request("/api/tasks")).json() as Promise<TasksResponse>;
 
   it("cancels a Task whose issue a human closed: Agents stopped, pull request closed, branches and worktree gone", async () => {
     const s = await implemented();

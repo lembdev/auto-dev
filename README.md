@@ -14,11 +14,13 @@
 
 ```
 npm ci            # зависимости (Agent SDK запинен в lockfile)
-npm run build     # tsc -> dist/
-npm test          # vitest: тесты на фейках портов и HTTP/WS
-npm run typecheck # tsc --noEmit для src и test
-npm run dev       # tsx watch src/main.ts
+npm run build     # tsc -> dist/ и vite -> dist/client (бандл UI)
+npm test          # vitest: тесты на фейках портов и HTTP/WS (проект server) и компонентов UI в jsdom (проект client)
+npm run typecheck # tsc --noEmit для src, test и client
+npm run dev       # tsx watch src/main.ts (API и WS; статика только из собранного dist/client)
+npm run dev:client # vite dev server клиента на :5173 с прокси /api и /ws на :8080
 npm start         # node dist/main.js
+npm run password-hash -- <пароль>  # argon2-хеш для AUTO_DEV_PASSWORD_HASH
 ```
 
 ## Конфигурация
@@ -32,6 +34,8 @@ npm start         # node dist/main.js
 | `AUTO_DEV_DATA_DIR` | `/var/lib/auto-dev`   | данные: `runtime.db`, клон Продукта `repo/` (клонируется на старте, если его нет) |
 | `AUTO_DEV_HOST`     | `0.0.0.0`             | адрес HTTP-сервера                           |
 | `AUTO_DEV_PORT`     | `8080`                | порт HTTP-сервера (`0` = свободный)          |
+| `AUTO_DEV_PASSWORD_HASH` | не задан         | argon2-хеш пароля Установки (`npm run password-hash`); без него в UI не войти. В файле env брать в одинарные кавычки: значение содержит `$` |
+| `AUTO_DEV_ALLOWED_HOSTS` | пусто            | дополнительные значения `Host` (через запятую, порт не важен) кроме встроенных безопасных: IP-литералы, `localhost`, имена без точки, `*.local` |
 | `LOG_LEVEL`         | `info`                | уровень pino: fatal, error, warn, info, debug, trace, silent |
 | `CLAUDE_CONFIG_DIR` | `<data dir>/claude`   | каталог Claude Code Установки: сессии Агентов, credentials  |
 | `AUTO_DEV_CLAUDE_PATH` | ищется в `PATH`    | путь к системному `claude`                   |
@@ -45,6 +49,19 @@ npm start         # node dist/main.js
 `poll.issues.since`, `poll.issues.etag`, `poll.comments.since`, `poll.comments.etag`.
 
 Логи: pino JSON в stdout.
+
+## Доступ к UI
+
+HTTP без TLS на `AUTO_DEV_HOST:AUTO_DEV_PORT`, один общий пароль Установки. `POST /api/login` с `{password}` ставит
+cookie `auto_dev_session` на 30 дней (HttpOnly, SameSite=Lax; подпись HMAC секретом из `installation.session.secret`,
+смена секрета разлогинивает всех). Без cookie любой `/api/*` и `/ws` отвечают 401, кроме `/api/health`, `/api/session`
+и `/api/login`. Защита от DNS rebinding: `Host` каждого запроса и `Origin` апгрейда WS должны быть IP-адресом,
+`localhost`, именем без точки, `*.local` или значением из `AUTO_DEV_ALLOWED_HOSTS`; иначе 403.
+
+API Режима разработки: `GET /api/tasks` (В работе с состоянием Агента и открытым Запросом, Готовые, Тупики),
+`GET /api/installation` и `PUT /api/installation/pause`, `GET /api/digest?since=<ISO>` («С прошлого визита»: Запросы,
+завершённые Задачи и Тупики после `since`; отметку визита клиент хранит в localStorage). `GET /ws` шлёт события
+`transition`, `task`, `agent`, `request`, `installation` при изменениях индекса; клиент по ним перечитывает данные.
 
 ## Локальный запуск
 
@@ -167,5 +184,9 @@ npm run smoke:driver -- idle                       # AgentRunner гасит пр
   `GLOSSARY.md`, `docs/agents` и `docs/adr`, которые промпт обязывает прочитать.
 - `src/index/`: Рантайм-индекс (SQLite через `node:sqlite`), миграции только вперёд; таблицы `installation`,
   `tasks`, `transitions`, `agents`, `intents`, `human_requests`, `applied_answers`.
-- `src/server/`: Hono + `ws` на одном http-сервере, `createApp(deps)` для тестов на фейках.
+- `src/server/`: Hono + `ws` на одном http-сервере, `createApp(deps)` для тестов на фейках; `auth.ts`: сессии,
+  проверка `Host` и `Origin`; `api-types.ts`: типы ответов, общие с клиентом; статика `dist/client` с fallback на
+  `index.html`.
+- `client/`: SPA Режима разработки (React, Vite, TanStack Query, Tailwind): вход, шапка с лимитами, Слотами и Паузой,
+  «С прошлого визита», карточки В работе / Готовые / Тупики, заглушка панели Агента; обновление по WS плюс опрос.
 - `test/`: vitest, `test/helpers/test-app.ts` поднимает сервер на фейках.

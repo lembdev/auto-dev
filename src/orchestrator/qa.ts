@@ -104,6 +104,13 @@ export class QaStage {
     return round ? this._index.agents.find(round.agentId) : undefined;
   }
 
+  // The round in progress is the extra one after a Merger: the Task came to `qa` from `merge`, which no
+  // other path does. It is read from `transitions`, so it survives a restart.
+  isExtraRound(issueNumber: IssueNumber): boolean {
+    const last = this._index.transitions.listFor(issueNumber).at(-1);
+    return last?.from === "merge" && last.to === "qa";
+  }
+
   // The verdict of the last finished round of the Task, as long as the Orchestrator has been running.
   findLastVerdict(issueNumber: IssueNumber): Verdict | undefined {
     const verdict = this._lastVerdicts.get(issueNumber);
@@ -238,14 +245,17 @@ export class QaStage {
     await this._runner.stop(round.agentId);
     const task = this._index.tasks.get(issueNumber);
     const checked = task.round + 1;
+    // The extra round after a Merger is not counted: the Task keeps its round and the limit stays out of it.
+    const extra = this.isExtraRound(issueNumber);
+    const label = extra ? "qa extra round" : `qa round ${checked}`;
     if (verdict.approved) {
       this._rounds.delete(issueNumber);
-      this._transition(issueNumber, "merge", `qa round ${checked}: approved`);
-      this._log.info({ issue: issueNumber, round: checked }, "qa approved");
+      this._transition(issueNumber, "merge", `${label}: approved`);
+      this._log.info({ issue: issueNumber, round: checked, extra }, "qa approved");
       return;
     }
     const max = this.maxRounds();
-    if (checked >= max) {
+    if (!extra && checked >= max) {
       await this._deadEnd(
         issueNumber,
         `qa rounds exhausted: ${checked} of ${max}`,
@@ -254,8 +264,8 @@ export class QaStage {
       return;
     }
     this._rounds.delete(issueNumber);
-    this._index.tasks.update(issueNumber, { round: checked }, this._iso());
-    this._transition(issueNumber, "implement", `qa round ${checked}: ${verdict.blockers.length} blockers`);
+    if (!extra) this._index.tasks.update(issueNumber, { round: checked }, this._iso());
+    this._transition(issueNumber, "implement", `${label}: ${verdict.blockers.length} blockers`);
     await this._implementation.send(issueNumber, formatBlockers(verdict));
     this._log.info({ issue: issueNumber, round: checked, blockers: verdict.blockers.length }, "qa blockers sent to the implementer");
   }

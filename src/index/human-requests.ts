@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { AgentId, AppliedAnswerId, CommentId, HumanRequestId, IssueNumber } from "../ids.js";
+import { Listeners } from "./listeners.js";
 
 // An open or answered question of an Agent: which call of ask_human in which Session, and where the
 // Request comment is. The texts of the question and the Answer are not stored; GitHub holds them.
@@ -84,13 +85,28 @@ const toAnswer = (row: AnswerRow): AppliedAnswer => ({
 const PATCH_COLUMNS: Record<keyof HumanRequestPatch, string> = { commentId: "comment_id", answeredAt: "answered_at" };
 
 export class HumanRequestStore {
+  private readonly _changes = new Listeners<HumanRequest>();
+
   constructor(private readonly _db: DatabaseSync) {}
+
+  // Called after every create or update with the new row.
+  onChange(listener: (request: HumanRequest) => void): () => void {
+    return this._changes.add(listener);
+  }
 
   create(request: NewHumanRequest): HumanRequest {
     const result = this._db
       .prepare("INSERT INTO human_requests (agent_id, issue_number, tool_use_id, comment_id, created_at, answered_at) VALUES (?, ?, ?, NULL, ?, NULL)")
       .run(request.agentId, request.issueNumber, request.toolUseId, request.createdAt);
-    return this.get(Number(result.lastInsertRowid) as HumanRequestId);
+    const created = this.get(Number(result.lastInsertRowid) as HumanRequestId);
+    this._changes.emit(created);
+    return created;
+  }
+
+  // Requests created strictly after `since` (ISO), oldest first.
+  listSince(since: string): HumanRequest[] {
+    const rows = this._db.prepare(`SELECT ${REQUEST_COLUMNS} FROM human_requests WHERE created_at > ? ORDER BY id`).all(since) as RequestRow[];
+    return rows.map(toRequest);
   }
 
   find(id: HumanRequestId): HumanRequest | undefined {
@@ -127,7 +143,9 @@ export class HumanRequestStore {
       const result = this._db.prepare(`UPDATE human_requests SET ${assignments} WHERE id = ?`).run(...entries.map(([, value]) => value), id);
       if (result.changes === 0) throw new HumanRequestNotFoundError(id);
     }
-    return this.get(id);
+    const updated = this.get(id);
+    this._changes.emit(updated);
+    return updated;
   }
 }
 

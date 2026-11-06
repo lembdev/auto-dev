@@ -71,7 +71,7 @@ describe("Merge Stage", () => {
 
   const mergeCalls = (s: TestApp): string[] => s.ports.github.log.methods().filter((method) => MERGE_CALLS.has(method));
 
-  const tasks = async (s: TestApp): Promise<TasksResponse> => (await s.app.request("/api/tasks")).json() as Promise<TasksResponse>;
+  const tasks = async (s: TestApp): Promise<TasksResponse> => (await s.request("/api/tasks")).json() as Promise<TasksResponse>;
 
   it("merges an approved pull request without checks: WIP off, squash with the title and an empty body, remote branch gone, issue completed, final comment", async () => {
     const s = await approvedTask();
@@ -190,25 +190,17 @@ describe("Merge Stage", () => {
     expect(s.index.tasks.get(ISSUE).stage).toBe("done");
   });
 
-  it("reaches a dead end on a conflict with the base branch: reason, label, assignee, worktree kept", async () => {
+  it("hands a conflict with the base branch to the Merger instead of a dead end", async () => {
     const s = await approvedTask((testApp) => testApp.ports.github.humanSetMergeable(1, false, "dirty"));
-    const { github, worktree } = s.ports;
+    const { github, driver } = s.ports;
     await s.orchestrator.pollOnce();
 
     expect(github.pull(1)).toMatchObject({ merged: false, state: "open", title: "Add login" });
-    expect(s.index.tasks.get(ISSUE).stage).toBe("stuck");
-    expect(s.index.transitions.listFor(ISSUE).at(-1)).toMatchObject({ from: "merge", to: "stuck", reason: "merge: conflict with main" });
-    expect(github.issue(42).labels).toContain("ready-for-human");
-    expect(github.issue(42).assignees).toEqual([]);
-    expect(github.issue(42).state).toBe("open");
-    const comment = github.commentsOf(42).find((c) => isMarkedComment(c.body, "stuck:1"));
-    expect(comment?.body).toContain("конфликт");
-    expect(worktree.worktrees(TEST_REPO_PATH).map((info) => info.path)).toEqual([WORKTREE]);
-    expect(github.deletedBranches).toEqual([]);
-    expect(s.index.agents.listByIssue(ISSUE).every((agent) => agent.state === "stopped")).toBe(true);
-    expect(s.orchestrator.slots().used).toBe(0);
+    expect(s.index.tasks.get(ISSUE).stage).toBe("merge");
+    expect(driver.lastLaunch().launch.prompt).toContain("Стадии «Merge»");
+    expect(github.issue(42).labels).not.toContain("ready-for-human");
+    expect(github.commentsOf(42)).toEqual([]);
     expect(s.index.intents.listPending()).toEqual([]);
-    expect((await tasks(s)).stuck).toEqual([expect.objectContaining({ issueNumber: 42, reason: "merge: conflict with main" })]);
   });
 
   it("reaches a dead end when the merge itself fails", async () => {
@@ -226,7 +218,7 @@ describe("Merge Stage", () => {
     expect(s.index.intents.listPending()).toEqual([]);
   });
 
-  it("reaches a dead end on red checks without merging", async () => {
+  it("hands red checks to the Implementer without merging", async () => {
     const s = await approvedTask((testApp) => {
       testApp.ports.github.seedCheckRun(HEAD_SHA, { name: "build", conclusion: "success" });
       testApp.ports.github.seedCheckRun(HEAD_SHA, { name: "test", conclusion: "failure" });
@@ -235,9 +227,8 @@ describe("Merge Stage", () => {
     const { github } = s.ports;
     await s.orchestrator.pollOnce();
     expect(github.log.of("mergePullRequest")).toHaveLength(0);
-    expect(s.index.tasks.get(ISSUE).stage).toBe("stuck");
-    expect(s.index.transitions.listFor(ISSUE).at(-1)?.reason).toBe("merge: red checks: test, lint");
-    expect(github.commentsOf(42).find((c) => isMarkedComment(c.body, "stuck:1"))?.body).toContain("test, lint");
+    expect(s.index.tasks.get(ISSUE)).toMatchObject({ stage: "implement", round: 1 });
+    expect(s.implementer.sent).toEqual([expect.stringContaining("test, lint")]);
     expect(s.orchestrator.merge.isWaiting(ISSUE)).toBe(false);
   });
 

@@ -24,6 +24,10 @@ export type Config = {
   claudePath: string | undefined;
   host: string;
   port: number;
+  // argon2 hash of the Installation password; without it nobody can log in to the UI.
+  passwordHash: string | undefined;
+  // Extra `Host` values the HTTP server accepts besides IP literals, `localhost`, single-label names and `*.local`.
+  allowedHosts: string[];
   logLevel: LogLevel;
   // GitHub access of the Installation; both are set by the first-run wizard, so they may be missing.
   github: GitHubConfig | undefined;
@@ -125,6 +129,8 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     claudePath: values.AUTO_DEV_CLAUDE_PATH || undefined,
     host: values.AUTO_DEV_HOST ?? DEFAULT_HOST,
     port,
+    passwordHash: values.AUTO_DEV_PASSWORD_HASH || undefined,
+    allowedHosts: parseAllowedHosts(values.AUTO_DEV_ALLOWED_HOSTS),
     logLevel,
     github,
     values,
@@ -139,6 +145,13 @@ const parseGitHub = (token: string | undefined, repo: string | undefined): GitHu
   if (!match) throw new ConfigError(`GITHUB_REPO must be "owner/name", got "${repo}"`);
   return { token, owner: match[1] as string, repo: match[2] as string };
 };
+
+// Comma-separated host names, optionally with a port; the port is ignored when matching.
+const parseAllowedHosts = (raw: string | undefined): string[] =>
+  (raw ?? "")
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter((host) => host !== "");
 
 const parsePort = (raw: string | undefined): number => {
   if (raw === undefined || raw === "") return DEFAULT_PORT;
