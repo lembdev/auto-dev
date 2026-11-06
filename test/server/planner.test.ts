@@ -221,7 +221,7 @@ describe("the planning mode", () => {
     expect(await finish()).toMatchObject({ status: "none", open: false });
   });
 
-  it("delivers lines of the chat over the Dialogue frame, once each, at the end of the Turn", async () => {
+  it("delivers lines of the Dialogue with the Planner over the Dialogue frame, once each, at the end of the Turn", async () => {
     const process = await started();
     const ws = await connect();
 
@@ -246,7 +246,7 @@ describe("the planning mode", () => {
     expect(planners()).toHaveLength(1);
   });
 
-  it("refuses a chat line when planning is not started and a frame with an unknown address", async () => {
+  it("refuses a line to the Planner when planning is not started and a frame with an unknown address", async () => {
     testApp = createTestApp();
     const ws = await connect();
     expect(await ack(ws, plannerFrame(1, "Привет"))).toMatchObject({ seq: 1, outcome: "rejected", reason: "the Planner is not started" });
@@ -269,7 +269,7 @@ describe("the planning mode", () => {
   it("a line after the idle timeout resumes the same Session with the line as its prompt", async () => {
     const process = await started();
     await endTurn(process);
-    // The process went away on its own (the idle timeout); the chat is still open.
+    // The process went away on its own (the idle timeout); the Dialogue is still open.
     process.end();
     await flush();
     expect((await state()).status).toBe("stopped");
@@ -284,7 +284,7 @@ describe("the planning mode", () => {
 
   it("gives the Planner no ask_human: the Driver denies the call and no Request is published", async () => {
     const process = await started();
-    // Without a handler the Driver answers the hook with deny; the Planner asks in the chat instead.
+    // Without a handler the Driver answers the hook with deny; the Planner asks in the Dialogue instead.
     expect(process.launch.onAskHuman).toBeUndefined();
     expect(process.launch.prompt).toContain("Tool `ask_human` тебе недоступен");
     await endTurn(process);
@@ -314,5 +314,30 @@ describe("the planning mode", () => {
     let seen = false;
     for (let i = 0; i < 10 && !seen; i += 1) seen = ((await ws.next()) as ServerEvent).type === "planner";
     expect(seen).toBe(true);
+  });
+
+  it("refuses to start the Planner while new Turns are on hold and keeps lines until they may start", async () => {
+    testApp = createTestApp();
+    testApp.orchestrator.installation.pause("human", "lunch");
+    const refused = await start({ mode: "new" });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toContain("на Паузе");
+    expect(planners()).toHaveLength(0);
+
+    testApp.orchestrator.installation.unpause();
+    const process = await started();
+    await endTurn(process);
+    testApp.orchestrator.installation.pause("human", "lunch");
+    const ws = await connect();
+    expect(await ack(ws, plannerFrame(1, "Дальше"))).toMatchObject({ outcome: "applied" });
+    await flush();
+    expect(process.sent).toEqual([]);
+    expect((await state()).queue).toMatchObject([{ text: "Дальше" }]);
+
+    testApp.orchestrator.installation.unpause();
+    await testApp.orchestrator.pollOnce();
+    await flush();
+    expect(process.sent).toEqual(["Дальше"]);
+    expect((await state()).queue).toEqual([]);
   });
 });

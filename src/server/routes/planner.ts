@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import type { RuntimeIndex } from "../../index/runtime-index.js";
 import type { Logger } from "../../log.js";
+import type { StartBlocker } from "../../orchestrator/installation-state.js";
 import type { Orchestrator } from "../../orchestrator/orchestrator.js";
 import {
   PLANNER_MODES,
   PlannerBusyError,
+  PlannerOnHoldError,
   PlannerSessionNotFoundError,
   ProductNotClonedError,
   type PlannerLineId,
@@ -19,6 +21,13 @@ export type PlannerRoutesDeps = {
   index: RuntimeIndex;
   log: Logger;
   orchestrator: Pick<Orchestrator, "planner" | "agents">;
+};
+
+const ON_HOLD_REASONS: Record<StartBlocker, string> = {
+  paused: "Установка на Паузе",
+  at_limit: "Установка у стены лимита подписки",
+  prearm: "лимит подписки почти исчерпан (пре-арм)",
+  claude_version: "версия Claude Code не прошла проверку",
 };
 
 const parseStart = (body: unknown): StartPlanner | string => {
@@ -63,6 +72,7 @@ export function plannerRoutes(deps: PlannerRoutesDeps): Hono {
       await planner().start(spec);
     } catch (error) {
       if (error instanceof PlannerBusyError) return c.json({ error: "Планировщик уже запущен" }, 409);
+      if (error instanceof PlannerOnHoldError) return c.json({ error: `Новые Ходы сейчас не стартуют: ${ON_HOLD_REASONS[error.blocker]}` }, 409);
       if (error instanceof PlannerSessionNotFoundError) return c.json({ error: "Прошлой Сессии планирования нет" }, 404);
       if (error instanceof ProductNotClonedError) return c.json({ error: "Продукт ещё не склонирован" }, 409);
       throw error;

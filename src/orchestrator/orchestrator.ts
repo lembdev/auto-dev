@@ -282,6 +282,7 @@ export class Orchestrator {
       clock: this._ports.clock,
       repoPath: this._workspace.repoPath,
       baseBranch: this._workspace.baseBranch,
+      startBlocker: () => this._installation.blocker(),
       ...(options.prompts ? { prompts: options.prompts } : {}),
     });
     this._updates = new UpdateCoordinator({
@@ -506,6 +507,7 @@ export class Orchestrator {
     await this._pollComments();
     await this._humanRequests.deliver();
     await this._dialogue.deliver();
+    await this._planner.deliver();
     await this._prepareTaken();
     await this._startImplementers();
     await this._qa.startRounds();

@@ -7,6 +7,7 @@ import type { Clock } from "../ports/clock.js";
 import type { WorktreePort } from "../ports/worktree.js";
 import { StagePrompts } from "../prompts/index.js";
 import type { Ack, AckOutcome } from "./dialogue.js";
+import type { StartBlocker } from "./installation-state.js";
 import type { UiFrameIdentity } from "./human-requests.js";
 
 // Keys in the `installation` table.
@@ -58,6 +59,14 @@ export class PlannerSessionNotFoundError extends Error {
   }
 }
 
+// New Turns are on hold (Pause, the limit, the pre-arm, a blocked CLI version): the Planner does not start.
+export class PlannerOnHoldError extends Error {
+  constructor(readonly blocker: StartBlocker) {
+    super(`the Planner cannot start a Turn now: ${blocker}`);
+    this.name = "PlannerOnHoldError";
+  }
+}
+
 export class ProductNotClonedError extends Error {
   constructor(readonly repoPath: string) {
     super(`the Product is not cloned at ${repoPath}`);
@@ -74,6 +83,8 @@ export type PlannerOptions = {
   prompts?: StagePrompts;
   repoPath: string;
   baseBranch: string;
+  // What keeps new Turns from starting, if anything; lines wait for `deliver()` on the next cycle.
+  startBlocker?: () => StartBlocker | undefined;
 };
 
 // The Planner: one Session of Claude Code on the clone of the Product, outside Tasks and Slots, that
@@ -94,6 +105,7 @@ export class Planner {
   private _openAgentId: AgentId | undefined;
   private _nextLineId = 1;
   private _delivering = false;
+  private readonly _startBlocker: () => StartBlocker | undefined;
 
   constructor(options: PlannerOptions) {
     this._index = options.index;
@@ -104,6 +116,7 @@ export class Planner {
     this._prompts = options.prompts ?? new StagePrompts();
     this._repoPath = options.repoPath;
     this._baseBranch = options.baseBranch;
+    this._startBlocker = options.startBlocker ?? (() => undefined);
     this._runner.onMessage((agent) => {
       if (agent.role !== "planner" || agent.sessionId === null) return;
       if (this._index.installation.find(PLANNER_KEYS.lastSession) !== agent.sessionId) {
@@ -151,6 +164,8 @@ export class Planner {
     if (live) throw new PlannerBusyError(live.id);
     const previous = spec.mode === "resume" ? this.findPreviousSession() : undefined;
     if (spec.mode === "resume" && !previous) throw new PlannerSessionNotFoundError();
+    const blocker = this._startBlocker();
+    if (blocker !== undefined) throw new PlannerOnHoldError(blocker);
     await this._prepareClone();
     const message = spec.message?.trim() ?? "";
     let agent: AgentRecord;
@@ -223,13 +238,15 @@ export class Planner {
     return "removed";
   }
 
-  // The oldest line goes into the Session once the Planner is between Turns; a stopped process is
+  // The oldest line goes into the Session once the Planner is between Turns and new Turns may start; a stopped process is
   // resumed with the line as its prompt.
   async deliver(): Promise<void> {
     if (this._delivering) return;
     const agent = this.current();
     const line = this._queue[0];
     if (!agent || !line || agent.state === "running" || agent.state === "waiting") return;
+    // Every line starts a Turn; while Turns are on hold the queue waits for the next cycle.
+    if (this._startBlocker() !== undefined) return;
     this._delivering = true;
     try {
       await this._runner.send(agent.id, line.text);
