@@ -29,7 +29,7 @@ export const INSTALLATION_STATE_KEYS = {
   prearmEnabled: "prearm_enabled",
 } as const;
 
-export const PAUSE_SOURCES = ["human", "update", "disk", "token"] as const;
+export const PAUSE_SOURCES = ["human", "update", "disk", "token", "restart"] as const;
 export type PauseSource = (typeof PAUSE_SOURCES)[number];
 
 export type Pause = {

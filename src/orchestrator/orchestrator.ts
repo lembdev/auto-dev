@@ -26,6 +26,7 @@ import { QaStage } from "./qa.js";
 import { HUMAN_LABEL, READY_LABEL, selectReadyTasks } from "./ready-tasks.js";
 import { Reconciler } from "./reconcile.js";
 import { Recovery } from "./recovery.js";
+import { RestartDrain } from "./restart-drain.js";
 import { UpdateCoordinator } from "./update-coordinator.js";
 import { Workspace, type Product } from "./workspace.js";
 
@@ -102,6 +103,7 @@ export class Orchestrator {
   private readonly _merger: Merger;
   private readonly _recovery: Recovery;
   private readonly _updates: UpdateCoordinator;
+  private readonly _restart: RestartDrain;
   private readonly _planner: Planner;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
@@ -302,6 +304,12 @@ export class Orchestrator {
       log: this._log,
       version: options.version ?? "0.0.0",
     });
+    this._restart = new RestartDrain({ index: this._index, clock: this._ports.clock, installation: this._installation, runner: this._agents, recovery: this._recovery, log: this._log });
+  }
+
+  // Preparing a restart by hand: the running Turns finish, nothing new starts.
+  get restart(): RestartDrain {
+    return this._restart;
   }
 
   // Updating the Installation: the daily release check, the updater button and the preparation before a stop.
@@ -503,6 +511,7 @@ export class Orchestrator {
     }
     if (!this._bootstrapped) await this._bootstrap();
     this._updates.start();
+    this._restart.start();
     await this._recovery.start();
     await this._recoverIntents();
     await this._installation.check();

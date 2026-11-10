@@ -17,6 +17,9 @@ export type HeaderProps = {
   onPage: (page: Page) => void;
   onPause: (paused: boolean) => void;
   pausePending: boolean;
+  // Preparing a restart by hand: begin, cancel, or cut the running Turns short.
+  onRestart?: (action: "begin" | "cancel" | "interrupt") => void;
+  restartPending?: boolean;
   // Another smoke query on the current `claude` after a failed one.
   onRecheck?: () => void;
   recheckPending?: boolean;
@@ -86,6 +89,14 @@ const PAUSE_SOURCE_TEXT: Record<string, string> = {
   update: "идёт обновление",
   disk: "мало места на диске",
   token: "токен подписки истёк",
+  restart: "подготовка к перезапуску",
+};
+
+const ROLE_TEXT: Record<string, string> = {
+  implementer: "Реализатор",
+  qa: "QA-Агент",
+  merger: "Merger",
+  planner: "Планировщик",
 };
 
 export function Header(props: HeaderProps) {
@@ -94,6 +105,7 @@ export function Header(props: HeaderProps) {
   const tokenPause = paused && installation?.pause?.source === "token" ? installation.pause : undefined;
   const claudeVersion = installation?.claudeVersion;
   const update = installation?.update;
+  const restart = installation?.restart;
   const navLink = (target: Page, label: string) => (
     <button
       type="button"
@@ -161,7 +173,35 @@ export function Header(props: HeaderProps) {
       </Banner>,
     );
   }
-  if (paused && installation?.pause && !tokenPause) {
+  if (restart?.active) {
+    const turns = restart.running.map((turn) => (turn.issueNumber !== null ? `#${turn.issueNumber} ${ROLE_TEXT[turn.role] ?? turn.role}` : (ROLE_TEXT[turn.role] ?? turn.role)));
+    banners.push(
+      <Banner
+        key="restart"
+        tone={restart.ready ? "ok" : "accent"}
+        role="status"
+        data-testid="restart-banner"
+        data-ready={restart.ready}
+        action={
+          <span className="flex gap-2">
+            {!restart.ready && (
+              <Button size="sm" variant="secondary" disabled={props.restartPending || !props.onRestart} onClick={() => props.onRestart?.("interrupt")}>
+                Прервать Ходы
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" disabled={props.restartPending || !props.onRestart} onClick={() => props.onRestart?.("cancel")}>
+              Отменить
+            </Button>
+          </span>
+        }
+      >
+        {restart.ready
+          ? `Можно перезапускать: ни один Ход не идёт, каждая Задача стоит на сохранённой Стадии. ${restart.liftsPause ? "После старта Установка снимет эту Паузу сама." : "Пауза, включённая раньше, останется и после старта."}`
+          : `Подготовка к перезапуску: новые Задачи, Круги и Ходы не стартуют, дорабатывают ${turns.length} ${turns.length === 1 ? "Ход" : turns.length < 5 ? "Хода" : "Ходов"} (${turns.join(", ")}). Прерванный Ход продолжится в своей Сессии после старта.`}
+      </Banner>,
+    );
+  }
+  if (paused && installation?.pause && !tokenPause && !restart?.active) {
     banners.push(
       <Banner key="pause" tone="warn" role="status">
         Пауза ({PAUSE_SOURCE_TEXT[installation.pause.source] ?? installation.pause.source}: {installation.pause.reason}). Новые Задачи и новые Круги QA не стартуют, живые Ходы дорабатываются.
@@ -254,6 +294,18 @@ export function Header(props: HeaderProps) {
             </span>
             {paused ? "Пауза: вкл" : "Пауза"}
           </button>
+          {!restart?.active && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!installation || props.restartPending || !props.onRestart}
+              onClick={() => props.onRestart?.("begin")}
+              title="Пауза, дождаться окончания живых Ходов и сообщить, когда сервис можно перезапускать"
+              data-testid="restart-begin"
+            >
+              К перезапуску
+            </Button>
+          )}
         </div>
         <span className="hidden flex-1 md:block" />
         <nav className="ml-auto flex items-center gap-1 md:ml-0" aria-label="Страницы">

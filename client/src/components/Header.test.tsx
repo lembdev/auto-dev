@@ -22,6 +22,7 @@ const installation = (overrides: Partial<InstallationResponse> = {}): Installati
   product: { fullName: "acme/product", htmlUrl: "https://github.com/acme/product" },
   version: "0.1.0",
   update: { current: "0.1.0", latest: "0.1.0", latestUrl: null, available: false, checkedAt: "2026-01-01T11:00:00.000Z", phase: "idle", phaseSince: null },
+  restart: { active: false, since: null, running: [], ready: false, liftsPause: false },
   ...overrides,
 });
 
@@ -54,6 +55,51 @@ describe("Header", () => {
     expect(screen.getByTestId("limit-5 ч")).toHaveAttribute("data-level", "reset");
     expect(screen.getByTestId("limit-5 ч")).toHaveTextContent("сброшен");
     expect(screen.getByTestId("limit-5 ч")).not.toHaveTextContent("88");
+  });
+
+  it("prepares a restart: lists the running Turns, offers to interrupt them, then says the restart is safe", () => {
+    const onRestart = vi.fn();
+    const draining = installation({
+      paused: true,
+      pause: { source: "restart", reason: "preparing for a restart", since: "2026-01-01T11:58:00.000Z" },
+      restart: { active: true, since: "2026-01-01T11:58:00.000Z", running: [{ agentId: "a1" as never, issueNumber: 42 as never, role: "qa" }], ready: false, liftsPause: true },
+    });
+    const { rerender } = render(
+      <Header installation={draining} mode="development" onMode={vi.fn()} page="main" onPage={vi.fn()} onPause={vi.fn()} pausePending={false} onRestart={onRestart} connected now={NOW} onLogout={vi.fn()} />,
+    );
+    const banner = screen.getByTestId("restart-banner");
+    expect(banner).toHaveAttribute("data-ready", "false");
+    expect(banner).toHaveTextContent("#42 QA-Агент");
+    expect(screen.queryByTestId("restart-begin")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Прервать Ходы" }));
+    expect(onRestart).toHaveBeenCalledWith("interrupt");
+
+    rerender(
+      <Header
+        installation={{ ...draining, restart: { ...draining.restart, running: [], ready: true } }}
+        mode="development"
+        onMode={vi.fn()}
+        page="main"
+        onPage={vi.fn()}
+        onPause={vi.fn()}
+        pausePending={false}
+        onRestart={onRestart}
+        connected
+        now={NOW}
+        onLogout={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("restart-banner")).toHaveTextContent("Можно перезапускать");
+    expect(screen.queryByRole("button", { name: "Прервать Ходы" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
+    expect(onRestart).toHaveBeenCalledWith("cancel");
+  });
+
+  it("starts the restart preparation from the header", () => {
+    const onRestart = vi.fn();
+    render(<Header installation={installation()} mode="development" onMode={vi.fn()} page="main" onPage={vi.fn()} onPause={vi.fn()} pausePending={false} onRestart={onRestart} connected now={NOW} onLogout={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("restart-begin"));
+    expect(onRestart).toHaveBeenCalledWith("begin");
   });
 
   it("toggles the Pause and explains it in a banner", () => {

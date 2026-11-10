@@ -35,6 +35,7 @@ describe("/api/installation", () => {
       canStartTurn: true,
       slots: { used: 0, max: 2 },
       product: null,
+      restart: { active: false, since: null, running: [], ready: false, liftsPause: false },
       version: "0.0.0-test",
       update: { current: "0.0.0-test", latest: null, latestUrl: null, available: false, checkedAt: null, phase: "idle", phaseSince: null },
     });

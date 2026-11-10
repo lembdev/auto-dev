@@ -102,7 +102,7 @@ export type AppDeps = {
   index: RuntimeIndex;
   log: Logger;
   version: string;
-  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests" | "reconcile" | "dialogue" | "planner" | "updates">;
+  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests" | "reconcile" | "dialogue" | "planner" | "updates" | "restart">;
   // Live configuration: the password hash and the Product come from here on every request.
   config: ConfigStore;
   setup: Setup;
@@ -333,6 +333,7 @@ export function createApp(deps: AppDeps): App {
     product: product(),
     version: deps.version,
     update: deps.orchestrator.updates.view(),
+    restart: deps.orchestrator.restart.view(),
   });
 
   app.get("/api/installation", (c) => c.json(installationView()));
@@ -354,6 +355,22 @@ export function createApp(deps: AppDeps): App {
   app.post("/api/installation/prepare-update", (c) => {
     deps.orchestrator.updates.prepare().catch((error: unknown) => deps.log.error({ err: error }, "update preparation failed"));
     return c.json(installationView(), 202);
+  });
+
+  // Preparing a restart by hand: start it, cancel it, or cut the long Turns short.
+  app.post("/api/installation/restart", (c) => {
+    deps.orchestrator.restart.begin();
+    return c.json(installationView());
+  });
+
+  app.delete("/api/installation/restart", (c) => {
+    deps.orchestrator.restart.cancel();
+    return c.json(installationView());
+  });
+
+  app.post("/api/installation/restart/interrupt", async (c) => {
+    await deps.orchestrator.restart.interruptRunning();
+    return c.json(installationView());
   });
 
   // A human asks for another smoke query on the current `claude`, e.g. after fixing it by hand.

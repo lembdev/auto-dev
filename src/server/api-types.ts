@@ -5,6 +5,7 @@ import type { AgentRole, AgentState } from "../index/agents.js";
 import type { LimitSample } from "../index/limit-samples.js";
 import type { Task, TaskStage, Transition } from "../index/tasks.js";
 import type { InstallationSnapshot, PauseSource } from "../orchestrator/installation-state.js";
+import type { RestartView } from "../orchestrator/restart-drain.js";
 import type { UpdatePhase, UpdateView } from "../orchestrator/update-coordinator.js";
 import type { RepositoryAccess, RepositoryPermission } from "../ports/github.js";
 import type { SettingsPatch, SettingsView } from "../setup/settings.js";
@@ -113,6 +114,8 @@ export type InstallationResponse = InstallationSnapshot & {
   version: string;
   // The daily release check and the phase of an update under way.
   update: UpdateView;
+  // A restart prepared by hand: the Turns still running and whether the service may be restarted.
+  restart: RestartView;
 };
 
 // Body of `PUT /api/installation/pause`: a human pauses or resumes the Installation.

@@ -153,6 +153,16 @@ export function usePauseToggle() {
   });
 }
 
+// Preparing a restart by hand: begin, cancel, or cut the running Turns short.
+export function useRestartDrain() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (action: "begin" | "cancel" | "interrupt") =>
+      api<InstallationResponse>(action === "interrupt" ? "/api/installation/restart/interrupt" : "/api/installation/restart", { method: action === "cancel" ? "DELETE" : "POST" }),
+    onSuccess: (installation) => queryClient.setQueryData(KEYS.installation, installation),
+  });
+}
+
 // "Проверить снова" in the claude version banner: one more smoke query on the current CLI.
 export function useClaudeRecheck() {
   const queryClient = useQueryClient();
