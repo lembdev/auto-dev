@@ -19,6 +19,8 @@ var_os="${var_os:-debian}"
 var_version="${var_version:-13}"
 var_unprivileged="${var_unprivileged:-1}"
 var_arm64="${var_arm64:-yes}"
+# The engine resolves an empty or Etc/* zone to "host" and reads /etc/timezone, which PVE 9 no longer has.
+var_timezone="${var_timezone:-UTC}"
 
 header_info "$APP"
 variables

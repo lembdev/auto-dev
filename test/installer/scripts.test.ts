@@ -33,6 +33,10 @@ describe("ct/auto-dev.sh", () => {
     expect(ctDefault(script, "var_unprivileged")).toBe("1");
   });
 
+  it("defaults the container timezone to UTC so the engine never resolves it from the host", () => {
+    expect(ctDefault(script, "var_timezone")).toBe("UTC");
+  });
+
   it("boots the community-scripts engine from a pinned core and takes its own scripts from this repository", () => {
     const scriptsBase = script.match(/^_CS_DEFAULT_URL="\$\{_CS_DEFAULT_URL:-([^}]+)\}"$/m)?.[1];
     expect(scriptsBase).toBe("https://raw.githubusercontent.com/lembdev/auto-dev/main");
