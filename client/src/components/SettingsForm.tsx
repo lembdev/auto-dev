@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import type { SettingsRequest, SettingsResponse } from "../../../src/server/api-types.js";
+import { GithubTokenHelp } from "./GithubTokenHelp.js";
 import { Banner, Button, Card, cx, INPUT as INPUT_BASE, SectionTitle } from "./ui.js";
 
 export type SettingsFormProps = {
@@ -120,7 +121,12 @@ export function SettingsForm(props: SettingsFormProps) {
           stored={settings.secrets.githubToken}
           type="password"
           busy={props.busy}
-          hint="Перед сохранением токен проверяется на доступ к репозиторию Продукта."
+          hint={
+            <>
+              Перед сохранением токен проверяется на доступ к репозиторию Продукта.
+              <GithubTokenHelp repo={settings.repo} />
+            </>
+          }
           onSave={(githubToken) => props.onSave({ githubToken })}
         />
         <SecretForm

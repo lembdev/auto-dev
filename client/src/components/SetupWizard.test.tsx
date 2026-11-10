@@ -67,6 +67,25 @@ describe("SetupWizard", () => {
     expect(onRepository).toHaveBeenCalledWith({ repo: "acme/product", token: "github_pat_x" });
   });
 
+  it("links to a GitHub token form prefilled for the owner of the typed repository", () => {
+    renderWizard(statusAt("repository"));
+    type("Репозиторий (owner/name)", "acme/product");
+    const url = new URL(screen.getByRole("link", { name: "форму нового fine-grained токена" }).getAttribute("href")!);
+    expect(url.origin + url.pathname).toBe("https://github.com/settings/personal-access-tokens/new");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      name: "auto-dev acme/product",
+      description: "auto-dev Installation for acme/product",
+      target_name: "acme",
+      expires_in: "366",
+      issues: "write",
+      pull_requests: "write",
+      contents: "write",
+      actions: "read",
+      statuses: "read",
+      metadata: "read",
+    });
+  });
+
   it("runs the access check, shows the missing permissions and lets the human go back to the token", () => {
     const { onCheckAccess, rerender, onRepository } = renderWizard(statusAt("access"));
     fireEvent.click(screen.getByRole("button", { name: "Проверить доступ" }));

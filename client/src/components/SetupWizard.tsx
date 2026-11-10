@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import type { RepositoryPermission, SetupAccessResponse, SetupSmokeResponse, SetupStatus, SetupStepId } from "../../../src/server/api-types.js";
+import { GithubTokenHelp } from "./GithubTokenHelp.js";
 import { Logo } from "./LoginScreen.js";
 import { Banner, buttonClass, Card, cx, INPUT as INPUT_BASE, LINK as LINK_BASE, Spinner } from "./ui.js";
 
@@ -88,8 +89,9 @@ function RepositoryStep({ busy, repo, onSubmit }: { busy: boolean; repo: string 
     <form onSubmit={submit} className="flex flex-col gap-3">
       <p className={HINT}>
         Fine-grained personal access token с доступом к одному репозиторию Продукта и правами <b>Issues: write</b>, <b>Pull requests: write</b>, <b>Contents: write</b>,{" "}
-        <b>Metadata: read</b>.
+        <b>Actions: read</b>, <b>Commit statuses: read</b>, <b>Metadata: read</b>.
       </p>
+      <GithubTokenHelp repo={value} />
       <Field label="Репозиторий (owner/name)">
         <input name="repo" autoFocus value={value} onChange={(e) => setValue(e.target.value)} placeholder="acme/product" className={INPUT} />
       </Field>
