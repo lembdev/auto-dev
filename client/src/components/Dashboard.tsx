@@ -6,10 +6,10 @@ import { useDigest, useTasks } from "../queries.js";
 import { AgentPanel } from "./AgentPanel.js";
 import { Digest } from "./Digest.js";
 import { DoneCard, ReadyCard, StuckCard, TaskCard } from "./TaskCard.js";
-import { Accordion, Banner, cx } from "./ui.js";
+import { Accordion, Banner, CARD, cx } from "./ui.js";
 
 // A board section the human can fold; the browser remembers it per section.
-function Section({ id, title, count, empty, children }: { id: string; title: string; count: number; empty: string | null; children: React.ReactNode }) {
+function Section({ id, title, count, empty, list = false, children }: { id: string; title: string; count: number; empty: string | null; list?: boolean; children: React.ReactNode }) {
   if (count === 0 && empty === null) return null;
   return (
     <section className="mt-6" data-testid={`section-${id}`}>
@@ -19,7 +19,7 @@ function Section({ id, title, count, empty, children }: { id: string; title: str
         count={count}
         summaryClassName="mb-2.5"
       >
-        {count === 0 ? <div className="rounded-xl border border-dashed border-line px-4 py-3 text-sm text-muted">{empty}</div> : <div className="flex flex-col gap-2">{children}</div>}
+        {count === 0 ? <div className="rounded-xl border border-dashed border-line px-4 py-3 text-sm text-muted">{empty}</div> : list ? <ul className={cx(CARD, "divide-y divide-line overflow-hidden")}>{children}</ul> : <div className="flex flex-col gap-2">{children}</div>}
       </Accordion>
     </section>
   );
@@ -100,7 +100,7 @@ export function Dashboard({ now }: { now: number }) {
               <StuckCard key={task.issueNumber} task={task} now={now} selectedKey={keyOf(task.issueNumber)} onOpen={(candidate, nodeKey) => open(candidate, nodeKey)} />
             ))}
           </Section>
-          <Section id="done" title="Влито за сутки" count={data?.done.length ?? 0} empty={null}>
+          <Section id="done" title="Влито за сутки" count={data?.done.length ?? 0} empty={null} list>
             {data?.done.map((task) => (
               <DoneCard key={task.issueNumber} task={task} now={now} selectedKey={keyOf(task.issueNumber)} onOpen={(candidate, nodeKey) => open(candidate, nodeKey)} />
             ))}

@@ -2,8 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentId, CommentId, HumanRequestId } from "../../../src/ids.js";
 import type { IssueNumber, MilestoneNumber, PullNumber } from "../../../src/ids.js";
-import type { StuckTaskView, TaskView } from "../../../src/server/api-types.js";
-import { StuckCard, TaskCard } from "./TaskCard.js";
+import type { FinishedTaskView, StuckTaskView, TaskView } from "../../../src/server/api-types.js";
+import { DoneCard, StuckCard, TaskCard } from "./TaskCard.js";
 
 const NOW = Date.parse("2026-01-01T12:00:00.000Z");
 
@@ -119,5 +119,42 @@ describe("StuckCard", () => {
     expect(card).toHaveTextContent("ready-for-human");
     expect(screen.getByTestId("stuck-reason")).toHaveTextContent("QA Круги исчерпаны (3 из 3)");
     expect(card).toHaveTextContent("30 мин назад");
+  });
+});
+
+describe("DoneCard", () => {
+  const transition = (id: number, from: string | null, to: string, reason: string | null, at: string) => ({ id, issueNumber: 138 as IssueNumber, from, to, reason, at }) as TaskView["transitions"][number];
+
+  it("is one row: the title, the epic, the PR, the QA rounds with their remarks and how long it took", () => {
+    const onOpen = vi.fn();
+    const qa1 = { id: 6 as AgentId, role: "qa" as const, state: "stopped" as const, lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" };
+    const qa2 = { id: 7 as AgentId, role: "qa" as const, state: "stopped" as const, lastTurnAt: null, createdAt: "2026-01-01T10:40:00.000Z" };
+    const done: FinishedTaskView = {
+      ...task({ stage: "done", agent: null, agents: [qa1, qa2] }),
+      reason: null,
+      finishedAt: "2026-01-01T11:20:00.000Z",
+      transitions: [
+        transition(1, null, "taken", null, "2026-01-01T09:50:00.000Z"),
+        transition(2, "taken", "implement", null, "2026-01-01T09:50:00.000Z"),
+        transition(3, "implement", "qa", "implementer turn finished", "2026-01-01T10:00:00.000Z"),
+        transition(4, "qa", "implement", "verdict: 3 blockers", "2026-01-01T10:20:00.000Z"),
+        transition(5, "implement", "qa", "implementer turn finished", "2026-01-01T10:40:00.000Z"),
+        transition(6, "qa", "merge", "verdict approve", "2026-01-01T11:00:00.000Z"),
+        transition(7, "merge", "done", "merged", "2026-01-01T11:20:00.000Z"),
+      ],
+    };
+    render(
+      <ul>
+        <DoneCard task={done} now={NOW} onOpen={onOpen} />
+      </ul>,
+    );
+    const row = screen.getByTestId("done-138");
+    expect(row).toHaveTextContent("#138 Валидация дат вязки");
+    expect(screen.getByTestId("done-summary")).toHaveTextContent("v0.3 Родословные·PR #147·QA: 2 круга, 3 замечания·за 1 ч 30 мин");
+    expect(row).toHaveTextContent("40 мин назад");
+    expect(screen.getByTestId("node-qa-1")).toHaveAttribute("data-status", "rejected");
+    expect(screen.queryByTestId("pipeline-end")).toBeNull();
+    fireEvent.click(row);
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ issueNumber: 138 }), "qa-3");
   });
 });

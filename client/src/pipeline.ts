@@ -153,3 +153,19 @@ export function focusNodeOf(pipeline: Pipeline): PipelineNode | undefined {
 }
 
 export const isLive = (node: PipelineNode): boolean => node.status === "running" || node.status === "waiting" || node.status === "idle";
+
+const REMARKS = /^(\d+) замечани/;
+
+// A finished Pipeline in one line: how many QA rounds it took and what got in the way.
+export function summaryOf(pipeline: Pipeline): string {
+  const qa = pipeline.nodes.filter((node) => node.stage === "qa" && node.status !== "pending");
+  const remarks = qa.reduce((sum, node) => sum + Number(REMARKS.exec(node.outcome ?? "")?.[1] ?? 0), 0);
+  const redChecks = pipeline.nodes.filter((node) => node.outcome === "красные проверки").length;
+  const conflicts = pipeline.nodes.filter((node) => node.outcome === "конфликт решён").length;
+  const parts: string[] = [];
+  if (qa.length > 0) parts.push(`QA: ${qa.length} ${plural(qa.length, "круг", "круга", "кругов")}`);
+  if (remarks > 0) parts.push(`${remarks} ${plural(remarks, "замечание", "замечания", "замечаний")}`);
+  if (redChecks > 0) parts.push(redChecks === 1 ? "красные проверки" : `красные проверки ×${redChecks}`);
+  if (conflicts > 0) parts.push(conflicts === 1 ? "конфликт при merge" : `конфликты при merge ×${conflicts}`);
+  return parts.join(", ");
+}

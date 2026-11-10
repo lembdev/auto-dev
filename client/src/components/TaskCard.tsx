@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import type { FinishedTaskView, ReadyTaskView, StuckTaskView, TaskView } from "../../../src/server/api-types.js";
-import { AGENT_LABELS, elapsed, firstLine, stageLabel } from "../format.js";
-import { pipelineOf } from "../pipeline.js";
-import { PipelineStrip } from "./PipelineStrip.js";
+import { AGENT_LABELS, duration, elapsed, firstLine, stageLabel } from "../format.js";
+import { focusNodeOf, pipelineOf, summaryOf } from "../pipeline.js";
+import { LiveStep, PipelineStrip } from "./PipelineStrip.js";
 import { Badge, Button, CARD, cx, LINK, type Tone } from "./ui.js";
 
 const AGENT_TONE: Record<string, Tone> = {
@@ -10,6 +10,14 @@ const AGENT_TONE: Record<string, Tone> = {
   idle: "neutral",
   waiting: "warn",
   stopped: "neutral",
+};
+
+// The stripe on the left tells the cards apart at a glance: working, waiting for a human, resting.
+const STRIPE: Record<string, string> = {
+  running: "border-l-accent",
+  waiting: "border-l-warn-line",
+  idle: "border-l-line-strong",
+  stopped: "border-l-line-strong",
 };
 
 export type TaskCardProps = {
@@ -52,7 +60,8 @@ export function TaskCard({ task, maxQaRounds, now, selectedKey, onOpen, onAnswer
       onClick={() => onOpen(task)}
       className={cx(
         CARD,
-        "group cursor-pointer px-4 py-3 transition-colors",
+        "group cursor-pointer border-l-[3px] px-4 py-3 transition-colors",
+        STRIPE[task.agent?.state ?? "running"],
         waiting ? "border-warn-line bg-warn-soft" : "hover:border-line-strong",
         selectedKey !== null && "border-accent/60",
       )}
@@ -73,8 +82,6 @@ export function TaskCard({ task, maxQaRounds, now, selectedKey, onOpen, onAnswer
         ) : (
           <Badge dot>запускается</Badge>
         )}
-        <span className="font-medium text-fg">{stageLabel(task, maxQaRounds)}</span>
-        <Dot />
         <span>{milestoneOf(task)}</span>
         {task.pullNumber !== null && (
           <>
@@ -89,7 +96,10 @@ export function TaskCard({ task, maxQaRounds, now, selectedKey, onOpen, onAnswer
           </>
         )}
       </Meta>
-      <PipelineStrip pipeline={pipeline} now={now} selectedKey={selectedKey} onSelect={(node) => onOpen(task, node.key)} />
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <PipelineStrip pipeline={pipeline} now={now} selectedKey={selectedKey} onSelect={(node) => onOpen(task, node.key)} />
+        <LiveStep pipeline={pipeline} label={stageLabel(task, maxQaRounds)} now={now} />
+      </div>
       {waiting && task.request && (
         <div className="mt-3 flex items-center gap-3 rounded-lg border border-warn-line/70 bg-surface/70 py-1.5 pr-1.5 pl-3 text-[13px]">
           <span className="min-w-0 flex-1 truncate" data-testid="request-line">
@@ -134,12 +144,6 @@ export type FinishedCardProps<T> = {
   onOpen?: (task: T, nodeKey: string) => void;
 };
 
-function FinishedPipeline<T extends FinishedTaskView>({ task, now, selectedKey = null, onOpen }: FinishedCardProps<T>) {
-  const pipeline = useMemo(() => pipelineOf(task), [task]);
-  if (pipeline.nodes.length === 0) return null;
-  return <PipelineStrip pipeline={pipeline} now={now} selectedKey={selectedKey} onSelect={(node) => onOpen?.(task, node.key)} />;
-}
-
 export function StuckCard(props: FinishedCardProps<StuckTaskView>) {
   const { task, now } = props;
   return (
@@ -171,40 +175,70 @@ export function StuckCard(props: FinishedCardProps<StuckTaskView>) {
       <div className="mt-2 text-sm text-fg/80" data-testid="stuck-reason">
         {task.reason ?? "причина не записана"}
       </div>
-      <FinishedPipeline {...props} />
+      <StuckPipeline {...props} />
     </article>
   );
 }
 
-// A Task merged lately: kept on the board for a while so its steps can still be read.
-export function DoneCard(props: FinishedCardProps<FinishedTaskView>) {
-  const { task, now } = props;
+function StuckPipeline({ task, now, selectedKey = null, onOpen }: FinishedCardProps<StuckTaskView>) {
+  const pipeline = useMemo(() => pipelineOf(task), [task]);
+  if (pipeline.nodes.length === 0) return null;
   return (
-    <article data-testid={`done-${task.issueNumber}`} className={cx(CARD, "px-4 py-3", props.selectedKey == null && "opacity-80 hover:opacity-100")}>
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1 font-semibold">
+    <div className="mt-2.5">
+      <PipelineStrip pipeline={pipeline} now={now} selectedKey={selectedKey} onSelect={(node) => onOpen?.(task, node.key)} />
+    </div>
+  );
+}
+
+// A Task merged lately, as one row of a list: what it was, how it went, when it landed. The tiles of
+// its steps stay small on the right; the row opens the last step's feed.
+export function DoneCard({ task, now, selectedKey = null, onOpen }: FinishedCardProps<FinishedTaskView>) {
+  const pipeline = useMemo(() => pipelineOf(task), [task]);
+  const summary = summaryOf(pipeline);
+  const took = task.finishedAt ? duration(Date.parse(task.finishedAt) - Date.parse(task.takenAt)) : null;
+  const focus = focusNodeOf(pipeline);
+  return (
+    <li
+      data-testid={`done-${task.issueNumber}`}
+      onClick={() => focus && onOpen?.(task, focus.key)}
+      className={cx("flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 transition-colors sm:flex-nowrap", focus && onOpen && "cursor-pointer hover:bg-surface-2", selectedKey !== null && "bg-accent-soft")}
+    >
+      <div className="min-w-0 flex-1 basis-full sm:basis-auto">
+        <div className="truncate text-sm font-medium">
           {task.htmlUrl ? (
-            <a href={task.htmlUrl} target="_blank" rel="noreferrer" className="text-inherit no-underline hover:text-link">
+            <a href={task.htmlUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="text-inherit no-underline hover:text-link">
               <IssueTitle task={task} />
             </a>
           ) : (
             <IssueTitle task={task} />
           )}
         </div>
-        {task.finishedAt && <span className="shrink-0 pt-0.5 text-xs text-muted tabular-nums">{elapsed(task.finishedAt, now)} назад</span>}
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted" data-testid="done-summary">
+          <span className="truncate">{milestoneOf(task)}</span>
+          {task.pullNumber !== null && task.pullUrl && (
+            <>
+              <Dot />
+              <a href={task.pullUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className={LINK}>
+                PR #{task.pullNumber}
+              </a>
+            </>
+          )}
+          {summary && (
+            <>
+              <Dot />
+              <span>{summary}</span>
+            </>
+          )}
+          {took && (
+            <>
+              <Dot />
+              <span>за {took}</span>
+            </>
+          )}
+        </div>
       </div>
-      <Meta>
-        <span>{milestoneOf(task)}</span>
-        {task.pullNumber !== null && task.pullUrl && (
-          <>
-            <Dot />
-            <a href={task.pullUrl} target="_blank" rel="noreferrer" className={LINK}>
-              PR #{task.pullNumber}
-            </a>
-          </>
-        )}
-      </Meta>
-      <FinishedPipeline {...props} />
-    </article>
+      {pipeline.nodes.length > 0 && <PipelineStrip pipeline={pipeline} now={now} selectedKey={selectedKey} onSelect={(node) => onOpen?.(task, node.key)} size="sm" />}
+      {task.finishedAt && <span className="ml-auto w-24 shrink-0 text-right text-xs text-muted tabular-nums">{elapsed(task.finishedAt, now)} назад</span>}
+    </li>
   );
 }
