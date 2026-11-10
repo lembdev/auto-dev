@@ -6,16 +6,21 @@ import { useDigest, useTasks } from "../queries.js";
 import { AgentPanel } from "./AgentPanel.js";
 import { Digest } from "./Digest.js";
 import { DoneCard, ReadyCard, StuckCard, TaskCard } from "./TaskCard.js";
-import { Banner, cx, SectionTitle } from "./ui.js";
+import { Accordion, Banner, cx } from "./ui.js";
 
-function Section({ title, count, empty, children }: { title: string; count: number; empty: string | null; children: React.ReactNode }) {
+// A board section the human can fold; the browser remembers it per section.
+function Section({ id, title, count, empty, children }: { id: string; title: string; count: number; empty: string | null; children: React.ReactNode }) {
   if (count === 0 && empty === null) return null;
   return (
-    <section className="mt-6">
-      <SectionTitle count={count} className="mb-2.5">
-        {title}
-      </SectionTitle>
-      {count === 0 ? <div className="rounded-xl border border-dashed border-line px-4 py-3 text-sm text-muted">{empty}</div> : <div className="flex flex-col gap-2">{children}</div>}
+    <section className="mt-6" data-testid={`section-${id}`}>
+      <Accordion
+        storageKey={`auto-dev.section.${id}`}
+        title={<span className="text-xs font-semibold tracking-wider text-muted uppercase">{title}</span>}
+        count={count}
+        summaryClassName="mb-2.5"
+      >
+        {count === 0 ? <div className="rounded-xl border border-dashed border-line px-4 py-3 text-sm text-muted">{empty}</div> : <div className="flex flex-col gap-2">{children}</div>}
+      </Accordion>
     </section>
   );
 }
@@ -72,7 +77,7 @@ export function Dashboard({ now }: { now: number }) {
               Задачи не загружены: {tasks.error.message}
             </Banner>
           )}
-          <Section title="В работе" count={data?.inProgress.length ?? 0} empty="Агенты сейчас ничего не делают.">
+          <Section id="in-progress" title="В работе" count={data?.inProgress.length ?? 0} empty="Агенты сейчас ничего не делают.">
             {data?.inProgress.map((task) => (
               <TaskCard
                 key={task.issueNumber}
@@ -85,17 +90,17 @@ export function Dashboard({ now }: { now: number }) {
               />
             ))}
           </Section>
-          <Section title="Готовые Задачи, ждут Слот" count={data?.ready.length ?? 0} empty="Очередь пуста: нет issue с меткой ready-for-agent.">
+          <Section id="ready" title="Готовые Задачи, ждут Слот" count={data?.ready.length ?? 0} empty="Очередь пуста: нет issue с меткой ready-for-agent.">
             {data?.ready.map((task) => (
               <ReadyCard key={task.issueNumber} task={task} />
             ))}
           </Section>
-          <Section title="Тупики: ready-for-human" count={data?.stuck.length ?? 0} empty="Тупиков нет.">
+          <Section id="stuck" title="Тупики: ready-for-human" count={data?.stuck.length ?? 0} empty="Тупиков нет.">
             {data?.stuck.map((task) => (
               <StuckCard key={task.issueNumber} task={task} now={now} selectedKey={keyOf(task.issueNumber)} onOpen={(candidate, nodeKey) => open(candidate, nodeKey)} />
             ))}
           </Section>
-          <Section title="Влито за сутки" count={data?.done.length ?? 0} empty={null}>
+          <Section id="done" title="Влито за сутки" count={data?.done.length ?? 0} empty={null}>
             {data?.done.map((task) => (
               <DoneCard key={task.issueNumber} task={task} now={now} selectedKey={keyOf(task.issueNumber)} onOpen={(candidate, nodeKey) => open(candidate, nodeKey)} />
             ))}

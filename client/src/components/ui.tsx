@@ -1,4 +1,4 @@
-import type { ComponentProps, HTMLAttributes, ReactNode } from "react";
+import { useState, type ComponentProps, type HTMLAttributes, type ReactNode } from "react";
 
 // Shared look of the controls: every screen takes its buttons, badges, cards and banners from here.
 
@@ -132,5 +132,59 @@ export function CloseIcon() {
     <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
       <path d="M4 4l8 8M12 4l-8 8" />
     </svg>
+  );
+}
+
+const readOpen = (storageKey: string | undefined, fallback: boolean): boolean => {
+  if (!storageKey) return fallback;
+  try {
+    const stored = localStorage.getItem(storageKey);
+    return stored === null ? fallback : stored === "open";
+  } catch {
+    return fallback;
+  }
+};
+
+// A collapsible group with its counter in the title. With `storageKey` the browser remembers
+// whether it was open; without it the group starts as `defaultOpen` says.
+export function Accordion({
+  title,
+  count,
+  defaultOpen = true,
+  storageKey,
+  className,
+  summaryClassName,
+  children,
+  ...props
+}: Omit<HTMLAttributes<HTMLDetailsElement>, "title"> & { title: ReactNode; count: number; defaultOpen?: boolean; storageKey?: string; summaryClassName?: string }) {
+  const [open, setOpen] = useState(() => readOpen(storageKey, defaultOpen));
+  const toggle = (next: boolean) => {
+    setOpen(next);
+    if (!storageKey) return;
+    try {
+      localStorage.setItem(storageKey, next ? "open" : "closed");
+    } catch {
+      // Blocked storage: the group still toggles, it is just not remembered.
+    }
+  };
+  return (
+    <details open={open} className={cx("group", className)} {...props}>
+      {/* The state is React's: the click is handled here, not left to the native toggle. */}
+      <summary
+        onClick={(event) => {
+          event.preventDefault();
+          toggle(!open);
+        }}
+        className={cx("flex cursor-pointer list-none items-center gap-2 select-none [&::-webkit-details-marker]:hidden", summaryClassName)}>
+        <span aria-hidden className="inline-block w-3 text-[10px] text-muted transition-transform group-open:rotate-90">
+          ▶
+        </span>
+        {title}
+        <span className="rounded-full bg-subtle px-1.5 py-px text-[11px] font-normal tracking-normal text-muted tabular-nums" data-testid="accordion-count">
+          {count}
+        </span>
+      </summary>
+      {children}
+    </details>
   );
 }
