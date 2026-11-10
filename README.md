@@ -6,7 +6,7 @@
 
 ## Установка на Proxmox VE
 
-Одна команда в shell хоста Proxmox VE (от root) создаёт unprivileged LXC Debian 13 с Установкой:
+Одна команда в shell хоста Proxmox VE (от root) создаёт unprivileged LXC Ubuntu 24.04 с Установкой:
 
 ```
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/lembdev/auto-dev/main/ct/auto-dev.sh)"

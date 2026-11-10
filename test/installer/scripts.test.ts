@@ -23,13 +23,13 @@ describe("shell scripts", () => {
 describe("ct/auto-dev.sh", () => {
   const script = readRepoFile("ct/auto-dev.sh");
 
-  it("declares the guest the spec asks for: unprivileged Debian 13 with 4 vCPU, 8 GB and 40 GB", () => {
+  it("declares the guest the spec asks for: unprivileged Ubuntu 24.04 with 4 vCPU, 8 GB and 40 GB", () => {
     expect(script).toMatch(/^APP="auto-dev"$/m);
     expect(ctDefault(script, "var_cpu")).toBe("4");
     expect(ctDefault(script, "var_ram")).toBe("8192");
     expect(ctDefault(script, "var_disk")).toBe("40");
-    expect(ctDefault(script, "var_os")).toBe("debian");
-    expect(ctDefault(script, "var_version")).toBe("13");
+    expect(ctDefault(script, "var_os")).toBe("ubuntu");
+    expect(ctDefault(script, "var_version")).toBe("24.04");
     expect(ctDefault(script, "var_unprivileged")).toBe("1");
   });
 

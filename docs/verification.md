@@ -245,7 +245,7 @@ check runs, а такого права у fine-grained PAT нет. Исправ�
    bash -c "$(curl -fsSL https://raw.githubusercontent.com/lembdev/auto-dev/main/ct/auto-dev.sh)"
    ```
 
-   Ожидается: создан unprivileged LXC Debian 13 (4 vCPU, 8 GB, 40 GB), в конце выведен адрес мастера.
+   Ожидается: создан unprivileged LXC Ubuntu 24.04 (4 vCPU, 8 GB, 40 GB), в конце выведен адрес мастера.
 
 2. Проверки в контейнере (`<ctid>` из вывода установщика):
 
