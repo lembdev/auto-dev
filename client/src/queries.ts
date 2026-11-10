@@ -1,29 +1,6 @@
 import type { IssueNumber, PendingMessageId, PlannerLineId } from "../../src/ids.js";
 import { QueryCache, QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type {
-  AgentHistoryResponse,
-  CancelResponse,
-  DialogueResponse,
-  DigestResponse,
-  InstallationResponse,
-  InterruptResponse,
-  LimitHistoryResponse,
-  LogsResponse,
-  PauseRequest,
-  PlannerResponse,
-  RemoveDialogueResponse,
-  RemovePlannerLineResponse,
-  SessionResponse,
-  SettingsRequest,
-  SettingsResponse,
-  SetupAccessResponse,
-  SetupSmokeResponse,
-  SetupStatus,
-  StartPlannerRequest,
-  StatsPeriodDays,
-  StatsResponse,
-  TasksResponse,
-} from "../../src/server/api-types.js";
+import type { AgentHistoryResponse, CancelResponse, DialogueResponse, DigestResponse, InstallationResponse, InterruptResponse, LimitHistoryResponse, LogsResponse, ModelsResponse, PauseRequest, PlannerResponse, RemoveDialogueResponse, RemovePlannerLineResponse, SessionResponse, SettingsRequest, SettingsResponse, SetupAccessResponse, SetupSmokeResponse, SetupStatus, StartPlannerRequest, StatsPeriodDays, StatsResponse, TasksResponse } from "../../src/server/api-types.js";
 import { api, ApiError } from "./api.js";
 
 export const KEYS = {
@@ -130,6 +107,9 @@ export function useSetupCheck<TResponse extends { status: SetupStatus }>(path: s
 
 export const useSetupAccessCheck = () => useSetupCheck<SetupAccessResponse>("/api/setup/access");
 export const useSetupSmokeCheck = () => useSetupCheck<SetupSmokeResponse>("/api/setup/smoke");
+
+// The models the subscription offers; the server asks the CLI at most once an hour.
+export const useModels = () => useQuery({ queryKey: ["settings", "models"] as const, queryFn: () => api<ModelsResponse>("/api/settings/models"), staleTime: 5 * 60_000 });
 
 export const useSettings = (enabled: boolean) => useQuery({ queryKey: KEYS.settings, queryFn: () => api<SettingsResponse>("/api/settings"), enabled });
 

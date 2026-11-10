@@ -6,6 +6,7 @@ import type {
   AskHumanCall,
   AskHumanDecision,
   DriverPort,
+  ModelOption,
   ProcessExit,
   SessionHistoryOptions,
   SmokeQueryOptions,
@@ -115,6 +116,12 @@ export class FakeDriverPort implements DriverPort {
   readonly launches: FakeAgentProcess[] = [];
   readonly histories = new Map<SessionId, SDKMessage[]>();
   claudeVersion = "2.1.318";
+  models: ModelOption[] = [
+    { value: "default", displayName: "Default (recommended)", description: "Sonnet · Efficient for routine tasks" },
+    { value: "opus", displayName: "Opus", description: "Opus · Best for everyday, complex tasks" },
+    { value: "haiku", displayName: "Haiku", description: "Haiku · Fastest for quick answers" },
+  ];
+  modelsError: Error | undefined;
   readonly smokeQueries: SmokeQueryOptions[] = [];
   private _nextPid = 1000;
   private readonly _scripts: SDKMessage[][] = [];
@@ -156,6 +163,12 @@ export class FakeDriverPort implements DriverPort {
     this.log.record("smokeQuery", options);
     this.smokeQueries.push(options);
     return this._smokeResults.shift() ?? { ok: true, claudeVersion: this.claudeVersion, model: "claude-sonnet-4-5", text: "OK" };
+  }
+
+  async listModels(options: { cwd: string }): Promise<ModelOption[]> {
+    this.log.record("listModels", options);
+    if (this.modelsError) throw this.modelsError;
+    return [...this.models];
   }
 
   async getSessionHistory(sessionId: SessionId, options?: SessionHistoryOptions): Promise<SDKMessage[]> {

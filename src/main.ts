@@ -78,6 +78,9 @@ async function main(): Promise<void> {
     runner: orchestrator.agents,
     qa: orchestrator.qa,
     maxParallelTasks: () => orchestrator.maxParallelTasks(),
+    agentModel: () => orchestrator.agentModel(),
+    driver: ports.driver,
+    cwd: config.dataDir,
     setup,
     log,
   });

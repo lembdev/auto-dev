@@ -25,6 +25,7 @@ import type {
   AgentProcess,
   AskHumanDecision,
   DriverPort,
+  ModelOption,
   ProcessExit,
   SessionHistoryOptions,
   SmokeQueryOptions,
@@ -386,6 +387,56 @@ export class SdkDriver implements DriverPort {
     }
     log.info({ ok: outcome.ok }, "smoke query finished");
     return outcome;
+  }
+
+  // A process without a prompt: the CLI answers the control request for the models and no Turn starts.
+  async listModels(options: { cwd: string }): Promise<ModelOption[]> {
+    if (this._isRoot()) throw new RootUserError();
+    const claudePath = this.claudePath();
+    const env = buildAgentEnv(this._envSource());
+    const log = this._options.log.child({ models: true });
+    const child = new ChildTracker();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    async function* silent(): AsyncGenerator<never> {
+      await gate;
+    }
+    const query = this._query({
+      prompt: silent(),
+      options: {
+        pathToClaudeCodeExecutable: claudePath,
+        cwd: options.cwd,
+        env,
+        tools: [],
+        persistSession: false,
+        strictMcpConfig: true,
+        spawnClaudeCodeProcess: (spawnOptions: SpawnOptions) => {
+          const spawned = this._spawn(spawnOptions.command, spawnOptions.args, {
+            ...(spawnOptions.cwd !== undefined ? { cwd: spawnOptions.cwd } : {}),
+            env: spawnOptions.env,
+            signal: spawnOptions.signal,
+          });
+          child.attach(spawned);
+          spawned.stderr?.on("data", (chunk: Buffer | string) => log.debug({ pid: spawned.pid, stderr: chunk.toString().trimEnd() }, "claude stderr"));
+          return spawned;
+        },
+      },
+    });
+    try {
+      const models = await withTimeout(query.supportedModels(), this._timeouts.smokeTimeoutMs);
+      if (models === undefined) throw new Error(`claude did not list the models within ${Math.round(this._timeouts.smokeTimeoutMs / 1000)} s`);
+      return models.map((model) => ({ value: model.value, displayName: model.displayName, description: model.description }));
+    } finally {
+      release();
+      try {
+        query.close();
+      } catch (error) {
+        log.warn({ err: error }, "closing the models query failed");
+        child.child?.kill("SIGTERM");
+      }
+    }
   }
 
   launch(launch: AgentLaunch): AgentProcess {

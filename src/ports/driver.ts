@@ -62,9 +62,14 @@ export type SmokeQueryResult =
   | { ok: true; claudeVersion: string | null; model: string | null; text: string }
   | { ok: false; error: string };
 
+// A model the subscription offers, as the CLI lists it: `value` goes into the launch as is.
+export type ModelOption = { value: string; displayName: string; description: string };
+
 export interface DriverPort {
   launch(launch: AgentLaunch): AgentProcess;
   smokeQuery(options: SmokeQueryOptions): Promise<SmokeQueryResult>;
+  // The models of the subscription under the stored OAuth token; no Turn, no tokens spent.
+  listModels(options: { cwd: string }): Promise<ModelOption[]>;
   // Transcript of a Session as user and assistant messages, oldest first.
   getSessionHistory(sessionId: SessionId, options?: SessionHistoryOptions): Promise<SDKMessage[]>;
   getClaudeVersion(): Promise<string>;

@@ -8,7 +8,7 @@ import type { InstallationSnapshot, PauseSource } from "../orchestrator/installa
 import type { RestartView } from "../orchestrator/restart-drain.js";
 import type { UpdatePhase, UpdateView } from "../orchestrator/update-coordinator.js";
 import type { RepositoryAccess, RepositoryPermission } from "../ports/github.js";
-import type { SettingsPatch, SettingsView } from "../setup/settings.js";
+import type { ModelsView, SettingsPatch, SettingsView } from "../setup/settings.js";
 import type { SetupStatus, SetupStepId } from "../setup/setup.js";
 
 export type { SetupStatus, SetupStepId, RepositoryAccess, RepositoryPermission, UpdatePhase, UpdateView };
@@ -36,6 +36,8 @@ export type SetupSmokeResponse = {
 };
 
 export type SettingsResponse = SettingsView;
+// `GET /api/settings/models`: what the subscription offers; `error` when the CLI could not list them.
+export type ModelsResponse = ModelsView;
 export type SettingsRequest = SettingsPatch;
 
 export type HealthResponse = {

@@ -1,10 +1,12 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import type { SettingsRequest, SettingsResponse } from "../../../src/server/api-types.js";
+import type { ModelsResponse, SettingsRequest, SettingsResponse } from "../../../src/server/api-types.js";
 import { GithubTokenHelp } from "./GithubTokenHelp.js";
 import { Banner, Button, Card, cx, INPUT as INPUT_BASE, SectionTitle } from "./ui.js";
 
 export type SettingsFormProps = {
   settings: SettingsResponse;
+  // Undefined while the CLI lists the models.
+  models?: ModelsResponse | undefined;
   busy: boolean;
   error: string | null;
   // The last patch that went through, to tell the human what was saved.
@@ -49,6 +51,48 @@ function SecretForm({ name, label, stored, hint, busy, type, onSave }: { name: s
   );
 }
 
+const DEFAULT_MODEL = "default";
+
+function ModelForm({ current, models, busy, onSave }: { current: string | null; models: ModelsResponse | undefined; busy: boolean; onSave: (model: string | null) => void }) {
+  const stored = current ?? DEFAULT_MODEL;
+  const [value, setValue] = useState(stored);
+  const options = models?.models ?? [];
+  // A stored model the list no longer names stays selectable, so the form never shows a wrong value.
+  const listed = options.some((option) => option.value === stored) ? options : [{ value: stored, displayName: stored, description: "" }, ...options];
+  const chosen = listed.find((option) => option.value === value);
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (value !== stored) onSave(value === DEFAULT_MODEL ? null : value);
+  };
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-3">
+      <label className={LABEL}>
+        Модель Агентов
+        <select name="model" value={value} disabled={models === undefined} onChange={(e) => setValue(e.target.value)} className={INPUT}>
+          {listed.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.displayName}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="text-xs text-muted">
+        {models === undefined
+          ? "Список моделей подписки загружается…"
+          : models.error
+            ? `Список моделей не получен: ${models.error}`
+            : (chosen?.description ?? "")}
+      </div>
+      <div className="text-xs text-muted">Для Реализатора, QA-Агента, Merger и Планировщика. Применяется с ближайшего запуска процесса Агента: идущий Ход доработает на прежней модели.</div>
+      <div>
+        <Button type="submit" variant="primary" disabled={busy || value === stored}>
+          Сохранить
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 // The Settings page: numbers apply on the next cycle, secrets rewrite the env file and restart
 // live Agents softly at the end of their Turn.
 export function SettingsForm(props: SettingsFormProps) {
@@ -86,7 +130,9 @@ export function SettingsForm(props: SettingsFormProps) {
           Сохранено.{" "}
           {"githubToken" in props.saved || "oauthToken" in props.saved || "password" in props.saved
             ? "Новые процессы получат новый env; живые Агенты перезапустятся по концу Хода."
-            : "Применится с ближайшего цикла Оркестратора."}
+            : "model" in props.saved
+              ? "Модель применится с ближайшего запуска процесса Агента."
+              : "Применится с ближайшего цикла Оркестратора."}
         </Banner>
       )}
 
@@ -112,6 +158,10 @@ export function SettingsForm(props: SettingsFormProps) {
             </Button>
           </div>
         </form>
+      </Section>
+
+      <Section title="Модель">
+        <ModelForm current={settings.model} models={props.models} busy={props.busy} onSave={(model) => props.onSave({ model })} />
       </Section>
 
       <Section title="Секреты">

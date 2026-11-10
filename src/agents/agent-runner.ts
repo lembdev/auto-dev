@@ -17,6 +17,8 @@ export type AgentRunnerDeps = {
   idleTimeoutMs?: number;
   // How many recent messages per Agent the feed keeps for the UI.
   feedLimit?: number;
+  // The model the human chose for the Agents, read at every process launch; the CLI default when absent.
+  model?: () => string | undefined;
 };
 
 // Per-launch settings that the Driver needs again when the runner resumes the Session itself.
@@ -120,7 +122,7 @@ export class AgentRunner {
     });
     const options = sessionOptions(spec);
     try {
-      return this._launch(record, { cwd: record.cwd, prompt: spec.prompt, ...launchOptions(options) }, options);
+      return this._launch(record, { cwd: record.cwd, prompt: spec.prompt, ...launchOptions(options, this._deps.model?.()) }, options);
     } catch (error) {
       // A Session that never started leaves no trace; the caller retries from scratch.
       this._deps.agents.delete(record.id);
@@ -141,7 +143,7 @@ export class AgentRunner {
         resume: record.sessionId,
         ...(spec.prompt !== undefined ? { prompt: spec.prompt } : {}),
         ...(spec.resumeInterruptedTurn ? { resumeInterruptedTurn: true } : {}),
-        ...launchOptions(options),
+        ...launchOptions(options, this._deps.model?.()),
       },
       options,
     );
@@ -290,8 +292,12 @@ const sessionOptions = (spec: AgentSessionOptions, remembered: AgentSessionOptio
   ...(spec.onAskHuman ?? remembered.onAskHuman ? { onAskHuman: spec.onAskHuman ?? remembered.onAskHuman } : {}),
 });
 
-const launchOptions = (options: AgentSessionOptions): Pick<AgentLaunch, "env" | "model" | "onAskHuman"> => ({
-  ...(options.env ? { env: options.env } : {}),
-  ...(options.model ? { model: options.model } : {}),
-  ...(options.onAskHuman ? { onAskHuman: options.onAskHuman } : {}),
-});
+// A model given for the launch itself wins over the one chosen in the Settings.
+const launchOptions = (options: AgentSessionOptions, chosenModel?: string): Pick<AgentLaunch, "env" | "model" | "onAskHuman"> => {
+  const model = options.model ?? chosenModel;
+  return {
+    ...(options.env ? { env: options.env } : {}),
+    ...(model ? { model } : {}),
+    ...(options.onAskHuman ? { onAskHuman: options.onAskHuman } : {}),
+  };
+};

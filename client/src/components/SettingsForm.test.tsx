@@ -7,6 +7,7 @@ const settings = (overrides: Partial<SettingsResponse> = {}): SettingsResponse =
   maxParallelTasks: 2,
   prearmEnabled: true,
   maxQaRounds: 3,
+  model: null,
   repo: "acme/product",
   secrets: { githubToken: true, oauthToken: true, password: true },
   ...overrides,
@@ -29,6 +30,33 @@ describe("SettingsForm", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /Пре-арм/ }));
     fireEvent.click(save);
     expect(onSave).toHaveBeenCalledWith({ maxParallelTasks: 4, prearmEnabled: false });
+  });
+
+  it("chooses the Agents' model from the subscription list, the CLI default sent as null", () => {
+    const models = {
+      error: null,
+      models: [
+        { value: "default", displayName: "Default (recommended)", description: "Sonnet · Efficient for routine tasks" },
+        { value: "opus", displayName: "Opus", description: "Opus · Best for everyday, complex tasks" },
+      ],
+    };
+    const { onSave } = renderForm(settings(), { models });
+    const select = screen.getByRole("combobox", { name: "Модель Агентов" }) as HTMLSelectElement;
+    expect(select.value).toBe("default");
+    const save = select.closest("form")!.querySelector("button[type=submit]") as HTMLButtonElement;
+    expect(save).toBeDisabled();
+    fireEvent.change(select, { target: { value: "opus" } });
+    expect(screen.getByText("Opus · Best for everyday, complex tasks")).toBeInTheDocument();
+    fireEvent.click(save);
+    expect(onSave).toHaveBeenCalledWith({ model: "opus" });
+  });
+
+  it("keeps a stored model selectable when the list could not be loaded", () => {
+    const { onSave } = renderForm(settings({ model: "opus" }), { models: { models: [], error: "claude did not list the models" } });
+    const select = screen.getByRole("combobox", { name: "Модель Агентов" }) as HTMLSelectElement;
+    expect(select.value).toBe("opus");
+    expect(screen.getByText(/Список моделей не получен/)).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("saves each secret on its own and clears the field", () => {

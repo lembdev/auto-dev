@@ -36,6 +36,8 @@ export const DEFAULT_MAX_PARALLEL_TASKS = 2;
 // Keys in the `installation` table.
 export const INSTALLATION_KEYS = {
   maxParallelTasks: "max_parallel_tasks",
+  // Model alias of the Agents; absent means the CLI default.
+  agentModel: "agent_model",
   issuesSince: "poll.issues.since",
   issuesEtag: "poll.issues.etag",
   commentsSince: "poll.comments.since",
@@ -137,6 +139,7 @@ export class Orchestrator {
       clock: this._ports.clock,
       agents: this._index.agents,
       log: this._log,
+      model: () => this.agentModel() ?? undefined,
       ...(options.idleTimeoutMs !== undefined ? { idleTimeoutMs: options.idleTimeoutMs } : {}),
     });
     this._humanRequests = new HumanRequests({
@@ -461,6 +464,10 @@ export class Orchestrator {
   slots(): Slots {
     const used = this._index.tasks.listActive().filter((task) => this._occupiesSlot(task)).length;
     return { used, max: this.maxParallelTasks() };
+  }
+
+  agentModel(): string | null {
+    return this._index.installation.find(INSTALLATION_KEYS.agentModel) ?? null;
   }
 
   maxParallelTasks(): number {

@@ -37,6 +37,7 @@ describe("/api/settings", () => {
       maxParallelTasks: 2,
       prearmEnabled: true,
       maxQaRounds: 3,
+      model: null,
       repo: "acme/product",
       secrets: { githubToken: true, oauthToken: true, password: true },
     });
@@ -58,9 +59,52 @@ describe("/api/settings", () => {
     expect(tasks).toMatchObject({ slots: { used: 0, max: 4 }, maxQaRounds: 5 });
   });
 
+  it("lists the models of the subscription and launches the next Agent with the chosen one", async () => {
+    configured();
+    const models = (await (await app.request("/api/settings/models")).json()) as { models: { value: string }[]; error: string | null };
+    expect(models.error).toBeNull();
+    expect(models.models.map((model) => model.value)).toEqual(["default", "opus", "haiku"]);
+
+    const response = await put({ model: "opus" });
+    expect(response.status).toBe(200);
+    expect((await response.json()) as SettingsResponse).toMatchObject({ model: "opus" });
+    expect(app.index.installation.all()).toMatchObject({ agent_model: "opus" });
+
+    app.ports.github.seedIssue({ number: 42, title: "Add login", body: "A login form.", labels: ["ready-for-agent"] });
+    await app.orchestrator.pollOnce();
+    expect(app.ports.driver.lastLaunch().launch.model).toBe("opus");
+  });
+
+  it("goes back to the CLI default and launches without a model", async () => {
+    configured();
+    await put({ model: "haiku" });
+    expect((await (await put({ model: "default" })).json()) as SettingsResponse).toMatchObject({ model: null });
+    expect(app.index.installation.all()).not.toHaveProperty("agent_model");
+    await put({ model: "haiku" });
+    expect((await (await put({ model: null })).json()) as SettingsResponse).toMatchObject({ model: null });
+
+    app.ports.github.seedIssue({ number: 42, title: "Add login", body: "A login form.", labels: ["ready-for-agent"] });
+    await app.orchestrator.pollOnce();
+    expect(app.ports.driver.lastLaunch().launch).not.toHaveProperty("model");
+  });
+
+  it("refuses a model the subscription does not list, and takes any when the list is unavailable", async () => {
+    configured();
+    expect((await put({ model: "gpt-5" })).status).toBe(400);
+    expect((await get()).model).toBeNull();
+
+    app.close();
+    app = createTestApp({ env: { ...TEST_ENV } });
+    app.ports.driver.modelsError = new Error("claude did not list the models");
+    const models = (await (await app.request("/api/settings/models")).json()) as { models: unknown[]; error: string | null };
+    expect(models).toEqual({ models: [], error: "claude did not list the models" });
+    expect((await put({ model: "sonnet" })).status).toBe(200);
+    expect((await get()).model).toBe("sonnet");
+  });
+
   it("rejects bad values and leaves everything as it was", async () => {
     configured();
-    for (const body of [{ maxParallelTasks: -1 }, { maxParallelTasks: 1.5 }, { maxQaRounds: 0 }, { prearmEnabled: "yes" }, { githubToken: "" }, { password: " " }, "nope"]) {
+    for (const body of [{ maxParallelTasks: -1 }, { maxParallelTasks: 1.5 }, { maxQaRounds: 0 }, { prearmEnabled: "yes" }, { model: "" }, { model: 5 }, { githubToken: "" }, { password: " " }, "nope"]) {
       const response = await put(body);
       expect(response.status, JSON.stringify(body)).toBe(400);
     }

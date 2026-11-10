@@ -97,6 +97,11 @@ npm run password-hash -- <пароль>  # argon2-хеш для AUTO_DEV_PASSWOR
 секрета переписывает файл env, новые процессы получают новый env, живые Агенты гасятся по концу Хода
 и поднимаются через resume при следующем сообщении.
 
+Модель Агентов выбирается там же из списка подписки: `GET /api/settings/models` спрашивает CLI
+(`supportedModels()` у процесса без промпта, токены не тратятся; ответ кешируется на час), `PUT /api/settings`
+с `{model}` пишет алиас в `installation` (`agent_model`), `"default"` или `null` возвращают дефолт CLI. Модель
+подставляется при каждом запуске процесса Агента (новый Агент и resume), идущий Ход дорабатывает на прежней.
+
 ## Конфигурация
 
 Файл env (`KEY=VALUE`, путь из `AUTO_DEV_ENV_FILE`, по умолчанию `/etc/auto-dev/env`) читается первым,
@@ -120,7 +125,8 @@ npm run password-hash -- <пароль>  # argon2-хеш для AUTO_DEV_PASSWOR
 | `GITHUB_REPO`       | не задан              | Продукт в виде `owner/name`; без него и токена Оркестратор не стартует, UI ведёт в мастер |
 
 Настройки, которые меняются на ходу, лежат в таблице `installation` Рантайм-индекса:
-`max_parallel_tasks` (Слоты, по умолчанию 2), `max_qa_rounds` (лимит Кругов QA, по умолчанию 3), курсоры опроса
+`max_parallel_tasks` (Слоты, по умолчанию 2), `max_qa_rounds` (лимит Кругов QA, по умолчанию 3), `agent_model`
+(модель Агентов, по умолчанию дефолт CLI), курсоры опроса
 `poll.issues.since`, `poll.issues.etag`, `poll.comments.since`, `poll.comments.etag`.
 
 Логи: pino JSON в stdout.
