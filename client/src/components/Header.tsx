@@ -44,10 +44,23 @@ function Limit({ name, reading, now }: { name: string; reading: LimitReading | n
       </div>
     );
   }
+  // Readings arrive only with Agent requests: after the reset the old percentage no longer holds.
+  if (reading.resetsAt && Date.parse(reading.resetsAt) <= now) {
+    return (
+      <div className="w-32 text-xs" data-testid={`limit-${name}`} data-level="reset" title={`Лимит ${name}: окно сброшено в ${clockTime(reading.resetsAt, now)}, новые данные придут с первым запросом Агента`}>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-muted">{name}</span>
+          <span className="text-muted">сброшен</span>
+        </div>
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-subtle" />
+      </div>
+    );
+  }
   const percent = Math.round(reading.usedPercent);
   const level = limitLevel(percent);
+  const updated = `обновлено ${clockTime(reading.at, now)}`;
   return (
-    <div className="w-32 text-xs" data-testid={`limit-${name}`} data-level={level} title={reading.resetsAt ? `Лимит ${name}: сброс ${clockTime(reading.resetsAt, now)}` : `Лимит ${name}`}>
+    <div className="w-32 text-xs" data-testid={`limit-${name}`} data-level={level} title={reading.resetsAt ? `Лимит ${name}: сброс ${clockTime(reading.resetsAt, now)}, ${updated}` : `Лимит ${name}, ${updated}`}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-muted">{name}</span>
         <span>

@@ -280,6 +280,33 @@ describe("Pause, the limit and the disk of the Installation", () => {
       expect(s.orchestrator.installation.limits().sevenDay?.usedPercent).toBe(50);
     });
 
+    it("takes both windows from the unifiedWindows of a single rate_limit_event", async () => {
+      const s = scenario();
+      const { driver, clock } = s.ports;
+      await s.orchestrator.pollOnce();
+      const process = driver.lastLaunch();
+      process.emit(sdkMessages.init(SESSION));
+      const fiveHourReset = seconds(clock.now() + 3 * 60 * 60_000);
+      const weekReset = seconds(clock.now() + 2 * 24 * 60 * 60_000);
+      // The shape the CLI sends: the top-level `utilization` is absent, the windows carry fractions.
+      process.emit(
+        sdkMessages.rateLimitEvent(SESSION, {
+          status: "allowed",
+          rateLimitType: "five_hour",
+          resetsAt: fiveHourReset,
+          unifiedWindows: {
+            five_hour: { utilization: 0.06, resetsAt: fiveHourReset, status: "allowed" },
+            seven_day: { utilization: 0.59, resetsAt: weekReset, status: "allowed" },
+          },
+        } as Parameters<typeof sdkMessages.rateLimitEvent>[1]),
+      );
+      await flush();
+      expect(s.orchestrator.installation.limits()).toMatchObject({
+        fiveHour: { usedPercent: 6, resetsAt: new Date(fiveHourReset * 1000).toISOString(), source: "event" },
+        sevenDay: { usedPercent: 59, resetsAt: new Date(weekReset * 1000).toISOString(), source: "event" },
+      });
+    });
+
     it("writes a limit sample every ten minutes and drops samples older than 30 days", async () => {
       const s = scenario();
       const { driver, clock } = s.ports;

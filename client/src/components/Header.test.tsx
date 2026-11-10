@@ -49,6 +49,13 @@ describe("Header", () => {
     expect(screen.getByTestId("limit-7 дн")).toHaveAttribute("data-level", "none");
   });
 
+  it("shows a window whose reset has passed as reset instead of its old percentage", () => {
+    renderHeader(installation({ limits: { fiveHour: { usedPercent: 88, resetsAt: "2026-01-01T11:30:00.000Z", at: "2026-01-01T09:00:00.000Z", source: "event" }, sevenDay: null } }));
+    expect(screen.getByTestId("limit-5 ч")).toHaveAttribute("data-level", "reset");
+    expect(screen.getByTestId("limit-5 ч")).toHaveTextContent("сброшен");
+    expect(screen.getByTestId("limit-5 ч")).not.toHaveTextContent("88");
+  });
+
   it("toggles the Pause and explains it in a banner", () => {
     const onPause = vi.fn();
     const { rerender } = render(

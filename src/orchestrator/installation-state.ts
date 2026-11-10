@@ -95,6 +95,25 @@ const percentOf = (utilization: number): number => {
   return Math.min(100, Math.max(0, Math.round(percent * 10) / 10));
 };
 
+// `unifiedWindows` holds a fraction of the window, 0.59 being 59 %.
+const fractionToPercent = (fraction: number): number => Math.min(100, Math.max(0, Math.round(fraction * 1000) / 10));
+
+type UnifiedWindow = { utilization: number; resetsAt?: number };
+
+// `unifiedWindows` is not in the SDK's types yet, so each window is checked before it is trusted.
+function unifiedWindowsOf(info: SDKRateLimitInfo): Partial<Record<string, UnifiedWindow>> {
+  const raw = (info as { unifiedWindows?: unknown }).unifiedWindows;
+  if (typeof raw !== "object" || raw === null) return {};
+  const windows: Partial<Record<string, UnifiedWindow>> = {};
+  for (const [type, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== "object" || value === null) continue;
+    const { utilization, resetsAt } = value as { utilization?: unknown; resetsAt?: unknown };
+    if (typeof utilization !== "number" || !Number.isFinite(utilization)) continue;
+    windows[type] = { utilization, ...(typeof resetsAt === "number" ? { resetsAt } : {}) };
+  }
+  return windows;
+}
+
 // Reset times come as Unix seconds from the statusline and the CLI; milliseconds are accepted too.
 const toEpochMs = (raw: number | undefined): number | undefined => {
   if (raw === undefined || !Number.isFinite(raw)) return undefined;
@@ -284,15 +303,19 @@ export class InstallationState {
   }
 
   private _recordEvent(info: SDKRateLimitInfo): void {
+    const at = iso(this._clock.now());
+    const record = (window: LimitWindow, percent: number, resetsAtRaw: number | undefined) => {
+      const resetsAt = toEpochMs(resetsAtRaw);
+      this._record(window, { usedPercent: percent, resetsAt: resetsAt === undefined ? null : iso(resetsAt), at, source: "event" });
+    };
+    // The CLI reports every window at once in `unifiedWindows` and leaves the top-level `utilization` out.
+    const unified = unifiedWindowsOf(info);
+    for (const [type, window] of Object.entries(WINDOW_OF) as [keyof typeof WINDOW_OF, LimitWindow][]) {
+      const reading = unified[type];
+      if (reading) record(window, fractionToPercent(reading.utilization), reading.resetsAt);
+    }
     const window = info.rateLimitType ? WINDOW_OF[info.rateLimitType] : undefined;
-    if (!window || info.utilization === undefined) return;
-    const resetsAt = toEpochMs(info.resetsAt);
-    this._record(window, {
-      usedPercent: percentOf(info.utilization),
-      resetsAt: resetsAt === undefined ? null : iso(resetsAt),
-      at: iso(this._clock.now()),
-      source: "event",
-    });
+    if (window && info.utilization !== undefined && !unified[info.rateLimitType!]) record(window, percentOf(info.utilization), info.resetsAt);
   }
 
   // The freshest reading of a window wins, whichever source it came from.
