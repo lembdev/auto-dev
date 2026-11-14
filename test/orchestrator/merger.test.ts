@@ -4,7 +4,7 @@ import { sdkMessages } from "../../src/fakes/sdk-messages.js";
 import type { IssueNumber, SessionId } from "../../src/ids.js";
 import { isMarkedComment } from "../../src/orchestrator/comments.js";
 import { CHECKS_POLL_MS, CHECKS_TIMEOUT_MS } from "../../src/orchestrator/merge.js";
-import { EXTRA_ROUND_REASON, MERGER_STARTED_REASON } from "../../src/orchestrator/merger.js";
+import { EXTRA_ROUND_REASON, MERGER_STARTED_REASON, mergerNudgeMessage } from "../../src/orchestrator/merger.js";
 import { MAX_QA_ROUNDS_KEY } from "../../src/orchestrator/qa.js";
 import type { TasksResponse } from "../../src/server/app.js";
 import { createTestApp, TEST_REPO_PATH, type TestApp } from "../helpers/test-app.js";
@@ -198,18 +198,72 @@ describe("Merger and CI as a round", () => {
     expect(transitions(s).at(-1)).toEqual(["merge", "merge", MERGER_STARTED_REASON]);
   });
 
-  it("reaches a dead end when the Merger ends its Turn without pushing anything", async () => {
+  it("reminds the Merger once in the same Session when its Turn pushed nothing, and dead-ends on the second such Turn", async () => {
     const s = await conflicted();
     const { github } = s.ports;
     s.merger.emit(sdkMessages.init(MERGER_SESSION));
-    s.merger.emit(sdkMessages.resultSuccess(MERGER_SESSION, "не смог"));
+    s.merger.emit(sdkMessages.assistantText(MERGER_SESSION, "Конфликт разрешён, запустил e2e в фоне."));
+    s.merger.emit(sdkMessages.resultSuccess(MERGER_SESSION, "Жду уведомления монитора."));
+    await flush();
+
+    expect(s.index.tasks.get(ISSUE).stage).toBe("merge");
+    expect(s.merger.sent).toEqual([mergerNudgeMessage(s.index.tasks.get(ISSUE))]);
+    expect(s.merger.sent[0]).toContain("PR #1");
+    expect(s.merger.sent[0]).toContain("`worktree-issue-42`");
+    expect(s.merger.sent[0]).toContain("Не уводи прогоны в фон");
+    expect(s.ports.driver.launches.filter((process) => process.launch.prompt?.includes("Стадии «Merge»"))).toHaveLength(1);
+    expect(github.commentsOf(42)).toEqual([]);
+    expect(s.orchestrator.merger.isResolving(s.index.tasks.get(ISSUE))).toBe(true);
+
+    s.merger.emit(sdkMessages.resultSuccess(MERGER_SESSION, "Всё ещё жду монитор."));
     await flush();
     expect(s.index.tasks.get(ISSUE).stage).toBe("stuck");
     expect(transitions(s).at(-1)).toEqual(["merge", "stuck", "merge: conflict left unresolved"]);
+    expect(s.merger.sent).toHaveLength(1);
     expect(github.issue(42).labels).toContain("ready-for-human");
-    expect(github.commentsOf(42).find((c) => isMarkedComment(c.body, "stuck:1"))?.body).toContain("конфликт");
+    const comment = github.commentsOf(42).find((c) => isMarkedComment(c.body, "stuck:1"))?.body;
+    expect(comment).toContain("конфликт");
+    expect(comment).toContain("после напоминания");
+    expect(comment).toContain("Последнее сообщение Merger:\n\n> Всё ещё жду монитор.");
     expect(s.index.agents.listByIssue(ISSUE).every((agent) => agent.state === "stopped")).toBe(true);
     expect(s.ports.worktree.worktrees(TEST_REPO_PATH).map((info) => info.path)).toEqual([WORKTREE]);
+    expect((await tasks(s)).stuck).toEqual([
+      expect.objectContaining({ issueNumber: 42, reason: "merge: conflict left unresolved", lastMessage: { agentId: expect.any(Number), role: "merger", text: "Всё ещё жду монитор." } }),
+    ]);
+  });
+
+  it("takes the push after the reminder as the end of the Merger and runs the extra QA round", async () => {
+    const s = await conflicted();
+    s.merger.emit(sdkMessages.init(MERGER_SESSION));
+    s.merger.emit(sdkMessages.resultSuccess(MERGER_SESSION, "Жду уведомления монитора."));
+    await flush();
+    expect(s.merger.sent).toHaveLength(1);
+
+    await mergerDone(s, s.merger, "Запушил.");
+    expect(s.merger.calls.map((call) => call.method)).toContain("stop");
+    expect(s.index.tasks.get(ISSUE)).toMatchObject({ stage: "qa", round: 0 });
+    expect(transitions(s).at(-1)).toEqual(["merge", "qa", EXTRA_ROUND_REASON]);
+    expect(s.ports.github.commentsOf(42)).toEqual([]);
+  });
+
+  it("holds the reminder while the Installation is paused and sends it once the Pause is lifted", async () => {
+    const s = await conflicted();
+    s.orchestrator.installation.pause("human", "lunch");
+    s.merger.emit(sdkMessages.init(MERGER_SESSION));
+    s.merger.emit(sdkMessages.resultSuccess(MERGER_SESSION, "Жду уведомления монитора."));
+    await flush();
+    expect(s.merger.sent).toEqual([]);
+    expect(s.index.tasks.get(ISSUE).stage).toBe("merge");
+
+    await s.orchestrator.pollOnce();
+    expect(s.merger.sent).toEqual([]);
+    expect(s.orchestrator.merger.isResolving(s.index.tasks.get(ISSUE))).toBe(true);
+    expect(s.ports.driver.launches.filter((process) => process.launch.prompt?.includes("Стадии «Merge»"))).toHaveLength(1);
+
+    s.orchestrator.installation.unpause();
+    await s.orchestrator.pollOnce();
+    expect(s.merger.sent).toEqual([mergerNudgeMessage(s.index.tasks.get(ISSUE))]);
+    expect(s.index.tasks.get(ISSUE).stage).toBe("merge");
   });
 
   it("reaches a dead end when the Merger Turn fails", async () => {

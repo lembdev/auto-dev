@@ -30,6 +30,7 @@ describe("runtime index", () => {
     expect(tableNames(index.db)).toEqual([
       "agents",
       "applied_answers",
+      "dead_ends",
       "dialogue_clients",
       "human_requests",
       "installation",

@@ -7,14 +7,16 @@ import { isActiveStage, type Task } from "../../index/tasks.js";
 import type { Logger } from "../../log.js";
 import type { Orchestrator } from "../../orchestrator/orchestrator.js";
 import type { Ports } from "../../ports/index.js";
-import type { AgentHistoryResponse, AgentView, CancelResponse, InterruptResponse } from "../api-types.js";
+import type { DeadEndQuestionResult } from "../../orchestrator/dead-end-questions.js";
+import type { AgentHistoryResponse, AgentView, AskAgentResponse, CancelResponse, InterruptResponse } from "../api-types.js";
 import { currentAgentOf } from "../../orchestrator/current-agent.js";
+import type { StartBlocker } from "../../orchestrator/installation-state.js";
 
 export type AgentRoutesDeps = {
   ports: Ports;
   index: RuntimeIndex;
   log: Logger;
-  orchestrator: Pick<Orchestrator, "agents" | "reconcile">;
+  orchestrator: Pick<Orchestrator, "agents" | "reconcile" | "deadEndQuestions">;
 };
 
 export { currentAgentOf } from "../../orchestrator/current-agent.js";
@@ -33,6 +35,32 @@ export const CANCEL_STATE_REASON = "not_planned";
 const parseIssueNumber = (raw: string): IssueNumber | undefined => {
   const parsed = Number(raw);
   return Number.isInteger(parsed) && parsed > 0 ? (parsed as IssueNumber) : undefined;
+};
+
+// Why no new Turn may start now, in the words of the UI: a Planner start and a question to an Agent.
+export const ON_HOLD_REASONS: Record<StartBlocker, string> = {
+  paused: "Установка на Паузе",
+  at_limit: "Установка у стены лимита подписки",
+  prearm: "лимит подписки почти исчерпан (пре-арм)",
+  claude_version: "версия Claude Code не прошла проверку",
+};
+
+// Why a question about a dead end was not sent, in the words the panel shows.
+const refusalOf = (result: Extract<DeadEndQuestionResult, { kind: "refused" }>): { status: 404 | 409; error: string } => {
+  switch (result.reason) {
+    case "not-found":
+      return { status: 404, error: "Задача не найдена" };
+    case "not-stuck":
+      return { status: 409, error: "Задача не в Тупике" };
+    case "no-agent":
+      return { status: 409, error: "у Задачи нет Агента" };
+    case "no-session":
+      return { status: 409, error: "у Агента нет Сессии: продолжать нечего" };
+    case "busy":
+      return { status: 409, error: "Агент уже отвечает" };
+    case "on-hold":
+      return { status: 409, error: `новые Ходы сейчас не стартуют: ${ON_HOLD_REASONS[result.blocker]}` };
+  }
 };
 
 // Routes of one Task's Agent, mounted under `/api/tasks`: the Session history for the panel,
@@ -92,6 +120,27 @@ export function agentRoutes(deps: AgentRoutesDeps): Hono {
     deps.log.info({ issue: task.issueNumber, agent: agent.id }, "turn interrupted from the UI");
     const body: InterruptResponse = { agent: agentView(deps.index.agents.get(agent.id)) };
     return c.json(body);
+  });
+
+  // A question to the Agent of the last step of a Task in a dead end: one Turn in its Session, no transition.
+  routes.post("/:issue/agent/ask", async (c) => {
+    const issueNumber = parseIssueNumber(c.req.param("issue"));
+    if (issueNumber === undefined) return c.json({ error: "task not found" }, 404);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "the body must be JSON" }, 400);
+    }
+    const text = typeof body === "object" && body !== null ? (body as Record<string, unknown>).text : undefined;
+    if (typeof text !== "string" || text.trim() === "") return c.json({ error: "`text` must be a non-empty string" }, 400);
+    const result = deps.orchestrator.deadEndQuestions.ask(issueNumber, text);
+    if (result.kind === "refused") {
+      const refusal = refusalOf(result);
+      return c.json({ error: refusal.error }, refusal.status);
+    }
+    const response: AskAgentResponse = { agent: agentView(result.agent) };
+    return c.json(response);
   });
 
   routes.post("/:issue/cancel", async (c) => {

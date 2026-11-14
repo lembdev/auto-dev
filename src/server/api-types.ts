@@ -87,7 +87,9 @@ export type TaskView = Task & {
 
 // A Task that left the Pipeline, with the reason and the time of its last transition.
 export type FinishedTaskView = TaskView & { reason: string | null; finishedAt: string | null };
-export type StuckTaskView = FinishedTaskView;
+// The last text of the Agent the Task was about when it reached the dead end, truncated.
+export type DeadEndMessageView = { agentId: AgentId | null; role: AgentRole | null; text: string };
+export type StuckTaskView = FinishedTaskView & { lastMessage: DeadEndMessageView | null };
 
 export type ReadyTaskView = {
   issueNumber: IssueNumber;
@@ -164,6 +166,11 @@ export type AgentHistoryResponse = {
 
 // `POST /api/tasks/:issue/agent/interrupt`: the Turn is interrupted, the Session stays.
 export type InterruptResponse = { agent: AgentView };
+
+// `POST /api/tasks/:issue/agent/ask`: a question to the Agent of the last step of a Task in a dead end;
+// its Session answers in one Turn into the same feed, the Task stays in the dead end.
+export type AskAgentRequest = { text: string };
+export type AskAgentResponse = { agent: AgentView };
 
 // `POST /api/tasks/:issue/cancel`: the issue is closed, the Cancellation follows.
 export type CancelResponse = { issueNumber: IssueNumber; stage: TaskStage };

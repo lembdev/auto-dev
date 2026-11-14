@@ -113,6 +113,43 @@ describe("AgentPanelView", () => {
     expect(screen.queryByTestId("moved-on")).toBeNull();
   });
 
+  it("offers a question to the Agent of the last step of a Task in a dead end instead of the read-only footer", () => {
+    const stopped = { ...IMPLEMENTER, state: "stopped" as const };
+    renderPanel(task({ stage: "stuck", agent: stopped }), {
+      node: node({ status: "failed", outcome: "Тупик", agent: stopped }),
+      liveNode: undefined,
+      questionSlot: <div data-testid="question-slot">Вопрос</div>,
+      dialogueSlot: <div data-testid="dialogue-slot">Диалог</div>,
+    });
+    expect(screen.getByTestId("question-slot")).toBeInTheDocument();
+    expect(screen.queryByTestId("dialogue-slot")).toBeNull();
+    expect(screen.getByRole("dialog")).toHaveTextContent("Задача в Тупике: вопрос не возобновляет работу");
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("Лог завершённого шага, только чтение");
+    expect(screen.queryByRole("button", { name: "Отменить задачу" })).toBeNull();
+  });
+
+  it("shows the answering Agent of a dead end as running and lets the human stop its Turn", () => {
+    const props = renderPanel(task({ stage: "stuck", agent: IMPLEMENTER }), {
+      node: node({ status: "failed", outcome: "Тупик", agent: { ...IMPLEMENTER, state: "stopped" } }),
+      liveNode: undefined,
+      questionSlot: <div data-testid="question-slot">Вопрос</div>,
+    });
+    expect(screen.getByRole("dialog")).toHaveTextContent("работает");
+    fireEvent.click(screen.getByRole("button", { name: "Остановить ход" }));
+    expect(props.onInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an earlier step of a Task in a dead end read-only", () => {
+    const qa = { id: 6 as AgentId, role: "qa" as const, state: "stopped" as const, lastTurnAt: null, createdAt: "2026-01-01T10:30:00.000Z" };
+    renderPanel(task({ stage: "stuck", agent: qa }), {
+      node: node({ status: "ok", outcome: "готово", agent: { ...IMPLEMENTER, state: "stopped" } }),
+      liveNode: undefined,
+      questionSlot: <div data-testid="question-slot">Вопрос</div>,
+    });
+    expect(screen.queryByTestId("question-slot")).toBeNull();
+    expect(screen.getByRole("dialog")).toHaveTextContent("Лог завершённого шага, только чтение");
+  });
+
   it("shows the errors of the actions and the slots of the Request and the Dialogue", () => {
     renderPanel(task(), {
       interruptError: "the Agent is idle, not running a Turn",

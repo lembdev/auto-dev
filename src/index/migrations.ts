@@ -165,4 +165,20 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 8,
+    up(db) {
+      db.exec(`
+        CREATE TABLE dead_ends (
+          issue_number INTEGER NOT NULL,
+          attempt INTEGER NOT NULL,
+          agent_id INTEGER,
+          agent_role TEXT,
+          last_message TEXT,
+          at TEXT NOT NULL,
+          PRIMARY KEY (issue_number, attempt)
+        ) STRICT;
+      `);
+    },
+  },
 ];

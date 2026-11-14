@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import type { FinishedTaskView, ReadyTaskView, StuckTaskView, TaskView } from "../../../src/server/api-types.js";
+import { useMemo, useState } from "react";
+import type { DeadEndMessageView, FinishedTaskView, ReadyTaskView, StuckTaskView, TaskView } from "../../../src/server/api-types.js";
 import { AGENT_LABELS, duration, elapsed, firstLine, stageLabel } from "../format.js";
 import { focusNodeOf, pipelineOf, summaryOf } from "../pipeline.js";
 import { LiveStep, PipelineStrip } from "./PipelineStrip.js";
@@ -175,8 +175,38 @@ export function StuckCard(props: FinishedCardProps<StuckTaskView>) {
       <div className="mt-2 text-sm text-fg/80" data-testid="stuck-reason">
         {task.reason ?? "причина не записана"}
       </div>
+      {task.lastMessage && <DeadEndMessage message={task.lastMessage} />}
       <StuckPipeline {...props} />
     </article>
+  );
+}
+
+const ROLE_OF: Record<string, string> = {
+  implementer: "Реализатора",
+  qa: "QA",
+  merger: "Merger",
+  planner: "Планировщика",
+};
+
+// Beyond these the last message is clamped to three lines and gets the expand button.
+const CLAMPED_LINES = 3;
+const CLAMPED_CHARS = 240;
+
+// The last word of the Agent at the dead end, quoted under the reason: clamped, opened by a click.
+function DeadEndMessage({ message }: { message: DeadEndMessageView }) {
+  const [open, setOpen] = useState(false);
+  const long = message.text.split("\n").length > CLAMPED_LINES || message.text.length > CLAMPED_CHARS;
+  const role = message.role ? ROLE_OF[message.role] : undefined;
+  return (
+    <figure className="mt-1.5 border-l-2 border-line-strong pl-2.5 text-xs text-muted" data-testid="stuck-last-message">
+      <figcaption className="mb-0.5">Последнее сообщение{role ? ` ${role}` : ""}:</figcaption>
+      <blockquote className={cx("whitespace-pre-wrap break-words", !open && "line-clamp-3")}>{message.text}</blockquote>
+      {long && (
+        <button type="button" className={cx(LINK, "mt-0.5")} onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+          {open ? "свернуть" : "показать полностью"}
+        </button>
+      )}
+    </figure>
   );
 }
 

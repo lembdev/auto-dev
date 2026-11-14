@@ -27,6 +27,7 @@ import type {
   RequestView,
   ServerEvent,
   SessionResponse,
+  StuckTaskView,
   TaskView,
   TasksResponse,
 } from "./api-types.js";
@@ -102,7 +103,7 @@ export type AppDeps = {
   index: RuntimeIndex;
   log: Logger;
   version: string;
-  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests" | "reconcile" | "dialogue" | "planner" | "updates" | "restart">;
+  orchestrator: Pick<Orchestrator, "readyQueue" | "slots" | "findIssue" | "installation" | "qa" | "agents" | "humanRequests" | "reconcile" | "dialogue" | "planner" | "updates" | "restart" | "deadEndQuestions">;
   // Live configuration: the password hash and the Product come from here on every request.
   config: ConfigStore;
   setup: Setup;
@@ -297,6 +298,12 @@ export function createApp(deps: AppDeps): App {
     return { ...viewed, reason: last?.reason ?? null, finishedAt: last?.at ?? null };
   };
 
+  const stuckView = async (task: Task): Promise<StuckTaskView> => {
+    const record = deps.index.deadEnds.find(task.issueNumber, task.attempt);
+    const lastMessage = record?.lastMessage ? { agentId: record.agentId, role: record.agentRole, text: record.lastMessage } : null;
+    return { ...(await finishedView(task)), lastMessage };
+  };
+
   // Tasks merged within the last day stay on the screen, so their Pipeline can still be read.
   const recentlyDone = async (): Promise<FinishedTaskView[]> => {
     const since = deps.ports.clock.now() - RECENT_DONE_MS;
@@ -320,7 +327,7 @@ export function createApp(deps: AppDeps): App {
           htmlUrl: issue.htmlUrl,
         }),
       ),
-      stuck: await Promise.all(deps.index.tasks.listByStage(["stuck"]).map(finishedView)),
+      stuck: await Promise.all(deps.index.tasks.listByStage(["stuck"]).map(stuckView)),
       cancelled: await Promise.all(deps.index.tasks.listByStage(["cancelled"]).map(finishedView)),
       done: await recentlyDone(),
     };

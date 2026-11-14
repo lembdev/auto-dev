@@ -201,6 +201,8 @@ export class QaStage {
     }
     if (agent.role !== "qa") return;
     const task = this._index.tasks.find(agent.issueNumber);
+    // A QA Agent talking outside `qa` (a question about a dead end) gives no verdict.
+    if (task?.stage !== "qa") return;
     const round = this._rounds.get(agent.issueNumber) ?? (task ? this._adopt(task) : undefined);
     if (!round || round.agentId !== agent.id || round.settling) return;
     if (message.type === "assistant") {

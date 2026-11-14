@@ -86,11 +86,28 @@ describe("AgentFeed", () => {
     );
     const tool = screen.getByTestId("feed-tool");
     expect(tool).not.toHaveAttribute("open");
-    expect(tool.querySelector("summary")).toHaveTextContent("Bash npm test");
+    expect(tool.querySelector("summary")).toHaveTextContent("Bashnpm test");
     fireEvent.click(tool.querySelector("summary") as HTMLElement);
     expect(tool).toHaveAttribute("open");
-    expect(tool).toHaveTextContent('"command": "npm test"');
-    expect(tool).toHaveTextContent("result: 12 passed");
+    expect(tool).toHaveTextContent("$ npm test");
+    expect(tool).toHaveTextContent("Результат12 passed");
+  });
+
+  it("gathers a run of steps into one card and folds its early part", () => {
+    const calls = Array.from({ length: 9 }, (_, i) => [
+      sdkMessages.assistantToolUse(S, `toolu_${i}`, "Read", { file_path: `src/file-${i}.ts` }),
+      sdkMessages.toolResult(S, `toolu_${i}`, "ok"),
+    ]).flat();
+    renderFeed(applyMessages(emptyFeed(), [...calls, sdkMessages.assistantText(S, "Done.")]));
+    expect(screen.getAllByTestId("feed-steps")).toHaveLength(1);
+    expect(screen.getAllByTestId("feed-tool")).toHaveLength(5);
+    fireEvent.click(screen.getByTestId("feed-steps-more"));
+    expect(screen.getAllByTestId("feed-tool")).toHaveLength(9);
+  });
+
+  it("leaves out a thought the model kept to itself", () => {
+    renderFeed(applyMessages(emptyFeed(), [sdkMessages.assistantThinking(S, ""), sdkMessages.assistantText(S, "Next.")]));
+    expect(screen.queryByTestId("feed-thinking")).not.toBeInTheDocument();
   });
 
   it("renders system rows grey, thinking collapsed and a subagent as a nested block", () => {
@@ -107,7 +124,7 @@ describe("AgentFeed", () => {
     expect(screen.getByTestId("feed-system")).toHaveAttribute("data-level", "info");
     const thinking = screen.getByTestId("feed-thinking");
     expect(thinking).not.toHaveAttribute("open");
-    expect(thinking.querySelector("summary")).toHaveTextContent("thinking");
+    expect(thinking.querySelector("summary")).toHaveTextContent("РазмышлениеHidden thoughts");
     const subagent = screen.getByTestId("feed-subagent");
     expect(subagent).toHaveTextContent("сабагент Explore: Find the callers");
     expect(within(subagent).getByTestId("feed-text")).toHaveTextContent("Two callers.");

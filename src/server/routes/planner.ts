@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import type { RuntimeIndex } from "../../index/runtime-index.js";
 import type { Logger } from "../../log.js";
-import type { StartBlocker } from "../../orchestrator/installation-state.js";
 import type { Orchestrator } from "../../orchestrator/orchestrator.js";
 import {
   PLANNER_MODES,
@@ -14,20 +13,13 @@ import {
 } from "../../orchestrator/planner.js";
 import type { Ports } from "../../ports/index.js";
 import type { AgentHistoryResponse, PlannerResponse, RemovePlannerLineResponse } from "../api-types.js";
-import { agentView } from "./agent.js";
+import { agentView, ON_HOLD_REASONS } from "./agent.js";
 
 export type PlannerRoutesDeps = {
   ports: Ports;
   index: RuntimeIndex;
   log: Logger;
   orchestrator: Pick<Orchestrator, "planner" | "agents">;
-};
-
-const ON_HOLD_REASONS: Record<StartBlocker, string> = {
-  paused: "Установка на Паузе",
-  at_limit: "Установка у стены лимита подписки",
-  prearm: "лимит подписки почти исчерпан (пре-арм)",
-  claude_version: "версия Claude Code не прошла проверку",
 };
 
 const parseStart = (body: unknown): StartPlanner | string => {

@@ -41,7 +41,16 @@ export type MergerOptions = {
 
 // The Merger of one attempt, in memory only: after a restart the Merger is resumed by the recovery and
 // its Turn end is taken without the head check (the head before the conflict is not known any more).
-type Resolution = { attempt: number; agentId: AgentRecord["id"]; sha: string; settling: boolean };
+// `nudged` is set once the Merger got the reminder after a Turn without a push; `nudgePending` while
+// that reminder waits for new Turns to be allowed again.
+type Resolution = {
+  attempt: number;
+  agentId: AgentRecord["id"];
+  sha: string;
+  settling: boolean;
+  nudged: boolean;
+  nudgePending: boolean;
+};
 
 // What the Merge Stage does when the pull request cannot be merged. A conflict with the base branch
 // brings a Merger up in the worktree of the Task (a new Session with the `merge` prompt); once its Turn
@@ -92,11 +101,28 @@ export class Merger {
       .at(-1);
   }
 
-  // Whether a Merger is still working on the conflict: its process lives, it waits for an Answer or a
-  // restart cut its Turn short and the recovery resumes it.
+  // Whether a Merger is still working on the conflict: its process lives, it waits for an Answer or for
+  // its reminder, or a restart cut its Turn short and the recovery resumes it.
   isResolving(task: Task): boolean {
     const merger = this.findMerger(task);
-    return merger !== undefined && (this._runner.isLive(merger.id) || merger.state === "waiting" || this._isPendingResume(merger.id));
+    if (merger === undefined) return false;
+    const resolution = this._resolutions.get(task.issueNumber);
+    const nudgePending = resolution?.agentId === merger.id && resolution.nudgePending;
+    return this._runner.isLive(merger.id) || merger.state === "waiting" || this._isPendingResume(merger.id) || nudgePending;
+  }
+
+  // Reminders held back while new Turns were not allowed go out on the first cycle that allows them.
+  async deliverNudges(): Promise<void> {
+    for (const [issueNumber, resolution] of this._resolutions) {
+      if (!resolution.nudgePending) continue;
+      if (!this._canStart()) return;
+      const task = this._index.tasks.find(issueNumber);
+      if (!task || task.stage !== "merge" || this.findMerger(task)?.id !== resolution.agentId) {
+        this._resolutions.delete(issueNumber);
+        continue;
+      }
+      await this._nudge(task, resolution);
+    }
   }
 
   // Handler for `MergeStageOptions.onFailure`: true once the failure is taken care of here.
@@ -135,11 +161,16 @@ export class Merger {
       role: "merger",
       cwd: task.worktreePath,
       prompt,
-      ...(this._onAskHuman
-        ? { onAskHuman: (call: AskHumanCall) => this._onAskHuman!(this._index.tasks.get(task.issueNumber), call) }
-        : {}),
+      ...this._askHuman(task.issueNumber),
     });
-    this._resolutions.set(task.issueNumber, { attempt: task.attempt, agentId: agent.id, sha: failure.sha, settling: false });
+    this._resolutions.set(task.issueNumber, {
+      attempt: task.attempt,
+      agentId: agent.id,
+      sha: failure.sha,
+      settling: false,
+      nudged: false,
+      nudgePending: false,
+    });
     this._transition(task.issueNumber, "merge", MERGER_STARTED_REASON);
     this._log.info({ issue: task.issueNumber, agent: agent.id, sha: failure.sha }, "merger started");
     return true;
@@ -179,12 +210,22 @@ export class Merger {
     work.catch((error: unknown) => this._log.error({ err: error, issue: task.issueNumber }, "merger result not applied"));
   }
 
-  // The Merger is done: its process goes, the Task gets its extra QA round on the new head.
+  // The Merger is done: its process goes, the Task gets its extra QA round on the new head. A Turn that
+  // pushed nothing gets one reminder into the same Session; the second such Turn in a row is a dead end.
   private async _finish(task: Task, resolution: Resolution | undefined): Promise<void> {
     if (task.pullNumber !== null && resolution) {
       const pull = await this._github.getPullRequest(task.pullNumber);
       if (pull.head.sha === resolution.sha) {
-        await this._deadEnd(task, "merge: conflict left unresolved", `Merger завершил Ход, не запушив ничего в PR #${task.pullNumber}: конфликт с \`${this._baseBranch}\` остался.`);
+        if (!resolution.nudged) {
+          resolution.nudged = true;
+          await this._nudge(task, resolution);
+          return;
+        }
+        await this._deadEnd(
+          task,
+          "merge: conflict left unresolved",
+          `Merger завершил Ход, не запушив ничего в PR #${task.pullNumber}, и после напоминания снова ничего не запушил: конфликт с \`${this._baseBranch}\` остался.`,
+        );
         return;
       }
     }
@@ -194,6 +235,31 @@ export class Merger {
     this._transition(task.issueNumber, "qa", EXTRA_ROUND_REASON);
     this._log.info({ issue: task.issueNumber }, "merger finished, extra qa round");
     await this._qa.ensureRound(task.issueNumber);
+  }
+
+  // The reminder after a Turn without a push goes into the same Session; the end of the next Turn is
+  // checked again. While new Turns are on hold it waits for `deliverNudges`.
+  private async _nudge(task: Task, resolution: Resolution): Promise<void> {
+    if (!this._canStart()) {
+      resolution.nudgePending = true;
+      this._log.info({ issue: task.issueNumber, agent: resolution.agentId }, "merger reminder held: new Turns are on hold");
+      return;
+    }
+    resolution.nudgePending = false;
+    resolution.settling = false;
+    this._log.info({ issue: task.issueNumber, agent: resolution.agentId }, "merger pushed nothing, reminder sent");
+    try {
+      await this._runner.send(resolution.agentId, mergerNudgeMessage(task), this._askHuman(task.issueNumber));
+    } catch (error) {
+      this._log.error({ err: error, issue: task.issueNumber, agent: resolution.agentId }, "merger reminder not sent");
+      await this._deadEnd(task, "merge: conflict left unresolved", `Merger завершил Ход, не запушив ничего в PR #${task.pullNumber}, а напоминание ему не ушло: конфликт с \`${this._baseBranch}\` остался.`);
+    }
+  }
+
+  // The ask_human handler bound to the Task, for a launch and for a resume of the Session.
+  private _askHuman(issueNumber: IssueNumber): { onAskHuman?: (call: AskHumanCall) => ReturnType<AskHumanHandler> } {
+    const handler = this._onAskHuman;
+    return handler ? { onAskHuman: (call) => handler(this._index.tasks.get(issueNumber), call) } : {};
   }
 
   private async _deadEnd(task: Task, reason: string, text: string): Promise<void> {
@@ -213,3 +279,7 @@ export const redChecksMessage = (task: Task, failure: MergeFailure & { kind: "re
     "",
     `Посмотри логи упавших checks (\`gh pr checks ${task.pullNumber}\`, \`gh run view\`), исправь причину, снова прогони тесты и линт, закоммить и запушь, затем ответь кратким списком «что исправлено».`,
   ].join("\n");
+
+// The reminder into the Merger Session after a Turn that pushed nothing to the pull request.
+export const mergerNudgeMessage = (task: Task): string =>
+  `Ход завершён, но в PR #${task.pullNumber} ничего не запушено. Доведи слияние: дождись тестов в foreground, закоммить и запушь \`${task.branch}\`. Не уводи прогоны в фон.`;

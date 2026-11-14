@@ -12,6 +12,7 @@ import type { Ports } from "../ports/index.js";
 import { WorkspaceCleanup } from "./cleanup.js";
 import { Comments } from "./comments.js";
 import { DeadEnds } from "./dead-end.js";
+import { DeadEndQuestions } from "./dead-end-questions.js";
 import { Dialogue } from "./dialogue.js";
 import { EpicClosure } from "./epic-closure.js";
 import { HumanRequests } from "./human-requests.js";
@@ -107,6 +108,7 @@ export class Orchestrator {
   private readonly _updates: UpdateCoordinator;
   private readonly _restart: RestartDrain;
   private readonly _planner: Planner;
+  private readonly _deadEndQuestions: DeadEndQuestions;
   // Last known state of every issue seen since start; polling applies updates on top.
   private readonly _issues = new Map<IssueNumber, Issue>();
   private readonly _seenComments = new Map<CommentId, string>();
@@ -160,6 +162,7 @@ export class Orchestrator {
       journal: this._intents,
       transition: (issueNumber, to, reason) => this.transition(issueNumber, to, reason),
       postComment: (issueNumber, key, text) => this.postComment(issueNumber, key, text),
+      sessionHistory: (agent) => (agent.sessionId ? this._ports.driver.getSessionHistory(agent.sessionId, { cwd: agent.cwd }) : Promise.resolve([])),
     });
     this._implementation = new Implementation({
       github: this._ports.github,
@@ -307,6 +310,7 @@ export class Orchestrator {
       log: this._log,
       version: options.version ?? "0.0.0",
     });
+    this._deadEndQuestions = new DeadEndQuestions({ index: this._index, runner: this._agents, log: this._log, blocker: () => this._installation.blocker() });
     this._restart = new RestartDrain({ index: this._index, clock: this._ports.clock, installation: this._installation, runner: this._agents, recovery: this._recovery, log: this._log });
   }
 
@@ -380,6 +384,11 @@ export class Orchestrator {
   // Dead ends of any Stage: the Task leaves the Pipeline, the human gets the issue back with the reason.
   get deadEnds(): DeadEnds {
     return this._deadEnds;
+  }
+
+  // Questions of the human to the Agent of the last step of a Task in a dead end: one Turn, no transition.
+  get deadEndQuestions(): DeadEndQuestions {
+    return this._deadEndQuestions;
   }
 
   // Whether a new Turn (a new QA round, a resumed Session) may start now; the Pause, the limit of
@@ -533,6 +542,7 @@ export class Orchestrator {
     await this._prepareTaken();
     await this._startImplementers();
     await this._qa.startRounds();
+    await this._merger.deliverNudges();
     await this._merge.startMerges();
     await this._fillSlots();
     await this._epicClosure.sweep();

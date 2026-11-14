@@ -1,4 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { findDeadEndQuestion } from "../../src/orchestrator/dead-end-question-prompt.js";
 
 // The feed of one Agent as the panel renders it, built from `SDKMessage`s of the history and the
 // live stream alike. Items are flat and ordered; `parent` nests a subagent's items under the
@@ -111,7 +112,26 @@ export const childrenOf = (items: FeedItem[], parent: string): FeedItem[] => ite
 
 export const topLevelOf = (items: FeedItem[]): FeedItem[] => items.filter((item) => item.parent === null);
 
+// The human's question to a dead-end Agent, shown before the SDK sends anything back: the stream does
+// not echo the prompt, only the history has it. The history copy replaces this one on the next load.
+export const LOCAL_PREFIX = "local:";
+
+export function appendLocalQuestion(previous: FeedState, text: string): FeedState {
+  const id = `${LOCAL_PREFIX}${previous.items.length}:${Date.now()}`;
+  return { ...previous, items: [...previous.items, { kind: "user", id, parent: null, text }] };
+}
+
 // Internals
+
+// A user message as the human wrote it: the note in front of a dead-end question is for the Agent.
+const humanTextOf = (text: string): string => findDeadEndQuestion(text) ?? text;
+
+function pushUser(state: FeedState, id: string, parent: string | null, raw: string): void {
+  const text = humanTextOf(raw);
+  const local = state.items.findIndex((item) => item.kind === "user" && item.id.startsWith(LOCAL_PREFIX) && item.text === text);
+  if (local >= 0) state.items.splice(local, 1);
+  state.items.push({ kind: "user", id, parent, text });
+}
 
 function pushSystem(state: FeedState, id: string, parent: string | null, text: string, level: SystemItem["level"]): void {
   state.items.push({ kind: "system", id, parent, text, level });
@@ -189,7 +209,7 @@ function applyUser(state: FeedState, message: Extract<SDKMessage, { type: "user"
     return;
   }
   if (typeof content === "string") {
-    if (content.trim() !== "") state.items.push({ kind: "user", id, parent, text: content });
+    if (content.trim() !== "") pushUser(state, id, parent, content);
     return;
   }
   const blocks = blocksOf(content);
@@ -206,7 +226,7 @@ function applyUser(state: FeedState, message: Extract<SDKMessage, { type: "user"
         state.items.push({ kind: "tool", id: block.tool_use_id, parent, name: "tool", input: null, partialJson: "", result, isError, streaming: false, subagent: null });
       }
     } else if (block.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
-      state.items.push({ kind: "user", id: `${id}:${i}`, parent, text: block.text });
+      pushUser(state, `${id}:${i}`, parent, block.text);
     }
   });
 }

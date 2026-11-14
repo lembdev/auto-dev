@@ -1,6 +1,6 @@
 import type { IssueNumber, PendingMessageId, PlannerLineId } from "../../src/ids.js";
 import { QueryCache, QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AgentHistoryResponse, CancelResponse, DialogueResponse, DigestResponse, InstallationResponse, InterruptResponse, LimitHistoryResponse, LogsResponse, ModelsResponse, PauseRequest, PlannerResponse, RemoveDialogueResponse, RemovePlannerLineResponse, SessionResponse, SettingsRequest, SettingsResponse, SetupAccessResponse, SetupSmokeResponse, SetupStatus, StartPlannerRequest, StatsPeriodDays, StatsResponse, TasksResponse } from "../../src/server/api-types.js";
+import type { AgentHistoryResponse, AskAgentRequest, AskAgentResponse, CancelResponse, DialogueResponse, DigestResponse, InstallationResponse, InterruptResponse, LimitHistoryResponse, LogsResponse, ModelsResponse, PauseRequest, PlannerResponse, RemoveDialogueResponse, RemovePlannerLineResponse, SessionResponse, SettingsRequest, SettingsResponse, SetupAccessResponse, SetupSmokeResponse, SetupStatus, StartPlannerRequest, StatsPeriodDays, StatsResponse, TasksResponse } from "../../src/server/api-types.js";
 import { api, ApiError } from "./api.js";
 
 export const KEYS = {
@@ -167,6 +167,15 @@ export const fetchAgentHistory = (issueNumber: number, agentId: number) => api<A
 // "Остановить ход": the Turn is interrupted, the Session stays; the card follows the `agent` event.
 export function useInterrupt() {
   return useMutation({ mutationFn: (issueNumber: number) => api<InterruptResponse>(`/api/tasks/${issueNumber}/agent/interrupt`, { method: "POST" }) });
+}
+
+// A question to the Agent of a Task in a dead end: its answer streams into the feed, the card follows the `agent` event.
+export function useAskAgent(issueNumber: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (text: string) => api<AskAgentResponse>(`/api/tasks/${issueNumber}/agent/ask`, { method: "POST", json: { text } satisfies AskAgentRequest }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: KEYS.tasks }),
+  });
 }
 
 // "Отменить задачу": the issue is closed and the Task leaves the list of Tasks in progress.

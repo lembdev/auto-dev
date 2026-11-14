@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { sdkMessages } from "../../src/fakes/sdk-messages.js";
 import type { SessionId } from "../../src/ids.js";
-import { applyMessage, applyMessages, childrenOf, emptyFeed, toolHead, topLevelOf, type ToolItem } from "./feed.js";
+import { deadEndQuestionPrompt } from "../../src/orchestrator/dead-end-question-prompt.js";
+import { appendLocalQuestion, applyMessage, applyMessages, childrenOf, emptyFeed, toolHead, topLevelOf, type ToolItem } from "./feed.js";
 
 const S = "11111111-1111-4111-8111-111111111111" as SessionId;
 
@@ -117,5 +118,18 @@ describe("the feed built from SDK messages", () => {
     const twice = applyMessage(once, greeting);
     expect(twice).toBe(once);
     expect(twice.items).toHaveLength(1);
+  });
+
+  it("shows a question to a dead-end Agent as the human wrote it, without the note for the Agent", () => {
+    const feed = applyMessages(emptyFeed(), [sdkMessages.assistantText(S, "Stopped."), sdkMessages.userText(S, deadEndQuestionPrompt("Почему не запушил?"))]);
+    expect(feed.items.at(-1)).toMatchObject({ kind: "user", text: "Почему не запушил?" });
+  });
+
+  it("shows the question right away and swaps it for the copy from the Session", () => {
+    const local = appendLocalQuestion(applyMessages(emptyFeed(), [sdkMessages.assistantText(S, "Stopped.")]), "Почему не запушил?");
+    expect(local.items.at(-1)).toMatchObject({ kind: "user", text: "Почему не запушил?" });
+    const synced = applyMessage(local, sdkMessages.userText(S, deadEndQuestionPrompt("Почему не запушил?")));
+    expect(synced.items.filter((item) => item.kind === "user")).toHaveLength(1);
+    expect(synced.items.at(-1)?.id.startsWith("local:")).toBe(false);
   });
 });

@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { applyMessage, applyMessages, emptyFeed, type FeedState } from "./feed.js";
+import { appendLocalQuestion, applyMessage, applyMessages, emptyFeed, type FeedState } from "./feed.js";
 import { liveFeeds } from "./live.js";
 import type { AgentHistoryResponse } from "../../src/server/api-types.js";
 import { fetchAgentHistory } from "./queries.js";
 
 export type FeedStatus = "loading" | "live" | "error";
 
-export type AgentFeedHook = { feed: FeedState; status: FeedStatus; error: string | null };
+export type AgentFeedHook = {
+  feed: FeedState;
+  status: FeedStatus;
+  error: string | null;
+  // Shows a question the server took into the Session right away, before the Agent answers.
+  addLocalQuestion: (text: string) => void;
+};
 
 // The feed of one Agent of a Task: the Session history first, then the live stream from the seam
 // the server named. It stays on that Agent when the Task moves on to the next one.
@@ -53,5 +59,11 @@ export function useSessionFeed(key: string, agentId: number | null, load: () => 
     // `load` is a new closure every render; `key` names what it loads.
   }, [key, agentId]);
 
-  return { feed, status, error };
+  const addLocalQuestion = (text: string) => {
+    const next = appendLocalQuestion(current.current, text);
+    current.current = next;
+    setFeed(next);
+  };
+
+  return { feed, status, error, addLocalQuestion };
 }

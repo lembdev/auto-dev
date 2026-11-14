@@ -113,12 +113,31 @@ describe("TaskCard", () => {
 
 describe("StuckCard", () => {
   it("shows the reason and the ready-for-human badge", () => {
-    const stuck: StuckTaskView = { ...task({ stage: "stuck", agent: { id: 5 as AgentId, role: "qa", state: "stopped", lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" } }), reason: "QA Круги исчерпаны (3 из 3)", finishedAt: "2026-01-01T11:30:00.000Z" };
+    const stuck: StuckTaskView = { ...task({ stage: "stuck", agent: { id: 5 as AgentId, role: "qa", state: "stopped", lastTurnAt: null, createdAt: "2026-01-01T10:00:00.000Z" } }), reason: "QA Круги исчерпаны (3 из 3)", finishedAt: "2026-01-01T11:30:00.000Z", lastMessage: null };
     render(<StuckCard task={stuck} now={NOW} />);
     const card = screen.getByTestId("stuck-138");
     expect(card).toHaveTextContent("ready-for-human");
     expect(screen.getByTestId("stuck-reason")).toHaveTextContent("QA Круги исчерпаны (3 из 3)");
     expect(card).toHaveTextContent("30 мин назад");
+    expect(screen.queryByTestId("stuck-last-message")).toBeNull();
+  });
+
+  it("quotes the last message of the Agent under the reason, clamped until expanded", () => {
+    const text = ["Конфликт разрешён.", "Запустил e2e в фоне.", "Тесты идут.", "Жду уведомления монитора."].join("\n");
+    const stuck: StuckTaskView = {
+      ...task({ stage: "stuck", agent: null }),
+      reason: "merge: conflict left unresolved",
+      finishedAt: "2026-01-01T11:30:00.000Z",
+      lastMessage: { agentId: 9 as AgentId, role: "merger", text },
+    };
+    render(<StuckCard task={stuck} now={NOW} />);
+    const quote = screen.getByTestId("stuck-last-message");
+    expect(quote).toHaveTextContent("Последнее сообщение Merger:");
+    expect(quote).toHaveTextContent("Жду уведомления монитора.");
+    expect(quote.querySelector("blockquote")).toHaveClass("line-clamp-3");
+    fireEvent.click(screen.getByRole("button", { name: "показать полностью" }));
+    expect(quote.querySelector("blockquote")).not.toHaveClass("line-clamp-3");
+    expect(screen.getByRole("button", { name: "свернуть" })).toHaveAttribute("aria-expanded", "true");
   });
 });
 

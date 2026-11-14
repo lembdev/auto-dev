@@ -7,6 +7,7 @@ import { AGENT_LABELS } from "../format.js";
 import type { PipelineNode } from "../pipeline.js";
 import { useCancelTask, useInterrupt } from "../queries.js";
 import { AgentFeed } from "./AgentFeed.js";
+import { DeadEndQuestionBox } from "./DeadEndQuestionBox.js";
 import { DialogueBox } from "./DialogueBox.js";
 import { RequestBlock } from "./RequestBlock.js";
 import { Badge, Banner, Button, CloseIcon, LINK } from "./ui.js";
@@ -25,16 +26,22 @@ export type AgentPanelProps = {
   // Request of the Task and its Dialogue, both over the outbox of the tab.
   requestSlot?: ReactNode;
   dialogueSlot?: ReactNode;
+  // The question to the Agent of the last step in the footer of a Task in a dead end.
+  questionSlot?: ReactNode;
 };
 
 // The live step shares its Session with the opened one: then the Dialogue and the buttons apply to it.
 export const isInteractive = (node: PipelineNode, liveNode: PipelineNode | undefined): boolean =>
   liveNode !== undefined && node.agent !== null && liveNode.agent?.id === node.agent.id;
 
+// The opened step is the last one of a Task in a dead end: its Agent can be asked what went wrong.
+export const isDeadEndStep = (task: TaskView, node: PipelineNode): boolean =>
+  task.stage === "stuck" && node.agent !== null && task.agent?.id === node.agent.id;
+
 // The side panel of one step of a Task: the Request if there is one, the Session feed, the Dialogue,
 // the buttons. Data and actions come from the hooks; `AgentPanelView` below is the part the tests render.
 export function AgentPanel(props: AgentPanelProps) {
-  const { task, node, liveNode, answering, onClose, requestSlot, dialogueSlot } = props;
+  const { task, node, liveNode, answering, onClose, requestSlot, dialogueSlot, questionSlot } = props;
   const feed = useAgentFeed(task.issueNumber, node.agent?.id ?? null);
   const interrupt = useInterrupt();
   const cancel = useCancelTask();
@@ -52,6 +59,8 @@ export function AgentPanel(props: AgentPanelProps) {
       />
     ) : undefined);
   const dialogueBox = dialogueSlot ?? (interactive ? <DialogueBox issueNumber={task.issueNumber} outbox={outbox} /> : undefined);
+  const questionBox =
+    questionSlot ?? (isDeadEndStep(task, node) ? <DeadEndQuestionBox issueNumber={task.issueNumber} answering={task.agent?.state === "running"} onAsked={feed.addLocalQuestion} /> : undefined);
   return (
     <AgentPanelView
       {...props}
@@ -66,6 +75,7 @@ export function AgentPanel(props: AgentPanelProps) {
       cancelError={cancel.error?.message ?? null}
       {...(requestBlock !== undefined ? { requestSlot: requestBlock } : {})}
       {...(dialogueBox !== undefined ? { dialogueSlot: dialogueBox } : {})}
+      {...(questionBox !== undefined ? { questionSlot: questionBox } : {})}
     />
   );
 }
@@ -86,9 +96,11 @@ export function AgentPanelView(props: AgentPanelViewProps) {
   const { task, node, liveNode, onClose } = props;
   const [confirming, setConfirming] = useState(false);
   const interactive = isInteractive(node, liveNode);
+  const deadEnd = isDeadEndStep(task, node);
   // The state of the opened Agent as the Task reports it now, fresher than the node's copy.
   const agent = task.agent?.id === node.agent?.id ? task.agent : node.agent;
-  const running = interactive && agent?.state === "running";
+  // A Turn runs during the work and while the Agent of a dead end answers a question.
+  const running = (interactive || deadEnd) && agent?.state === "running";
   const active = liveNode !== undefined;
   const dialogRef = useRef<HTMLDivElement>(null);
   // The drawer takes the focus when it opens (Tab then walks its controls), unless the Request field asked for it.
@@ -105,7 +117,7 @@ export function AgentPanelView(props: AgentPanelViewProps) {
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
             <Badge tone="accent">{node.title}</Badge>
-            {interactive && agent ? (
+            {(interactive || running) && agent ? (
               <Badge tone={agent.state === "running" ? "ok" : agent.state === "waiting" ? "warn" : "neutral"} dot>
                 {AGENT_LABELS[agent.state]}
               </Badge>
@@ -142,6 +154,7 @@ export function AgentPanelView(props: AgentPanelViewProps) {
       <AgentFeed feed={props.feed} status={props.feedStatus} error={props.feedError} />
       <div className="flex flex-col gap-2.5 border-t border-line bg-surface-2/60 px-4 py-3 text-sm">
         {interactive && props.dialogueSlot}
+        {deadEnd && props.questionSlot}
         {confirming && (
           <div className="rounded-lg border border-danger/50 bg-danger-soft p-3 text-xs" data-testid="cancel-confirm" role="alertdialog" aria-label="Отмена Задачи">
             Отменить Задачу #{task.issueNumber}? Issue будет закрыта без влитого PR, Агент погашен, worktree и PR убраны.
@@ -177,9 +190,15 @@ export function AgentPanelView(props: AgentPanelViewProps) {
               Не остановлено: {props.interruptError}
             </span>
           )}
-          <span className="text-xs text-muted">{interactive ? "Другого ручного управления нет" : "Лог завершённого шага, только чтение"}</span>
+          <span className="text-xs text-muted">{footerNote(interactive, deadEnd)}</span>
         </div>
       </div>
     </div>
   );
 }
+
+const footerNote = (interactive: boolean, deadEnd: boolean): string => {
+  if (interactive) return "Другого ручного управления нет";
+  if (deadEnd) return "Задача в Тупике: вопрос не возобновляет работу, Агент отвечает одним Ходом";
+  return "Лог завершённого шага, только чтение";
+};
