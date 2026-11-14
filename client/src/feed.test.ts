@@ -112,6 +112,27 @@ describe("the feed built from SDK messages", () => {
     expect(childrenOf(feed.items, "toolu_sub").map((item) => item.kind)).toEqual(["tool", "text"]);
   });
 
+  it("keeps a background shell a plain step and shows its end on the call", () => {
+    const feed = applyMessages(emptyFeed(), [
+      sdkMessages.assistantToolUse(S, "toolu_bg", "Bash", { command: "npm test", run_in_background: true }),
+      sdkMessages.backgroundTaskStarted(S, "toolu_bg", "npm test"),
+      sdkMessages.toolResult(S, "toolu_bg", "Command running in background"),
+      sdkMessages.taskNotification(S, "toolu_bg", "npm test", "failed"),
+    ]);
+    expect(feed.items).toHaveLength(1);
+    expect(feed.items[0]).toMatchObject({ kind: "tool", id: "toolu_bg", subagent: null, isError: true });
+  });
+
+  it("does not repeat the end of a subagent as a line inside it", () => {
+    const feed = applyMessages(emptyFeed(), [
+      sdkMessages.assistantToolUse(S, "toolu_sub", "Agent", { description: "Find the callers", prompt: "..." }),
+      sdkMessages.taskStarted(S, "toolu_sub", "Find the callers", "Explore"),
+      sdkMessages.toolResult(S, "toolu_sub", "Two callers"),
+      sdkMessages.taskNotification(S, "toolu_sub", "Find the callers"),
+    ]);
+    expect(feed.items.map((item) => item.kind)).toEqual(["tool"]);
+  });
+
   it("applies a message only once, however many times the history and the live stream repeat it", () => {
     const greeting = sdkMessages.assistantText(S, "Hello");
     const once = applyMessage(emptyFeed(), greeting);

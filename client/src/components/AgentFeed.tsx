@@ -396,7 +396,13 @@ function SubagentBlock({ item, all }: { item: ToolItem; all: FeedItem[] }) {
   return (
     <div className="rounded-lg border border-accent/30 bg-accent-soft/40" data-testid="feed-subagent">
       <div className="flex items-center gap-2 border-b border-accent/20 px-3 py-1.5 text-xs text-muted">
-        {running ? <Spinner className="h-3 w-3 text-accent" /> : <AgentIcon className="h-3.5 w-3.5 text-accent" />}
+        {item.isError ? (
+          <span className="h-2 w-2 rounded-full bg-danger" aria-label="ошибка" />
+        ) : running ? (
+          <Spinner className="h-3 w-3 text-accent" />
+        ) : (
+          <AgentIcon className="h-3.5 w-3.5 text-accent" />
+        )}
         <span>
           сабагент <b className="text-fg">{label}</b>: {description}
         </span>

@@ -325,19 +325,31 @@ function applySystem(state: FeedState, message: Extract<SDKMessage, { type: "sys
       pushSystem(state, id, null, `повтор запроса к API: попытка ${message.attempt} из ${message.max_retries} через ${Math.round(message.retry_delay_ms / 1000)} с (${message.error}${message.error_status !== null ? `, ${message.error_status}` : ""})`, "warn");
       return;
     case "task_started": {
+      if (message.skip_transcript === true) return;
+      // Background shells and monitors start tasks too; only an agent nests the feed under its call.
+      const isAgent = message.task_type !== undefined ? message.task_type === "local_agent" : message.subagent_type !== undefined;
       const toolUseId = message.tool_use_id;
       const index = toolUseId !== undefined ? findIndex(state, toolUseId) : -1;
       if (index >= 0) {
+        if (!isAgent) return;
         const tool = state.items[index] as ToolItem;
         replace(state, index, { ...tool, subagent: { type: message.subagent_type ?? null, description: message.description } });
-      } else {
+      } else if (isAgent) {
         pushSystem(state, id, null, `сабагент ${message.subagent_type ?? ""}: ${message.description}`, "info");
       }
       return;
     }
-    case "task_notification":
-      pushSystem(state, id, message.tool_use_id ?? null, `сабагент завершён (${message.status}): ${message.summary}`, message.status === "failed" ? "warn" : "info");
+    case "task_notification": {
+      // A task whose call is in the feed shows its end on that call; a foreign one gets a line of its own.
+      const index = message.tool_use_id !== undefined ? findIndex(state, message.tool_use_id) : -1;
+      if (index >= 0) {
+        const tool = state.items[index] as ToolItem;
+        if (message.status !== "completed") replace(state, index, { ...tool, isError: true });
+        return;
+      }
+      pushSystem(state, id, null, `задача завершена (${message.status}): ${message.summary}`, message.status === "failed" ? "warn" : "info");
       return;
+    }
     default:
       return;
   }

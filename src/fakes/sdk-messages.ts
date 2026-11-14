@@ -12,6 +12,7 @@ type StreamEvent = Extract<SDKMessage, { type: "stream_event" }>;
 type User = SDKUserMessage;
 type CompactBoundary = Extract<SDKMessage, { type: "system"; subtype: "compact_boundary" }>;
 type TaskStarted = Extract<SDKMessage, { type: "system"; subtype: "task_started" }>;
+type TaskNotification = Extract<SDKMessage, { type: "system"; subtype: "task_notification" }>;
 type ContentBlock = Assistant["message"]["content"][number];
 
 // Streaming deltas are typed loosely in the SDK; the builders assemble them from plain objects.
@@ -160,6 +161,34 @@ export const sdkMessages = {
       tool_use_id: toolUseId,
       description,
       subagent_type: subagentType,
+      uuid: uuid(),
+      session_id: sessionId,
+    };
+  },
+
+  backgroundTaskStarted(sessionId: SessionId, toolUseId: string, description: string): TaskStarted {
+    return {
+      type: "system",
+      subtype: "task_started",
+      task_id: `task_${toolUseId}`,
+      tool_use_id: toolUseId,
+      description,
+      task_type: "local_bash",
+      is_backgrounded: true,
+      uuid: uuid(),
+      session_id: sessionId,
+    };
+  },
+
+  taskNotification(sessionId: SessionId, toolUseId: string, summary: string, status: TaskNotification["status"] = "completed"): TaskNotification {
+    return {
+      type: "system",
+      subtype: "task_notification",
+      task_id: `task_${toolUseId}`,
+      tool_use_id: toolUseId,
+      status,
+      output_file: "",
+      summary,
       uuid: uuid(),
       session_id: sessionId,
     };
