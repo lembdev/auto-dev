@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ctDefault, readRepoFile, repoRoot } from "./helpers.js";
 
 const CORE_SHA = /^[0-9a-f]{40}$/;
-const SCRIPTS = ["ct/auto-dev.sh", "install/auto-dev-install.sh", "scripts/package-release.sh", "deploy/auto-dev-update.sh", "deploy/update"];
+const SCRIPTS = ["ct/auto-dev.sh", "install/auto-dev-install.sh", "scripts/package-release.sh", "scripts/next-version.sh", "deploy/auto-dev-update.sh", "deploy/update"];
 
 const hasShellcheck = spawnSync("shellcheck", ["--version"], { stdio: "ignore" }).status === 0;
 

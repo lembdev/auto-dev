@@ -1,46 +1,83 @@
 name: release
 
+# Every push to main releases itself when its Conventional Commits call for it (scripts/next-version.sh):
+# the workflow bumps package.json, commits `chore: release X.Y.Z`, tags vX.Y.Z and publishes the GitHub
+# Release with the archive. The push made with GITHUB_TOKEN starts no further workflow runs.
 on:
   push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+*"
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+# Runs queue instead of racing, and each one starts from the newest main, so a later run sees the tag of the
+# earlier one and releases only what came after it.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Compute the next version
+        id: version
+        run: |
+          next="$(scripts/next-version.sh)"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          if [[ -z "$next" ]]; then
+            echo "No feat, fix, perf or breaking commit since the last release: nothing to publish."
+          else
+            scripts/next-version.sh --notes > "$RUNNER_TEMP/notes.md"
+            echo "Releasing $next"
+          fi
 
       - uses: actions/setup-node@v4
+        if: steps.version.outputs.next != ''
         with:
           node-version: 22
           cache: npm
 
-      - name: Check that the tag matches package.json
-        run: |
-          version="$(node -p "require('./package.json').version")"
-          if [[ "$GITHUB_REF_NAME" != "v${version}" ]]; then
-            echo "tag ${GITHUB_REF_NAME} does not match package.json version ${version}" >&2
-            exit 1
-          fi
+      - name: Bump package.json
+        if: steps.version.outputs.next != ''
+        run: npm version "${{ steps.version.outputs.next }}" --no-git-tag-version
 
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run build
-      - run: npm test
+      - name: Build and test
+        if: steps.version.outputs.next != ''
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+          npm test
 
       - name: Package the release
+        if: steps.version.outputs.next != ''
         run: scripts/package-release.sh --out release
 
+      - name: Commit, tag and push
+        if: steps.version.outputs.next != ''
+        env:
+          VERSION: ${{ steps.version.outputs.next }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898828+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore: release $VERSION"
+          git tag "v$VERSION"
+          # Atomic: either main and the tag both move or neither does. A rejected push means main moved on;
+          # the run queued for that newer push releases everything instead.
+          git push --atomic origin HEAD:main "v$VERSION"
+
       - name: Publish the GitHub Release
+        if: steps.version.outputs.next != ''
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: |
-          flags=(--title "$GITHUB_REF_NAME" --generate-notes)
-          # A tag with a suffix (v1.2.0-rc1) is a pre-release: the installer only ever takes the release marked latest.
-          [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" release/*.tar.gz "${flags[@]}"
+          VERSION: ${{ steps.version.outputs.next }}
+        run: gh release create "v$VERSION" release/*.tar.gz --title "v$VERSION" --notes-file "$RUNNER_TEMP/notes.md" --latest

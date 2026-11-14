@@ -53,13 +53,15 @@ Community Scripts (`community-scripts/core`, MIT), запинен в `ct/auto-de
 
 ## Релизы
 
-Версия приложения живёт в `package.json` и отдаётся в `GET /api/health`. Релиз: поднять версию, закоммитить,
-поставить тег `vX.Y.Z` (ровно `v` + версия из `package.json`) и запушить его. Workflow
-`.github/workflows/release.yml` по тегу делает `npm ci`, typecheck, build, test, собирает архив
+Версия приложения живёт в `package.json` и отдаётся в `GET /api/health`. Релизы выпускаются автоматически:
+workflow `.github/workflows/release.yml` запускается на каждый push в `main` (и вручную через `workflow_dispatch`)
+и считает версию по Conventional Commits с последнего тега `vX.Y.Z` (`scripts/next-version.sh`): `feat!:` или
+футер `BREAKING CHANGE:` поднимают major, `feat` minor, `fix` и `perf` patch, остальные типы релиз не создают.
+Если релиз нужен, workflow поднимает версию в `package.json`, делает `npm ci`, typecheck, build, test, собирает архив
 `auto-dev-X.Y.Z.tar.gz` (`scripts/package-release.sh`: `dist/`, `prompts/`, `deploy/`, `package.json`,
-`package-lock.json`, `README.md` и production `node_modules` через `npm ci --omit=dev --omit=optional`) и
-публикует GitHub Release с этим архивом; тег с суффиксом (`v1.2.0-rc1`) публикуется как pre-release, установщик
-берёт только релиз, помеченный latest. Архив не зависит от платформы сборки: argon2 несёт prebuilds для linux
+`package-lock.json`, `README.md` и production `node_modules` через `npm ci --omit=dev --omit=optional`), коммитит
+`chore: release X.Y.Z` в `main` вместе с тегом `vX.Y.Z` и публикует GitHub Release (latest) с архивом и списком
+изменений. Руками версию и теги не трогать; установщик берёт только релиз, помеченный latest. Архив не зависит от платформы сборки: argon2 несёт prebuilds для linux
 x64 и arm64 внутри пакета, а платформенные бинарники `claude` из optional-зависимостей Agent SDK не нужны, потому
 что Установка запускает системный `claude`. Локально: `npm run build && scripts/package-release.sh --out release`.
 
@@ -363,4 +365,4 @@ npm run smoke:driver -- idle                       # AgentRunner гасит пр
   установщика (`bash -n`, shellcheck, если он есть в PATH), unit и sudo-правила из `deploy/` и состав архива релиза.
 - `ct/`, `install/`: Установщик в стиле Proxmox VE Community Scripts (ct-скрипт с `update_script()` и install-скрипт,
   который исполняется внутри контейнера); `deploy/`: systemd unit и sudo-правила, попадают в архив релиза;
-  `scripts/package-release.sh`: сборка архива; `.github/workflows/release.yml`: публикация релиза по тегу.
+  `scripts/package-release.sh`: сборка архива; `scripts/next-version.sh`: версия следующего релиза; `.github/workflows/release.yml`: автоматический релиз из `main`.
