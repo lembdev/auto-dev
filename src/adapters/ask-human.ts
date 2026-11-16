@@ -16,6 +16,10 @@ export type AskHumanInput = {
   source?: string | undefined;
 };
 
+// Who answered, as the Agent reads it after the Answer; the UI parses these lines back.
+export const UI_ANSWER_SOURCE = "the human in the auto-dev UI";
+export const githubAnswerSource = (author: string, url: string): string => `${author} in GitHub comment ${url}`;
+
 export const NO_ANSWER_TEXT = "No answer from the human yet.";
 
 // Text the Agent receives as the tool result once the Answer is delivered.

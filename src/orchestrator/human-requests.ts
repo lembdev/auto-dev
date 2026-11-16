@@ -1,4 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { githubAnswerSource, UI_ANSWER_SOURCE } from "../adapters/ask-human.js";
 import type { AgentRunner } from "../agents/agent-runner.js";
 import type { CommentId, HumanRequestId, IssueNumber, PendingMessageId, ToolUseId } from "../ids.js";
 import type { AgentRecord, AgentRole } from "../index/agents.js";
@@ -66,9 +67,9 @@ export function parseRequestComment(body: string): RequestText | undefined {
 }
 
 // The one line "who and from where" the Agent sees next to the Answer.
-export const answerSourceLine = (comment: IssueComment): string => `${comment.author} in GitHub comment ${comment.htmlUrl}`;
+export const answerSourceLine = (comment: IssueComment): string => githubAnswerSource(comment.author, comment.htmlUrl);
 
-export const UI_ANSWER_SOURCE = "the human in the auto-dev UI";
+export { UI_ANSWER_SOURCE };
 
 // Key of the comment that mirrors an Answer from the UI: one per frame, so a retry finds it posted.
 export const uiAnswerCommentKey = (clientId: string, seq: number): string => `answer:${clientId}:${seq}`;

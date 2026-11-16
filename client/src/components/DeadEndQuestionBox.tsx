@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { IssueNumber } from "../../../src/ids.js";
 import { useAskAgent } from "../queries.js";
-import { Badge, Button, cx, INPUT } from "./ui.js";
+import { Composer } from "./Composer.js";
+import { Badge } from "./ui.js";
 
 export type DeadEndQuestionBoxProps = {
   issueNumber: IssueNumber;
@@ -50,30 +51,19 @@ export function DeadEndQuestionBoxView(props: DeadEndQuestionBoxViewProps) {
   };
   return (
     <div className="flex flex-col gap-2" data-testid="dead-end-question">
-      <form
-        className="flex items-end gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          submit();
-        }}
-      >
-        <textarea
-          className={cx(INPUT, "min-h-[2.75rem] flex-1 resize-y")}
-          rows={2}
-          aria-label="Вопрос Агенту"
-          placeholder="Спросить Агента, что пошло не так (⌘/Ctrl+Enter): Задача останется в Тупике"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit();
-          }}
-        />
-        <Button type="submit" variant="primary" disabled={text.trim() === "" || busy}>
-          Спросить
-        </Button>
-      </form>
+      <Composer
+        value={text}
+        onChange={setText}
+        onSubmit={submit}
+        label="Вопрос Агенту"
+        submitLabel="Спросить"
+        placeholder="Спросить Агента, что пошло не так…"
+        disabled={busy}
+        busy={busy}
+        hint="Задача останется в Тупике: Агент ответит одним Ходом в ленту выше"
+      />
       {busy && (
-        <div className="flex items-center gap-2 text-xs text-muted" role="status">
+        <div className="flex items-center gap-2 px-3 text-xs text-muted" role="status">
           <Badge tone={props.answering ? "ok" : "neutral"} dot={props.answering} className="italic">
             {props.answering ? "Агент отвечает…" : "отправляется…"}
           </Badge>
@@ -81,7 +71,7 @@ export function DeadEndQuestionBoxView(props: DeadEndQuestionBoxViewProps) {
         </div>
       )}
       {props.error && (
-        <div className="text-xs text-danger-text" role="alert">
+        <div className="px-3 text-xs text-danger-text" role="alert">
           Вопрос не отправлен: {props.error}
         </div>
       )}

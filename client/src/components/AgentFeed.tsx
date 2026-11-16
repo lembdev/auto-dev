@@ -1,61 +1,129 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { splitVerdict, type Verdict } from "../../../src/orchestrator/verdict.js";
 import { MarkdownText } from "./MarkdownText.js";
-import { Spinner, cx } from "./ui.js";
-import { childrenOf, formatInput, toolHead, topLevelOf, type FeedItem, type FeedState, type SystemItem, type ThinkingItem, type ToolItem } from "../feed.js";
+import { LINK, Spinner, cx } from "./ui.js";
+import {
+  askHumanOf,
+  childrenOf,
+  formatInput,
+  isAskHumanTool,
+  toolHead,
+  topLevelOf,
+  type AnswerSource,
+  type AskHumanView,
+  type FeedItem,
+  type FeedState,
+  type SystemItem,
+  type ThinkingItem,
+  type ToolItem,
+} from "../feed.js";
 
 export type AgentFeedProps = {
   feed: FeedState;
   status: "loading" | "live" | "error";
   error: string | null;
+  // The Agent is running a Turn: the feed ends with a "working" line while nothing streams.
+  working?: boolean;
 };
 
-// The panel reads as a conversation: the Agent's prose, and between it the steps it took, gathered
-// into one card per run of tool calls and thoughts. A step unfolds into its input and its result.
-export function AgentFeed({ feed, status, error }: AgentFeedProps) {
+// The panel reads as a chat: the Agent's prose on the left, the human's messages and Answers as bubbles
+// on the right, questions to the human as cards of their own, and between them the steps the Agent
+// took, gathered into one foldable group per run of tool calls and thoughts.
+export function AgentFeed({ feed, status, error, working = false }: AgentFeedProps) {
   const container = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  const [detached, setDetached] = useState(false);
   const count = feed.items.length;
 
   useEffect(() => {
     const element = container.current;
     if (!element || !stickToBottom.current) return;
     element.scrollTop = element.scrollHeight;
-  }, [count, feed]);
+  }, [count, feed, working]);
 
   const onScroll = () => {
     const element = container.current;
     if (!element) return;
     stickToBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 40;
+    setDetached(!stickToBottom.current);
+  };
+
+  const toBottom = () => {
+    const element = container.current;
+    if (!element) return;
+    stickToBottom.current = true;
+    setDetached(false);
+    element.scrollTo({ top: element.scrollHeight, behavior: "smooth" });
   };
 
   const top = topLevelOf(feed.items);
   const first = top[0];
   const prompt = first?.kind === "user" ? first : undefined;
   const rest = prompt ? top.slice(1) : top;
+  const streaming = feed.items.some((item) => (item.kind === "text" || item.kind === "thinking" || item.kind === "tool") && item.streaming);
 
   return (
-    <div ref={container} onScroll={onScroll} className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-4 py-3" data-testid="agent-feed" data-status={status}>
-      {status === "loading" && <div className="text-xs text-muted">Загрузка истории Сессии…</div>}
-      {status === "error" && (
-        <div className="text-xs text-danger-text" role="alert">
-          История не загружена: {error}
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div ref={container} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto" data-testid="agent-feed" data-status={status}>
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-4">
+          {status === "loading" && (
+            <div className="flex items-center gap-2 text-xs text-muted">
+              <Spinner className="h-3 w-3" /> Загрузка истории Сессии…
+            </div>
+          )}
+          {status === "error" && (
+            <div className="text-xs text-danger-text" role="alert">
+              История не загружена: {error}
+            </div>
+          )}
+          {status === "live" && count === 0 && !working && <div className="py-10 text-center text-sm text-muted">Сессия пока пуста.</div>}
+          {prompt && <LaunchPrompt text={prompt.text} />}
+          <FeedList items={rest} all={feed.items} live={working} />
+          {working && !streaming && <WorkingRow />}
         </div>
+      </div>
+      {detached && (
+        <button
+          type="button"
+          onClick={toBottom}
+          aria-label="К последним сообщениям"
+          className="absolute bottom-3 left-1/2 inline-flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-line-strong bg-surface text-muted shadow-md hover:text-fg">
+          <ChevronIcon className="h-4 w-4 rotate-90" />
+        </button>
       )}
-      {status === "live" && count === 0 && <div className="py-8 text-center text-sm text-muted">Сессия пока пуста.</div>}
-      {prompt && <LaunchPrompt text={prompt.text} />}
-      <FeedList items={rest} all={feed.items} />
     </div>
   );
 }
 
-// Steps: tool calls that are not subagents, and thoughts with something to read. A thought the
-// model kept to itself (an empty block with only a signature) has nothing to show and is left out.
+function WorkingRow() {
+  return (
+    <div className="flex items-center gap-2.5 text-xs text-muted" data-testid="feed-working" role="status">
+      <AgentAvatar />
+      <span className="inline-flex gap-1" aria-hidden>
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:-0.3s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:-0.15s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted" />
+      </span>
+      Агент работает…
+    </div>
+  );
+}
+
+function AgentAvatar() {
+  return (
+    <span aria-hidden className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent ring-1 ring-accent/25">
+      <AgentIcon className="h-3.5 w-3.5" />
+    </span>
+  );
+}
+
+// Steps: tool calls that are not subagents nor questions to the human, and thoughts with something to
+// read. A thought the model kept to itself (an empty block with only a signature) has nothing to show.
 type Step = ToolItem | ThinkingItem;
 type Segment = { kind: "steps"; id: string; steps: Step[] } | { kind: "item"; item: FeedItem };
 
 const isStep = (item: FeedItem, all: FeedItem[]): item is Step =>
-  (item.kind === "tool" && item.subagent === null && childrenOf(all, item.id).length === 0) || item.kind === "thinking";
+  (item.kind === "tool" && item.subagent === null && !isAskHumanTool(item.name) && childrenOf(all, item.id).length === 0) || item.kind === "thinking";
 
 const isSilentThought = (item: FeedItem): boolean => item.kind === "thinking" && item.text.trim() === "" && !item.streaming;
 
@@ -74,11 +142,16 @@ function segmentsOf(items: FeedItem[], all: FeedItem[]): Segment[] {
   return segments;
 }
 
-function FeedList({ items, all }: { items: FeedItem[]; all: FeedItem[] }) {
+function FeedList({ items, all, live = false }: { items: FeedItem[]; all: FeedItem[]; live?: boolean }) {
+  const segments = segmentsOf(items, all);
   return (
     <>
-      {segmentsOf(items, all).map((segment) =>
-        segment.kind === "steps" ? <StepGroup key={segment.id} steps={segment.steps} /> : <FeedRow key={segment.item.id} item={segment.item} all={all} />,
+      {segments.map((segment, i) =>
+        segment.kind === "steps" ? (
+          <StepGroup key={segment.id} steps={segment.steps} current={live && i === segments.length - 1} />
+        ) : (
+          <FeedRow key={segment.item.id} item={segment.item} all={all} />
+        ),
       )}
     </>
   );
@@ -92,7 +165,7 @@ function FeedRow({ item, all }: { item: FeedItem; all: FeedItem[] }) {
         return (
           <>
             {split.rest !== "" && (
-              <div className="break-words" data-testid="feed-text" data-streaming={false}>
+              <div className="text-[14.5px] leading-relaxed break-words" data-testid="feed-text" data-streaming={false}>
                 <MarkdownText text={split.rest} />
               </div>
             )}
@@ -101,35 +174,109 @@ function FeedRow({ item, all }: { item: FeedItem; all: FeedItem[] }) {
         );
       }
       return (
-        <div className="break-words" data-testid="feed-text" data-streaming={item.streaming}>
+        <div className="text-[14.5px] leading-relaxed break-words" data-testid="feed-text" data-streaming={item.streaming}>
           <MarkdownText text={item.text} />
-          {item.streaming && <span className="animate-pulse text-muted">▍</span>}
+          {item.streaming && <span className="ml-0.5 inline-block h-4 w-[3px] translate-y-0.5 animate-pulse rounded-sm bg-accent" />}
         </div>
       );
     }
     case "user":
-      return (
-        <div className="ml-8 self-end rounded-xl rounded-br-sm bg-accent-soft px-3 py-2 break-words ring-1 ring-accent/20" data-testid="feed-user">
-          <MarkdownText text={item.text} />
-        </div>
-      );
+      return <HumanBubble text={item.text} />;
     case "system":
       return <SystemRow item={item} />;
-    case "tool":
-      return <SubagentBlock item={item} all={all} />;
+    case "tool": {
+      const ask = askHumanOf(item);
+      return ask ? <AskHumanCard item={item} ask={ask} /> : <SubagentBlock item={item} all={all} />;
+    }
     case "thinking":
-      return <StepGroup steps={[item]} />;
+      return <StepGroup steps={[item]} current={false} />;
   }
+}
+
+// A message of the human: a bubble on the right with who wrote it above.
+function HumanBubble({ text, label = "Вы", meta, testId = "feed-user" }: { text: string; label?: ReactNode; meta?: ReactNode; testId?: string }) {
+  return (
+    <div className="flex flex-col items-end gap-1 pl-10" data-testid={testId}>
+      <div className="flex items-center gap-1.5 px-1 text-[11px] font-medium text-muted">
+        {label}
+        {meta}
+      </div>
+      <div className="max-w-full rounded-2xl rounded-tr-md bg-accent px-3.5 py-2 text-[14.5px] leading-relaxed break-words text-accent-fg shadow-sm [&_a]:text-accent-fg [&_blockquote]:border-accent-fg/40 [&_blockquote]:text-accent-fg/80 [&_code]:bg-black/15 [&_pre]:border-accent-fg/20 [&_pre]:bg-black/15">
+        <MarkdownText text={text} />
+      </div>
+    </div>
+  );
+}
+
+const sourceLabel = (source: AnswerSource | null): ReactNode => {
+  if (!source || source.kind === "ui") return null;
+  if (source.kind === "github")
+    return (
+      <>
+        <span>·</span>
+        <a href={source.url} target="_blank" rel="noreferrer" className={LINK}>
+          @{source.author} в GitHub
+        </a>
+      </>
+    );
+  return (
+    <>
+      <span>·</span>
+      <span className="truncate">{source.text}</span>
+    </>
+  );
+};
+
+// A question to the human through `ask_human`: a card with the question and its options, then the
+// Answer as the human's bubble, or a line saying the Agent waits for it.
+function AskHumanCard({ item, ask }: { item: ToolItem; ask: AskHumanView }) {
+  const answered = ask.answer !== null;
+  const failed = item.isError;
+  return (
+    <div className="flex flex-col gap-3" data-testid="feed-ask" data-answered={answered}>
+      <div className={cx("rounded-2xl border px-3.5 py-3", answered ? "border-line bg-surface-2" : failed ? "border-danger/40 bg-danger-soft" : "border-warn-line bg-warn-soft")}>
+        <div className={cx("flex items-center gap-2 text-xs font-semibold", answered ? "text-muted" : failed ? "text-danger-text" : "text-warn")}>
+          <span aria-hidden className={cx("inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold", answered ? "bg-subtle text-muted" : "bg-warn-line text-black")}>
+            ?
+          </span>
+          Агент спрашивает
+          {!answered && !failed && (
+            <span className="ml-auto inline-flex items-center gap-1.5 font-medium">
+              <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-warn-line" />
+              ждёт ответа
+            </span>
+          )}
+          {answered && <span className="ml-auto font-medium text-ok">✓ отвечено</span>}
+        </div>
+        <div className="mt-1.5 text-[14.5px] leading-snug font-semibold break-words" data-testid="feed-ask-question">
+          {ask.question ? <MarkdownText text={ask.question} /> : <span className="font-normal text-muted italic">{item.streaming ? "Агент формулирует вопрос…" : "текст вопроса в комментарии issue"}</span>}
+        </div>
+        {ask.options.length > 0 && (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {ask.options.map((option) => {
+              const chosen = ask.answer !== null && ask.answer.trim() === option.trim();
+              return (
+                <span key={option} className={cx("rounded-full border px-2.5 py-0.5 text-xs", chosen ? "border-accent bg-accent text-accent-fg" : "border-line-strong bg-surface text-muted")}>
+                  {option}
+                </span>
+              );
+            })}
+          </div>
+        )}
+        {failed && item.result && <div className="mt-2 text-xs text-danger-text">{cleanResult(item.result)}</div>}
+      </div>
+      {answered && <HumanBubble text={ask.answer ?? ""} label="Ответ" meta={sourceLabel(ask.source)} testId="feed-answer" />}
+    </div>
+  );
 }
 
 function SystemRow({ item }: { item: SystemItem }) {
   const warn = item.level === "warn";
   return (
-    <div
-      className={cx("flex items-center gap-3 text-[11px]", warn ? "text-warn" : "text-muted", "before:h-px before:flex-1 before:bg-line after:h-px after:flex-1 after:bg-line")}
-      data-testid="feed-system"
-      data-level={item.level}>
-      <span className="max-w-[80%] text-center break-words">{item.text}</span>
+    <div className="flex items-center gap-3 text-[11px]" data-testid="feed-system" data-level={item.level}>
+      <span aria-hidden className="h-px flex-1 bg-line" />
+      <span className={cx("max-w-[80%] rounded-full px-2.5 py-0.5 text-center break-words", warn ? "bg-warn-soft text-warn ring-1 ring-warn-line/50" : "text-muted")}>{item.text}</span>
+      <span aria-hidden className="h-px flex-1 bg-line" />
     </div>
   );
 }
@@ -137,28 +284,59 @@ function SystemRow({ item }: { item: SystemItem }) {
 // A long run of steps keeps only its tail in view; the earlier ones fold behind one line.
 const VISIBLE_TAIL = 5;
 
-function StepGroup({ steps }: { steps: Step[] }) {
+const stepRunning = (step: Step): boolean => step.streaming || (step.kind === "tool" && step.result === null);
+
+// One run of steps: a line that names how many and which tools, unfolding into the steps themselves.
+// The run the Agent is in right now stays open; the finished ones fold so the prose reads on.
+function StepGroup({ steps, current }: { steps: Step[]; current: boolean }) {
+  const [open, setOpen] = useState<boolean | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const isOpen = open ?? current;
   const hidden = expanded || steps.length <= VISIBLE_TAIL + 1 ? 0 : steps.length - VISIBLE_TAIL;
   const shown = steps.slice(hidden);
+  const running = steps.some(stepRunning);
+  const failed = steps.filter((step) => step.kind === "tool" && step.isError).length;
+  const tools = steps.filter((step): step is ToolItem => step.kind === "tool");
+  const names = [...new Set(tools.map((tool) => tool.name))];
+  const thoughts = steps.length - tools.length;
+  const title =
+    tools.length > 0
+      ? `${tools.length} ${plural(tools.length, "действие", "действия", "действий")}${thoughts > 0 ? ` и ${thoughts} ${plural(thoughts, "размышление", "размышления", "размышлений")}` : ""}`
+      : `${thoughts} ${plural(thoughts, "размышление", "размышления", "размышлений")}`;
+  const last = steps.at(-1);
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-surface-2/60" data-testid="feed-steps">
-      {hidden > 0 && (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="flex w-full items-center gap-2 border-b border-line px-3 py-1.5 text-left text-xs text-muted hover:bg-subtle hover:text-fg"
-          data-testid="feed-steps-more">
-          <ChevronIcon className="h-3 w-3 rotate-90" />
-          ещё {hidden} {plural(hidden, "шаг", "шага", "шагов")} раньше
-        </button>
-      )}
-      <ul className="divide-y divide-line">
-        {shown.map((step) => (
-          <li key={step.id}>{step.kind === "tool" ? <ToolStep item={step} /> : <ThinkingStep item={step} />}</li>
-        ))}
-      </ul>
-    </div>
+    <details
+      open={isOpen}
+      className="group/steps overflow-hidden rounded-xl border border-line bg-surface-2/50"
+      data-testid="feed-steps"
+      onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)}>
+      <summary className="flex min-w-0 list-none items-center gap-2 px-3 py-2 text-xs text-muted select-none hover:bg-subtle hover:text-fg [&::-webkit-details-marker]:hidden">
+        <ChevronIcon className="h-3 w-3 shrink-0 transition-transform group-open/steps:rotate-90" />
+        {running ? <Spinner className="h-3 w-3 shrink-0 text-accent" /> : <StepsIcon className="h-3.5 w-3.5 shrink-0" />}
+        <span className="shrink-0 font-medium text-fg">{title}</span>
+        {failed > 0 && <span className="shrink-0 rounded-full bg-danger-soft px-1.5 text-danger-text">ошибок: {failed}</span>}
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px]">
+          {running && last?.kind === "tool" ? `${last.name} ${toolHead(last.input) || last.partialJson}` : names.join(" · ")}
+        </span>
+      </summary>
+      <div className="border-t border-line">
+        {hidden > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="flex w-full items-center gap-2 border-b border-line px-3 py-1.5 text-left text-xs text-muted hover:bg-subtle hover:text-fg"
+            data-testid="feed-steps-more">
+            <ChevronIcon className="h-3 w-3 rotate-90" />
+            ещё {hidden} {plural(hidden, "шаг", "шага", "шагов")} раньше
+          </button>
+        )}
+        <ul className="divide-y divide-line">
+          {shown.map((step) => (
+            <li key={step.id}>{step.kind === "tool" ? <ToolStep item={step} /> : <ThinkingStep item={step} />}</li>
+          ))}
+        </ul>
+      </div>
+    </details>
   );
 }
 
@@ -441,6 +619,14 @@ function ChevronIcon({ className }: IconProps) {
   return (
     <Svg className={className}>
       <path d="M6 4l4 4-4 4" />
+    </Svg>
+  );
+}
+
+function StepsIcon({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <path d="M2.5 4h7M2.5 8h11M2.5 12h5" />
     </Svg>
   );
 }

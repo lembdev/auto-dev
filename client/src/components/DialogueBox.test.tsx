@@ -32,6 +32,17 @@ const renderBox = (overrides: Partial<DialogueBoxViewProps<PendingMessageId>> = 
 };
 
 describe("DialogueBoxView", () => {
+  it("sends on Enter and breaks the line on Shift+Enter", () => {
+    const props = renderBox();
+    const field = screen.getByRole("textbox", { name: "Сообщение Агенту" });
+    fireEvent.change(field, { target: { value: "first line" } });
+    fireEvent.keyDown(field, { key: "Enter", shiftKey: true });
+    expect(props.onSend).not.toHaveBeenCalled();
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(props.onSend).toHaveBeenCalledWith("first line");
+    expect(field).toHaveValue("");
+  });
+
   it("sends the field and clears it; an empty field sends nothing", () => {
     const props = renderBox();
     expect(screen.queryByRole("list", { name: "Ещё не доставлено" })).toBeNull();

@@ -3,7 +3,8 @@ import type { IssueNumber } from "../../../src/ids.js";
 import type { DialogueMessageView } from "../../../src/server/api-types.js";
 import { useDialogueOutbox, type DialogueOutboxHook, type LastAck, type OutboxFrame } from "../dialogue.js";
 import { useDialogueQueue, useRemoveDialogueMessage } from "../queries.js";
-import { Badge, Button, cx, INPUT } from "./ui.js";
+import { Composer } from "./Composer.js";
+import { Badge, cx } from "./ui.js";
 
 export type DialogueBoxProps = { issueNumber: IssueNumber; outbox: DialogueOutboxHook };
 
@@ -64,61 +65,50 @@ export function DialogueBoxView<Id extends number>(props: DialogueBoxViewProps<I
   return (
     <div className="flex flex-col gap-2" data-testid="dialogue">
       {waiting > 0 && (
-        <ul className="flex flex-col gap-1 text-xs" aria-label="Ещё не доставлено">
+        <ul className="flex flex-col items-end gap-1.5" aria-label="Ещё не доставлено">
           {props.pending.map((frame) => (
-            <li key={`out-${frame.seq}`} className="flex items-start gap-2 text-muted">
-              <Badge className="italic">отправляется…</Badge>
-              <span className="whitespace-pre-wrap">{frame.text}</span>
+            <li key={`out-${frame.seq}`} className="flex max-w-[85%] flex-col items-end gap-0.5">
+              <span className="rounded-2xl rounded-br-md bg-accent-soft px-3 py-1.5 text-sm break-words whitespace-pre-wrap opacity-70 ring-1 ring-accent/25">{frame.text}</span>
+              <span className="flex items-center gap-1.5 px-1 text-[11px] text-muted italic">
+                <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                {frame.kind === "answer" ? "ответ " : ""}отправляется…
+              </span>
             </li>
           ))}
           {props.queue.map((message) => (
-            <li key={message.id} className="flex items-start gap-2 rounded-md bg-surface px-2 py-1 ring-1 ring-line">
-              <Badge tone={message.source === "github" ? "accent" : "neutral"} className="mt-px">
-                {message.source === "github" ? "из GitHub" : "ждёт конца Хода"}
-              </Badge>
-              <span className="min-w-0 flex-1 whitespace-pre-wrap">{message.text}</span>
-              <button
-                type="button"
-                className="shrink-0 rounded px-1 text-danger-text hover:underline disabled:opacity-50"
-                aria-label={`удалить сообщение ${message.id}`}
-                disabled={props.removing === message.id}
-                onClick={() => props.onRemove(message.id)}
-              >
-                удалить
-              </button>
+            <li key={message.id} className="flex max-w-[85%] flex-col items-end gap-0.5">
+              <span className="rounded-2xl rounded-br-md border border-dashed border-accent/40 bg-surface px-3 py-1.5 text-sm break-words whitespace-pre-wrap">{message.text}</span>
+              <span className="flex items-center gap-2 px-1 text-[11px] text-muted">
+                <Badge tone={message.source === "github" ? "accent" : "neutral"}>{message.source === "github" ? "из GitHub" : "ждёт конца Хода"}</Badge>
+                <button
+                  type="button"
+                  className="rounded px-1 text-danger-text hover:underline disabled:opacity-50"
+                  aria-label={`удалить сообщение ${message.id}`}
+                  disabled={props.removing === message.id}
+                  onClick={() => props.onRemove(message.id)}>
+                  удалить
+                </button>
+              </span>
             </li>
           ))}
         </ul>
       )}
-      <form
-        className="flex items-end gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          submit();
-        }}
-      >
-        <textarea
-          className={cx(INPUT, "min-h-[2.75rem] flex-1 resize-y")}
-          rows={2}
-          aria-label="Сообщение Агенту"
-          placeholder="Сообщение Агенту (⌘/Ctrl+Enter): во время Хода встанет в очередь"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit();
-          }}
-        />
-        <Button type="submit" variant="primary" disabled={text.trim() === ""}>
-          Отправить
-        </Button>
-      </form>
+      <Composer
+        value={text}
+        onChange={setText}
+        onSubmit={submit}
+        label="Сообщение Агенту"
+        submitLabel="Отправить"
+        placeholder="Написать Агенту…"
+        hint="Enter: отправить · Shift+Enter: новая строка · во время Хода сообщение встанет в очередь"
+      />
       {props.lastAck && (
-        <div className={`text-xs ${props.lastAck.ack.outcome === "rejected" ? "text-danger-text" : "text-muted"}`} role="status">
+        <div className={cx("px-3 text-xs", props.lastAck.ack.outcome === "rejected" ? "text-danger-text" : "text-muted")} role="status">
           {ackLabel(props.lastAck)}
         </div>
       )}
       {props.error && (
-        <div className="text-xs text-danger-text" role="alert">
+        <div className="px-3 text-xs text-danger-text" role="alert">
           Очередь Диалога: {props.error}
         </div>
       )}

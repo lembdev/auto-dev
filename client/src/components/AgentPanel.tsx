@@ -150,10 +150,11 @@ export function AgentPanelView(props: AgentPanelViewProps) {
           </Banner>
         </div>
       )}
-      {interactive && props.requestSlot}
-      <AgentFeed feed={props.feed} status={props.feedStatus} error={props.feedError} />
-      <div className="flex flex-col gap-2.5 border-t border-line bg-surface-2/60 px-4 py-3 text-sm">
-        {interactive && props.dialogueSlot}
+      <AgentFeed feed={props.feed} status={props.feedStatus} error={props.feedError} working={running} />
+      <div className="flex flex-col gap-2.5 border-t border-line bg-surface-2/60 px-4 pt-3 pb-3 text-sm">
+        {interactive && props.requestSlot}
+        {/* While a Request is open its card is the input: a second field would only split the answer. */}
+        {interactive && !(props.requestSlot && task.request) && props.dialogueSlot}
         {deadEnd && props.questionSlot}
         {confirming && (
           <div className="rounded-lg border border-danger/50 bg-danger-soft p-3 text-xs" data-testid="cancel-confirm" role="alertdialog" aria-label="Отмена Задачи">

@@ -1,4 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { ASK_HUMAN_TOOL, ASK_HUMAN_TOOL_NAME, NO_ANSWER_TEXT, UI_ANSWER_SOURCE } from "../../src/adapters/ask-human.js";
 import { findDeadEndQuestion } from "../../src/orchestrator/dead-end-question-prompt.js";
 
 // The feed of one Agent as the panel renders it, built from `SDKMessage`s of the history and the
@@ -380,3 +381,38 @@ const firstLineOf = (text: string, limit: number): string => {
 };
 
 export const formatInput = (input: unknown): string => (input === null || input === undefined ? "" : typeof input === "string" ? input : JSON.stringify(input, null, 2));
+
+// A question the Agent put to the human through `ask_human`, read off its tool call: the question and
+// the options from the input, the Answer and who gave it from the result once it arrived.
+export type AskHumanView = {
+  question: string;
+  options: string[];
+  answer: string | null;
+  source: AnswerSource | null;
+};
+
+export type AnswerSource = { kind: "ui" } | { kind: "github"; author: string; url: string } | { kind: "other"; text: string };
+
+export const isAskHumanTool = (name: string): boolean => name === ASK_HUMAN_TOOL_NAME || name.endsWith(`__${ASK_HUMAN_TOOL}`);
+
+const SOURCE_LINE = /\n\n\(answered by ([\s\S]+)\)\s*$/;
+const GITHUB_SOURCE = /^(\S+) in GitHub comment (\S+)$/;
+
+const sourceOf = (line: string): AnswerSource => {
+  if (line === UI_ANSWER_SOURCE) return { kind: "ui" };
+  const github = GITHUB_SOURCE.exec(line);
+  if (github) return { kind: "github", author: github[1] as string, url: github[2] as string };
+  return { kind: "other", text: line };
+};
+
+export function askHumanOf(item: ToolItem): AskHumanView | null {
+  if (!isAskHumanTool(item.name)) return null;
+  const input = typeof item.input === "object" && item.input !== null ? (item.input as Record<string, unknown>) : parseJson(item.partialJson);
+  const record = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
+  const question = typeof record.question === "string" ? record.question : "";
+  const options = Array.isArray(record.options) ? record.options.filter((option): option is string => typeof option === "string") : [];
+  const raw = item.result;
+  if (raw === null || item.isError || raw.trim() === NO_ANSWER_TEXT) return { question, options, answer: null, source: null };
+  const match = SOURCE_LINE.exec(raw);
+  return match ? { question, options, answer: raw.slice(0, match.index).trim(), source: sourceOf((match[1] as string).trim()) } : { question, options, answer: raw.trim(), source: null };
+}

@@ -155,8 +155,8 @@ function PlanningDialogue(props: WithPlanner) {
           Завершить планирование
         </Button>
       </div>
-      <AgentFeed feed={props.feed} status={props.feedStatus} error={props.feedError} />
-      <div className="flex flex-col gap-2 border-t border-line py-3 text-sm">
+      <AgentFeed feed={props.feed} status={props.feedStatus} error={props.feedError} working={running} />
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-4 pt-2 pb-4 text-sm">
         {props.dialogueSlot}
         {props.actionError && (
           <span className="text-xs text-danger-text" role="alert">

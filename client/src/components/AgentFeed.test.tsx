@@ -136,4 +136,46 @@ describe("AgentFeed", () => {
     rerender(<AgentFeed feed={emptyFeed()} status="error" error="internal error" />);
     expect(screen.getByRole("alert")).toHaveTextContent("История не загружена: internal error");
   });
+
+  it("shows a question to the human as a card waiting for the Answer, not as a folded step", () => {
+    renderFeed(applyMessages(emptyFeed(), [sdkMessages.assistantToolUse(S, "toolu_ask", "mcp__human__ask_human", { question: "Which colour?", options: ["blue", "red"] })]));
+    const card = screen.getByTestId("feed-ask");
+    expect(card).toHaveAttribute("data-answered", "false");
+    expect(card).toHaveTextContent("Агент спрашивает");
+    expect(card).toHaveTextContent("ждёт ответа");
+    expect(screen.getByTestId("feed-ask-question")).toHaveTextContent("Which colour?");
+    expect(screen.queryByTestId("feed-steps")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("feed-answer")).not.toBeInTheDocument();
+  });
+
+  it("shows the Answer from the UI as the human's bubble under the question", () => {
+    renderFeed(
+      applyMessages(emptyFeed(), [
+        sdkMessages.assistantToolUse(S, "toolu_ask", "mcp__human__ask_human", { question: "Which colour?", options: ["blue", "red"] }),
+        sdkMessages.toolResult(S, "toolu_ask", "blue\n\n(answered by the human in the auto-dev UI)"),
+      ]),
+    );
+    expect(screen.getByTestId("feed-ask")).toHaveAttribute("data-answered", "true");
+    const answer = screen.getByTestId("feed-answer");
+    expect(answer).toHaveTextContent("Ответ");
+    expect(answer).toHaveTextContent("blue");
+    expect(answer).not.toHaveTextContent("answered by");
+  });
+
+  it("links the Answer from GitHub to its comment and its author", () => {
+    renderFeed(
+      applyMessages(emptyFeed(), [
+        sdkMessages.assistantToolUse(S, "toolu_ask", "mcp__human__ask_human", { question: "Ship it?" }),
+        sdkMessages.toolResult(S, "toolu_ask", "yes\n\n(answered by bob in GitHub comment https://github.com/acme/product/issues/7#issuecomment-1)"),
+      ]),
+    );
+    const answer = screen.getByTestId("feed-answer");
+    expect(answer).toHaveTextContent("yes");
+    expect(within(answer).getByRole("link", { name: "@bob в GitHub" })).toHaveAttribute("href", "https://github.com/acme/product/issues/7#issuecomment-1");
+  });
+
+  it("says the Agent works while a Turn runs and nothing streams", () => {
+    render(<AgentFeed feed={applyMessages(emptyFeed(), [sdkMessages.assistantText(S, "On it.")])} status="live" error={null} working />);
+    expect(screen.getByTestId("feed-working")).toHaveTextContent("Агент работает…");
+  });
 });
