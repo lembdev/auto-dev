@@ -32,14 +32,21 @@ export type ProcessExit = {
   signal: NodeJS.Signals | null;
 };
 
+// A user message pushed into a live process. `taken` settles once the Session took it in: true when the
+// CLI started on it (folded into the running Turn between tool rounds, or a Turn of its own), false when
+// the process ended first and the message never reached the Session.
+export type SentMessage = { taken: Promise<boolean> };
+
 // One running Agent process. Messages are consumed once, in order.
 export interface AgentProcess {
   messages(): AsyncIterable<SDKMessage>;
   // Session id becomes known with the first message from the process.
   sessionId(): SessionId | undefined;
   pid(): Pid | undefined;
-  // Next user message into the live input stream.
-  send(text: string): Promise<void>;
+  // Next user message into the live input stream; during a Turn the CLI folds it in at the next tool round.
+  send(text: string): Promise<SentMessage>;
+  // Some sent message is not taken by the Session yet: a result now does not end the work of the process.
+  hasPendingInput(): boolean;
   interrupt(): Promise<void>;
   // interrupt() followed by SIGTERM; resolves once the process exited.
   stop(): Promise<ProcessExit>;

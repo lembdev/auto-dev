@@ -9,7 +9,7 @@ import { Badge, cx } from "./ui.js";
 export type DialogueBoxProps = { issueNumber: IssueNumber; outbox: DialogueOutboxHook };
 
 // The footer of the panel: lines not yet in the Session (unconfirmed by the server, then queued),
-// the field and "Отправить". A line typed during a Turn waits here for the end of the Turn.
+// the field and "Отправить". A line typed during a Turn stays here until the Agent takes it at its next tool round.
 export function DialogueBox({ issueNumber, outbox }: DialogueBoxProps) {
   const queue = useDialogueQueue(issueNumber);
   const remove = useRemoveDialogueMessage(issueNumber);
@@ -79,7 +79,7 @@ export function DialogueBoxView<Id extends number>(props: DialogueBoxViewProps<I
             <li key={message.id} className="flex max-w-[85%] flex-col items-end gap-0.5">
               <span className="rounded-2xl rounded-br-md border border-dashed border-accent/40 bg-surface px-3 py-1.5 text-sm break-words whitespace-pre-wrap">{message.text}</span>
               <span className="flex items-center gap-2 px-1 text-[11px] text-muted">
-                <Badge tone={message.source === "github" ? "accent" : "neutral"}>{message.source === "github" ? "из GitHub" : "ждёт конца Хода"}</Badge>
+                <Badge tone={message.source === "github" ? "accent" : "neutral"}>{message.source === "github" ? "из GitHub" : "ждёт Агента"}</Badge>
                 <button
                   type="button"
                   className="rounded px-1 text-danger-text hover:underline disabled:opacity-50"
@@ -100,7 +100,7 @@ export function DialogueBoxView<Id extends number>(props: DialogueBoxViewProps<I
         label="Сообщение Агенту"
         submitLabel="Отправить"
         placeholder="Написать Агенту…"
-        hint="Enter: отправить · Shift+Enter: новая строка · во время Хода сообщение встанет в очередь"
+        hint="Enter: отправить · Shift+Enter: новая строка · во время Хода Агент прочтёт сообщение после текущего шага"
       />
       {props.lastAck && (
         <div className={cx("px-3 text-xs", props.lastAck.ack.outcome === "rejected" ? "text-danger-text" : "text-muted")} role="status">

@@ -5,7 +5,7 @@ import type { AgentRecord } from "../index/agents.js";
 import type { RuntimeIndex } from "../index/runtime-index.js";
 import type { Task, TaskStage } from "../index/tasks.js";
 import type { Logger } from "../log.js";
-import type { AskHumanCall, AskHumanDecision } from "../ports/driver.js";
+import type { AskHumanCall, AskHumanDecision, SentMessage } from "../ports/driver.js";
 import type { GitHubPort, Issue } from "../ports/github.js";
 import { StagePrompts } from "../prompts/index.js";
 import type { DeadEnds } from "./dead-end.js";
@@ -114,13 +114,12 @@ export class Implementation {
 
   // Next message into the living Session of the Implementer: QA blockers, a Dialogue line.
   // The Task returns to the Stage so the end of the Turn sends it to QA again.
-  async send(issueNumber: IssueNumber, text: string): Promise<AgentRecord> {
+  async send(issueNumber: IssueNumber, text: string): Promise<SentMessage> {
     const task = this._index.tasks.get(issueNumber);
     const agent = this.findImplementer(task);
     if (!agent) throw new ImplementerNotStartedError(issueNumber);
     if (task.stage !== "implement") this._transition(issueNumber, "implement", "message to the implementer");
-    await this._runner.send(agent.id, text, this._askHuman(issueNumber));
-    return this._index.agents.get(agent.id);
+    return this._runner.send(agent.id, text, this._askHuman(issueNumber));
   }
 
   // The ask_human handler bound to the Task, for a launch and for a resume after a restart.

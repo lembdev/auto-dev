@@ -8,6 +8,7 @@ import type {
   DriverPort,
   ModelOption,
   ProcessExit,
+  SentMessage,
   SessionHistoryOptions,
   SmokeQueryOptions,
   SmokeQueryResult,
@@ -21,6 +22,9 @@ const FINISHED: ProcessExit = { code: 0, signal: null };
 export class FakeAgentProcess implements AgentProcess {
   readonly log = new CallLog();
   readonly sent: string[] = [];
+  // Whether a sent message is taken by the Session at once; when false, the test settles it with take()/drop().
+  takesAtOnce = true;
+  private readonly _untaken: ((taken: boolean) => void)[] = [];
   private _sessionId: SessionId | undefined;
   private _pid: Pid | undefined;
   private readonly _queue: SDKMessage[] = [];
@@ -55,6 +59,7 @@ export class FakeAgentProcess implements AgentProcess {
   // Ends the message stream; `exit` defaults to a clean exit.
   end(exit: ProcessExit = FINISHED): void {
     if (this._exit) return;
+    for (const settle of this._untaken.splice(0)) settle(false);
     this._exit = exit;
     this._pid = undefined;
     this._resolveExit(exit);
@@ -90,10 +95,26 @@ export class FakeAgentProcess implements AgentProcess {
     return this._pid;
   }
 
-  async send(text: string): Promise<void> {
+  async send(text: string): Promise<SentMessage> {
     this.log.record("send", text);
     if (this._exit) throw new Error("process already exited");
     this.sent.push(text);
+    if (this.takesAtOnce) return { taken: Promise.resolve(true) };
+    return { taken: new Promise<boolean>((settle) => this._untaken.push(settle)) };
+  }
+
+  hasPendingInput(): boolean {
+    return this._untaken.length > 0;
+  }
+
+  // The Session takes the oldest message sent and not taken yet.
+  take(): void {
+    this._untaken.shift()?.(true);
+  }
+
+  // The oldest message sent and not taken yet never reaches the Session.
+  drop(): void {
+    this._untaken.shift()?.(false);
   }
 
   async interrupt(): Promise<void> {

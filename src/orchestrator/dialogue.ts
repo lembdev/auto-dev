@@ -7,7 +7,7 @@ import type { RuntimeIndex } from "../index/runtime-index.js";
 import { isActiveStage, type Task } from "../index/tasks.js";
 import type { Logger } from "../log.js";
 import type { Clock } from "../ports/clock.js";
-import type { AskHumanCall, AskHumanDecision } from "../ports/driver.js";
+import type { AskHumanCall, AskHumanDecision, SentMessage } from "../ports/driver.js";
 import type { IssueComment } from "../ports/github.js";
 import { isMarkedComment } from "./comments.js";
 import { currentAgentOf } from "./current-agent.js";
@@ -53,7 +53,8 @@ export const githubDialogueText = (comment: IssueComment): string => `${comment.
 const IMPLEMENTER_STAGES: ReadonlySet<Task["stage"]> = new Set(["implement", "qa"]);
 
 // The Dialogue of the human with an Agent: lines from the UI and comments after an Answer go into the
-// queue of the Task and reach the Session one per Turn, as the next user message once a Turn is over.
+// queue of the Task and on into the Session right away: an Agent in a Turn takes a line at its next tool
+// round, one between Turns starts a Turn on it. A line counts delivered once the Session took it in.
 // Every frame of the UI is applied exactly once; its ACK says what became of it.
 export class Dialogue {
   private readonly _index: RuntimeIndex;
@@ -66,6 +67,8 @@ export class Dialogue {
   private readonly _canStartTurn: () => boolean;
   // Agents with a delivery in flight, so two triggers never send the same line twice.
   private readonly _delivering = new Set<AgentId>();
+  // Lines sent into a process and not yet taken by its Session: no longer the human's to take back.
+  private readonly _inFlight = new Set<PendingMessageId>();
 
   constructor(options: DialogueOptions) {
     this._index = options.index;
@@ -76,9 +79,9 @@ export class Dialogue {
     this._implementation = options.implementation;
     this._qa = options.qa;
     this._canStartTurn = options.canStartTurn;
-    // The end of a Turn is the moment for the next line; the other changes of the Task's Agents (a QA
-    // round starting) are looked at too. The listeners of the message run after this one, so the
-    // delivery waits a tick for the Stage to settle.
+    // A line that had to wait (an Agent in Waiting, a QA round not started yet, a process that ended
+    // before taking it) goes on the next change of the Task's Agents. The listeners of the message run
+    // after this one, so the delivery waits a tick for the Stage to settle.
     this._runner.onStateChange((agent) => {
       if (agent.issueNumber === null) return;
       const issueNumber = agent.issueNumber;
@@ -108,7 +111,7 @@ export class Dialogue {
   remove(issueNumber: IssueNumber, id: PendingMessageId): RemoveOutcome {
     const message = this._index.dialogue.find(id);
     if (!message || message.issueNumber !== issueNumber || message.requestId !== null) return "not-found";
-    if (message.deliveredAt !== null) return "delivered";
+    if (message.deliveredAt !== null || this._inFlight.has(id)) return "delivered";
     this._index.dialogue.remove(id);
     this._log.info({ issue: issueNumber, message: id }, "dialogue line removed");
     return "removed";
@@ -136,8 +139,8 @@ export class Dialogue {
     for (const issueNumber of issues) await this.deliverTo(issueNumber, { resumeStopped: true });
   }
 
-  // The oldest line of the Task goes to its Agent if the Agent is between Turns; the rest wait for the
-  // next end of a Turn. A finished Task drops its queue.
+  // The oldest line of the Task goes to its Agent: into the running Turn, or as a new Turn between Turns.
+  // Once the Session took it in, the next line follows. A finished Task drops its queue.
   async deliverTo(issueNumber: IssueNumber, options: DeliverOptions = { resumeStopped: true }): Promise<void> {
     const task = this._index.tasks.find(issueNumber);
     const queue = this._index.dialogue.listUndelivered(issueNumber);
@@ -149,9 +152,12 @@ export class Dialogue {
     }
     const message = queue[0]!;
     const agent = this._targetOf(task, message);
-    if (!agent || agent.state === "running" || agent.state === "waiting" || this._delivering.has(agent.id)) return;
+    if (!agent || agent.state === "waiting" || this._delivering.has(agent.id)) return;
+    // A running Turn takes the line at its next tool round; only a line that starts a Turn needs leave to.
+    const intoTurn = agent.state === "running";
+    if (intoTurn && !this._runner.isLive(agent.id)) return;
     if (agent.state === "stopped" && !options.resumeStopped) return;
-    if (!this._canStartTurn()) {
+    if (!intoTurn && !this._canStartTurn()) {
       this._log.debug({ issue: issueNumber, message: message.id }, "dialogue line waits: no new turns now");
       return;
     }
@@ -166,19 +172,28 @@ export class Dialogue {
       }
     }
     this._delivering.add(agent.id);
+    this._inFlight.add(message.id);
+    let taken = false;
     try {
       if (reviewer && this._runner.isLive(reviewer.id)) {
         await this._runner.stop(reviewer.id);
         this._log.info({ issue: issueNumber, agent: reviewer.id }, "qa round stopped for a line of the Dialogue to the Implementer");
       }
-      await this._send(task, agent, message);
-      this._index.dialogue.markDelivered(message.id, this._iso());
-      this._log.info({ issue: issueNumber, agent: agent.id, message: message.id }, "dialogue line delivered");
+      const sent = await this._send(task, agent, message);
+      taken = await sent.taken;
+      if (taken) {
+        this._index.dialogue.markDelivered(message.id, this._iso());
+        this._log.info({ issue: issueNumber, agent: agent.id, message: message.id, intoTurn }, "dialogue line delivered");
+      } else {
+        this._log.warn({ issue: issueNumber, agent: agent.id, message: message.id }, "dialogue line not taken: the process ended first; retried later");
+      }
     } catch (error) {
       this._log.error({ err: error, issue: issueNumber, agent: agent.id, message: message.id }, "dialogue line not delivered; retried on the next cycle");
     } finally {
+      this._inFlight.delete(message.id);
       this._delivering.delete(agent.id);
     }
+    if (taken) await this.deliverTo(issueNumber, { resumeStopped: false });
   }
 
   // Internals
@@ -236,13 +251,10 @@ export class Dialogue {
     return written.role === "implementer" || written.id === current?.id ? written : current;
   }
 
-  private async _send(task: Task, agent: AgentRecord, message: PendingMessage): Promise<void> {
-    if (agent.role === "implementer") {
-      await this._implementation.send(task.issueNumber, message.text);
-      return;
-    }
+  private async _send(task: Task, agent: AgentRecord, message: PendingMessage): Promise<SentMessage> {
+    if (agent.role === "implementer") return this._implementation.send(task.issueNumber, message.text);
     const onAskHuman = (call: AskHumanCall): Promise<AskHumanDecision> => this._humanRequests.askHuman(this._index.tasks.get(task.issueNumber), call);
-    await this._runner.send(agent.id, message.text, { onAskHuman });
+    return this._runner.send(agent.id, message.text, { onAskHuman });
   }
 
   private _reject(frame: UiFrameIdentity, reason: string): Ack {

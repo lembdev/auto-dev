@@ -4,6 +4,7 @@
 //   npx tsx scripts/smoke-driver.ts ask                        # ask_human gets deferred; prints the session id
 //   npx tsx scripts/smoke-driver.ts resume <sessionId> <answer> # open stream, hook allows with the Answer
 //   npx tsx scripts/smoke-driver.ts interrupt                  # stop() mid-Turn: interrupt, then SIGTERM
+//   npx tsx scripts/smoke-driver.ts midturn                    # a message sent during a Turn is taken at the next tool round
 //   npx tsx scripts/smoke-driver.ts idle                       # AgentRunner stops the process after the idle timeout
 //   npx tsx scripts/smoke-driver.ts smoke                      # DriverPort.smokeQuery as the wizard runs it
 //
@@ -95,6 +96,29 @@ async function start(): Promise<void> {
   });
 }
 
+async function midturn(): Promise<void> {
+  const agent = driver.launch({
+    cwd,
+    model,
+    env: extraEnv,
+    prompt: "Run these Bash commands one at a time, each as a separate tool call: `sleep 3; echo A`, then `sleep 3; echo B`, then `sleep 3; echo C`. Then reply DONE.",
+  });
+  let sent = false;
+  await watch(agent, async (message) => {
+    const toolResult = message.type === "user" && Array.isArray(message.message.content) && message.message.content.some((block) => block.type === "tool_result");
+    if (toolResult && !sent) {
+      sent = true;
+      say("  sending STOP into the running Turn");
+      const { taken } = await agent.send("STOP. Run no more commands and reply with exactly one word: STOPPED");
+      void taken.then((value) => say(`  STOP taken by the Session: ${value}`));
+    }
+    if (isResult(message)) {
+      say(`  result; pending input: ${agent.hasPendingInput()}`);
+      if (!agent.hasPendingInput()) await agent.stop();
+    }
+  });
+}
+
 async function ask(): Promise<void> {
   const agent = driver.launch({
     cwd,
@@ -167,7 +191,7 @@ async function smoke(): Promise<void> {
   if (!result.ok) process.exitCode = 1;
 }
 
-const modes: Record<string, () => Promise<void>> = { start, ask, resume, interrupt, idle, smoke };
+const modes: Record<string, () => Promise<void>> = { start, midturn, ask, resume, interrupt, idle, smoke };
 const run = modes[mode];
 if (!run) {
   say(`unknown mode "${mode}"; one of ${Object.keys(modes).join(", ")}`);

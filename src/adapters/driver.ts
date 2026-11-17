@@ -27,6 +27,7 @@ import type {
   DriverPort,
   ModelOption,
   ProcessExit,
+  SentMessage,
   SessionHistoryOptions,
   SmokeQueryOptions,
   SmokeQueryResult,
@@ -168,6 +169,25 @@ const userMessage = (text: string, sessionId: SessionId | undefined): SDKUserMes
 const isDeferredResult = (message: SDKMessage): boolean =>
   message.type === "result" && message.subtype === "success" && message.terminal_reason === "tool_deferred";
 
+// The CLI reports what became of every user message it read: `queued`, then `started` once a Turn takes
+// it (its own or, folded in between tool rounds, the running one), `completed`, or `cancelled`. The SDK
+// does not type these frames, so they are read defensively.
+type CommandLifecycle = { commandUuid: string; state: string };
+
+const commandLifecycleOf = (message: SDKMessage): CommandLifecycle | undefined => {
+  const raw = message as unknown as Record<string, unknown>;
+  if (raw.type !== "command_lifecycle" || typeof raw.command_uuid !== "string" || typeof raw.state !== "string") return undefined;
+  return { commandUuid: raw.command_uuid, state: raw.state };
+};
+
+// The user messages a result says its Turn consumed; absent on older CLIs.
+const consumedBy = (message: Extract<SDKMessage, { type: "result" }>): string[] | undefined => {
+  if (message.user_message_uuids !== undefined) return message.user_message_uuids;
+  return message.user_message_uuid !== undefined ? [message.user_message_uuid] : undefined;
+};
+
+type PendingInput = { message: SDKUserMessage; settle: (taken: boolean) => void };
+
 class ChildTracker {
   pid: Pid | undefined;
   exit: ProcessExit | undefined;
@@ -208,7 +228,11 @@ class SdkAgentProcess implements AgentProcess {
   private _sessionId: SessionId | undefined;
   private _turnActive: boolean;
   private _streamEnded = false;
-  // What was sent and not yet echoed: the CLI does not repeat its input, the feed still shows it.
+  // A CLI that reports the fate of its input; an older one gets every message counted taken on the next frame.
+  private _lifecycleSeen = false;
+  // Sent and not yet taken by the Session, by uuid, in the order sent.
+  private readonly _pending = new Map<string, PendingInput>();
+  // Taken and not yet echoed: the CLI does not repeat its input, the feed still shows it.
   private readonly _echoes: SDKUserMessage[] = [];
 
   constructor(
@@ -229,9 +253,9 @@ class SdkAgentProcess implements AgentProcess {
     try {
       for await (const message of this._query) {
         if ("session_id" in message && typeof message.session_id === "string") this._sessionId = message.session_id as SessionId;
+        this._account(message);
         for (const echo of this._echoes.splice(0)) yield { ...echo, session_id: echo.session_id ?? this._sessionId ?? "" } as SDKMessage;
-        if ("session_id" in message && typeof message.session_id === "string") this._sessionId = message.session_id as SessionId;
-        if (message.type === "result") this._turnActive = false;
+        if (message.type === "result") this._turnActive = this._pending.size > 0;
         if (isDeferredResult(message)) this._input.close();
         lastWasResult = message.type === "result";
         yield message;
@@ -243,6 +267,7 @@ class SdkAgentProcess implements AgentProcess {
       this._log.debug({ err: error }, "query ended after an error result");
     } finally {
       this._streamEnded = true;
+      this._dropPending();
       // Without a spawned child (startup failure) there is no exit event to wait for.
       if (!this._child.child) this._child.finish({ code: null, signal: null });
     }
@@ -256,16 +281,55 @@ class SdkAgentProcess implements AgentProcess {
     return this._child.pid;
   }
 
-  async send(text: string): Promise<void> {
+  async send(text: string): Promise<SentMessage> {
     if (this._child.exit || this._streamEnded) throw new ProcessNotRunningError();
     this._turnActive = true;
-    this._push(text);
+    return { taken: this._push(text) };
   }
 
-  private _push(text: string): void {
+  hasPendingInput(): boolean {
+    return this._pending.size > 0;
+  }
+
+  private _push(text: string): Promise<boolean> {
     const message = userMessage(text, this._sessionId);
     this._input.push(message);
-    this._echoes.push(message);
+    return new Promise<boolean>((settle) => this._pending.set(message.uuid as string, { message, settle }));
+  }
+
+  // Which sent messages the frame shows taken in (or dropped by) the Session.
+  private _account(message: SDKMessage): void {
+    const lifecycle = commandLifecycleOf(message);
+    if (lifecycle) {
+      this._lifecycleSeen = true;
+      if (lifecycle.state === "started" || lifecycle.state === "completed") this._take(lifecycle.commandUuid);
+      else if (lifecycle.state === "cancelled") this._settle(lifecycle.commandUuid, false);
+      return;
+    }
+    if (!this._lifecycleSeen) {
+      for (const uuid of [...this._pending.keys()]) this._take(uuid);
+      return;
+    }
+    if (message.type === "result") for (const uuid of consumedBy(message) ?? []) this._take(uuid);
+  }
+
+  private _take(uuid: string): void {
+    const pending = this._pending.get(uuid);
+    if (!pending) return;
+    this._echoes.push(pending.message);
+    this._settle(uuid, true);
+  }
+
+  private _settle(uuid: string, taken: boolean): void {
+    const pending = this._pending.get(uuid);
+    if (!pending) return;
+    this._pending.delete(uuid);
+    pending.settle(taken);
+  }
+
+  private _dropPending(): void {
+    if (this._pending.size > 0) this._log.warn({ pid: this._child.pid, dropped: this._pending.size }, "process ended before the Session took the sent messages");
+    for (const uuid of [...this._pending.keys()]) this._settle(uuid, false);
   }
 
   async interrupt(): Promise<void> {

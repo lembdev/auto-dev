@@ -65,7 +65,7 @@ describe("DialogueBoxView", () => {
     expect(items).toHaveLength(3);
     expect(items[0]).toHaveTextContent("отправляется…");
     expect(items[0]).toHaveTextContent("on its way");
-    expect(items[1]).toHaveTextContent("ждёт конца Хода");
+    expect(items[1]).toHaveTextContent("ждёт Агента");
     expect(items[2]).toHaveTextContent("из GitHub");
     expect(items[2]).toHaveTextContent("from bob");
     fireEvent.click(screen.getByRole("button", { name: "удалить сообщение 12" }));

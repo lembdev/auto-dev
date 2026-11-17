@@ -198,6 +198,69 @@ describe("SdkDriver process", () => {
     expect(echoes[1]?.session_id).toBe(SESSION);
   });
 
+  const lifecycle = (commandUuid: string, state: string): SDKMessage =>
+    ({ type: "command_lifecycle", command_uuid: commandUuid, state, uuid: "lc", session_id: SESSION }) as unknown as SDKMessage;
+
+  it("counts a message sent during a Turn taken once the CLI starts on it and echoes it there", async () => {
+    const { driver, sdk } = createDriver();
+    const process = driver.launch({ cwd: "/w", prompt: "go" });
+    const received = collect(process.messages());
+    const call = sdk.lastCall();
+    await tick();
+    const prompt = call.inputs[0]!.uuid!;
+    call.emit(lifecycle(prompt, "queued"));
+    call.emit(lifecycle(prompt, "started"));
+    call.emit(sdkMessages.init(SESSION));
+    await tick();
+
+    const sent = await process.send("stop, do it differently");
+    await tick();
+    const uuid = call.inputs[1]!.uuid!;
+    let taken: boolean | undefined;
+    void sent.taken.then((value) => (taken = value));
+    call.emit(lifecycle(uuid, "queued"));
+    call.emit(sdkMessages.assistantText(SESSION, "running a tool"));
+    await tick();
+    expect(taken).toBeUndefined();
+    expect(process.hasPendingInput()).toBe(true);
+
+    call.emit(lifecycle(uuid, "started"));
+    await tick();
+    expect(taken).toBe(true);
+    expect(process.hasPendingInput()).toBe(false);
+    call.emit(sdkMessages.resultSuccess(SESSION, "done", { user_message_uuids: [prompt, uuid] }));
+    call.end({ code: 0, signal: null });
+
+    const types = (await received).map((message) => (message.type === "user" ? `user:${String(message.message.content)}` : message.type));
+    expect(types).toEqual(["command_lifecycle", "user:go", "command_lifecycle", "system", "command_lifecycle", "assistant", "user:stop, do it differently", "command_lifecycle", "result"]);
+  });
+
+  it("keeps a message the Turn did not take pending past its result and settles it from the result or the exit", async () => {
+    const { driver, sdk } = createDriver();
+    const process = driver.launch({ cwd: "/w", prompt: "go" });
+    void collect(process.messages());
+    const call = sdk.lastCall();
+    await tick();
+    const prompt = call.inputs[0]!.uuid!;
+    call.emit(lifecycle(prompt, "started"));
+    await tick();
+
+    const late = await process.send("one more thing");
+    await tick();
+    const lateUuid = call.inputs[1]!.uuid!;
+    call.emit(sdkMessages.resultSuccess(SESSION, "done", { user_message_uuids: [prompt] }));
+    await tick();
+    expect(process.hasPendingInput()).toBe(true);
+    // The Turn on the late message is reported by its result alone.
+    call.emit(sdkMessages.resultSuccess(SESSION, "done too", { user_message_uuids: [lateUuid] }));
+    expect(await late.taken).toBe(true);
+    expect(process.hasPendingInput()).toBe(false);
+
+    const lost = await process.send("never read");
+    call.end({ code: 0, signal: null });
+    expect(await lost.taken).toBe(false);
+  });
+
   it("stops a running Turn with interrupt, closes stdin and lets the CLI exit", async () => {
     const { driver, sdk } = createDriver();
     const process = driver.launch({ cwd: "/w", prompt: "go" });

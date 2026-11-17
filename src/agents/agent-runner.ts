@@ -3,7 +3,7 @@ import type { AgentId, IssueNumber, SessionId } from "../ids.js";
 import type { AgentPatch, AgentRecord, AgentRole, AgentState, AgentStore } from "../index/agents.js";
 import type { Logger } from "../log.js";
 import type { Clock, TimerHandle } from "../ports/clock.js";
-import type { AgentLaunch, AgentProcess, AskHumanCall, AskHumanDecision, DriverPort } from "../ports/driver.js";
+import type { AgentLaunch, AgentProcess, AskHumanCall, AskHumanDecision, DriverPort, SentMessage } from "../ports/driver.js";
 import { AgentFeed } from "./agent-feed.js";
 
 // How long a process stays alive after a Turn before the runner stops it; the Session survives.
@@ -72,6 +72,14 @@ type Live = {
 
 const isDeferred = (message: SDKMessage): boolean =>
   message.type === "result" && message.subtype === "success" && message.terminal_reason === "tool_deferred";
+
+// A message sent near the end of a Turn may miss the fold and get a Turn of its own: the result before it
+// closes a Turn, not the work. The Agent stays running and the Stages do not hear of it; a failed or
+// deferred result still goes out as it is.
+const isIntermediate = (message: SDKMessage, process: AgentProcess): boolean =>
+  message.type === "result" && !message.is_error && !isDeferred(message) && process.hasPendingInput();
+
+const TAKEN_BY_RESUME: SentMessage = { taken: Promise.resolve(true) };
 
 // Drives Agent processes through the Driver and keeps the `agents` table true to what they do:
 // running during a Turn, idle after it until the timeout, waiting after a deferred ask_human,
@@ -149,19 +157,20 @@ export class AgentRunner {
     );
   }
 
-  // Next message of the Dialogue; a stopped Agent gets its Session resumed with the text as the prompt.
+  // Next message into the Session: a live process takes it at once between Turns or at the next tool
+  // round during one; a stopped Agent gets its Session resumed with the text as the prompt.
   // `options` matter only for that resume: a live process keeps the settings it was launched with.
-  async send(id: AgentId, text: string, options: AgentSessionOptions = {}): Promise<void> {
+  async send(id: AgentId, text: string, options: AgentSessionOptions = {}): Promise<SentMessage> {
     const live = this._live.get(id);
     if (!live) {
       const record = this._deps.agents.get(id);
       if (record.state === "waiting") throw new AgentNotResumableError(id, "waiting for an Answer; resume it with onAskHuman");
       this.resume(id, { prompt: text, ...options });
-      return;
+      return TAKEN_BY_RESUME;
     }
     this._clearIdleTimer(live);
     this._setState(id, { state: "running" });
-    await live.process.send(text);
+    return live.process.send(text);
   }
 
   async interrupt(id: AgentId): Promise<void> {
@@ -211,9 +220,11 @@ export class AgentRunner {
   private async _pump(id: AgentId, live: Live): Promise<void> {
     try {
       for await (const message of live.process.messages()) {
-        this._observe(id, live, message);
+        const intermediate = isIntermediate(message, live.process);
+        this._observe(id, live, message, intermediate);
         const current = this._deps.agents.get(id);
         this.feed.push(id, message);
+        if (intermediate) continue;
         for (const listener of this._messageListeners) listener(current, message);
       }
     } catch (error) {
@@ -227,7 +238,7 @@ export class AgentRunner {
     this._deps.log.info({ agent: id, ...exit }, "agent process exited");
   }
 
-  private _observe(id: AgentId, live: Live, message: SDKMessage): void {
+  private _observe(id: AgentId, live: Live, message: SDKMessage, intermediate: boolean): void {
     const patch: AgentPatch = {};
     const sessionId = "session_id" in message && typeof message.session_id === "string" ? (message.session_id as SessionId) : undefined;
     if (sessionId) patch.sessionId = sessionId;
@@ -235,7 +246,9 @@ export class AgentRunner {
     if (pid !== undefined) patch.pid = pid;
     if (message.type === "result") {
       patch.lastTurnAt = this._iso();
-      if (isDeferred(message)) {
+      if (intermediate) {
+        this._deps.log.info({ agent: id }, "turn ended with sent messages not taken yet; the next turn takes them");
+      } else if (isDeferred(message)) {
         patch.state = "waiting";
       } else if (live.restartPending) {
         patch.state = "idle";

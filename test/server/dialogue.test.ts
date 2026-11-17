@@ -146,15 +146,10 @@ describe("the Dialogue and the Answer from the UI", () => {
     expect(refused).toMatchObject({ outcome: "rejected", watermark: 1 });
     expect(refused.reason).toContain("already answered");
     expect(await until(ws, "dialogue")).toEqual({ type: "dialogue", issueNumber: ISSUE, messageId: 1, state: "queued" });
-    expect(await queue()).toEqual([expect.objectContaining({ id: 1, source: "ui", clientId: TAB, seq: 1, text: "blue" })]);
-    expect(await resumed.askHuman(CALL)).toMatchObject({ kind: "allow", answer: "red" });
-    expect(resumed.sent).toEqual([]);
-
-    resumed.emit(sdkMessages.init(SESSION));
-    resumed.emit(sdkMessages.resultSuccess(SESSION, "red it is"));
-    await flush();
-    expect(resumed.sent).toEqual(["blue"]);
+    // The resumed Turn is running: the line goes into it rather than after it.
     expect(await until(ws, "dialogue")).toEqual({ type: "dialogue", issueNumber: ISSUE, messageId: 1, state: "delivered" });
+    expect(resumed.sent).toEqual(["blue"]);
+    expect(await resumed.askHuman(CALL)).toMatchObject({ kind: "allow", answer: "red" });
     expect(await queue()).toEqual([]);
     expect(github.commentsOf(ISSUE).filter((comment) => comment.body.includes("Ответ из UI"))).toEqual([]);
   });
@@ -171,6 +166,8 @@ describe("the Dialogue and the Answer from the UI", () => {
     const other = github.seedIssue({ number: 43, title: "Other" });
     github.humanComment(other.number, "unrelated");
     const line = github.humanComment(ISSUE, "also check the footer", "bob");
+    // Held by the Session until the test lets it take the line, so the queue can be looked at.
+    resumed.takesAtOnce = false;
     await testApp.orchestrator.pollOnce();
     expect(github.reactions).toEqual([]);
     expect(resumes()).toHaveLength(1);
@@ -186,8 +183,7 @@ describe("the Dialogue and the Answer from the UI", () => {
     await testApp.orchestrator.pollOnce();
     expect(await queue()).toHaveLength(1);
 
-    resumed.emit(sdkMessages.init(SESSION));
-    resumed.emit(sdkMessages.resultSuccess(SESSION, "done"));
+    resumed.take();
     await flush();
     expect(resumed.sent).toHaveLength(1);
     expect(resumed.sent[0]).toContain("also check the footer");
@@ -195,37 +191,50 @@ describe("the Dialogue and the Answer from the UI", () => {
     expect(await queue()).toEqual([]);
   });
 
-  it("queues lines typed during a Turn, lets the human take one back and delivers the rest once the Turn is over", async () => {
+  it("sends a line typed during a Turn into it; the next waits until the Session took it and can be taken back until then", async () => {
     const process = await takeIssue();
+    process.takesAtOnce = false;
     const ws = await connect();
     expect(await ack(ws, dialogueFrame(1, "first"))).toEqual({ type: "ack", clientId: TAB, seq: 1, watermark: 1, outcome: "applied", reason: null });
     expect(await until(ws, "dialogue")).toEqual({ type: "dialogue", issueNumber: ISSUE, messageId: 1, state: "queued" });
     expect(await ack(ws, dialogueFrame(2, "second"))).toMatchObject({ seq: 2, watermark: 2, outcome: "applied" });
     expect(await until(ws, "dialogue")).toEqual({ type: "dialogue", issueNumber: ISSUE, messageId: 2, state: "queued" });
+    await flush();
+    expect(process.sent).toEqual(["first"]);
     expect(await queue()).toEqual([
       expect.objectContaining({ id: 1, issueNumber: ISSUE, agentId: 1, source: "ui", text: "first" }),
       expect.objectContaining({ id: 2, text: "second" }),
     ]);
-    expect(process.sent).toEqual([]);
 
-    const removed = await testApp.request(`/api/tasks/${ISSUE}/dialogue/1`, { method: "DELETE" });
+    // The first line is in the process already; the second one is still the human's.
+    expect((await testApp.request(`/api/tasks/${ISSUE}/dialogue/1`, { method: "DELETE" })).status).toBe(409);
+    const removed = await testApp.request(`/api/tasks/${ISSUE}/dialogue/2`, { method: "DELETE" });
     expect(removed.status).toBe(200);
-    expect(await removed.json()).toEqual({ id: 1 });
-    expect(await until(ws, "dialogue")).toEqual({ type: "dialogue", issueNumber: ISSUE, messageId: 1, state: "removed" });
-    expect(await queue()).toEqual([expect.objectContaining({ id: 2 })]);
-    expect((await testApp.request(`/api/tasks/${ISSUE}/dialogue/1`, { method: "DELETE" })).status).toBe(404);
+    expect(await removed.json()).toEqual({ id: 2 });
+    expect(await until(ws, "dialogue")).toEqual({ type: "dialogue", issueNumber: ISSUE, messageId: 2, state: "removed" });
+    expect((await testApp.request(`/api/tasks/${ISSUE}/dialogue/2`, { method: "DELETE" })).status).toBe(404);
 
+    // The Turn ends before the Session took the line: the CLI runs another Turn on it, so the work is not over.
     process.emit(sdkMessages.resultSuccess(SESSION, "turn done"));
     await flush();
-    expect(process.sent).toEqual(["second"]);
-    expect(await queue()).toEqual([]);
-    // The QA round that started at the end of the Turn is void: the Implementer works on the line.
     expect(testApp.index.tasks.get(ISSUE).stage).toBe("implement");
-    expect(testApp.index.agents.listByIssue(ISSUE).map((agent) => [agent.role, agent.state])).toEqual([
-      ["implementer", "running"],
-      ["qa", "stopped"],
-    ]);
-    expect((await testApp.request(`/api/tasks/${ISSUE}/dialogue/2`, { method: "DELETE" })).status).toBe(409);
+    expect(testApp.index.agents.listByIssue(ISSUE).map((agent) => [agent.role, agent.state])).toEqual([["implementer", "running"]]);
+
+    process.take();
+    await flush();
+    expect(await until(ws, "dialogue")).toEqual({ type: "dialogue", issueNumber: ISSUE, messageId: 1, state: "delivered" });
+    expect(await queue()).toEqual([]);
+    expect(await ack(ws, dialogueFrame(3, "third"))).toMatchObject({ outcome: "applied" });
+    await flush();
+    expect(process.sent).toEqual(["first", "third"]);
+    process.take();
+    await flush();
+    expect(await queue()).toEqual([]);
+
+    // The Turn that took the lines ends: now the Implementation is done.
+    process.emit(sdkMessages.resultSuccess(SESSION, "lines handled"));
+    await flush();
+    expect(testApp.index.tasks.get(ISSUE).stage).toBe("qa");
     expect((await testApp.request("/api/tasks/99/dialogue")).status).toBe(404);
   });
 
@@ -267,7 +276,8 @@ describe("the Dialogue and the Answer from the UI", () => {
   });
 
   it("confirms a frame sent again after a reconnect without applying it twice and tells the client its watermark", async () => {
-    await takeIssue();
+    const process = await takeIssue();
+    process.takesAtOnce = false;
     const first = await connect();
     expect(await ack(first, dialogueFrame(1, "one"))).toMatchObject({ outcome: "applied", watermark: 1 });
     expect(await ack(first, dialogueFrame(5, "five"))).toMatchObject({ outcome: "applied", watermark: 5 });
@@ -310,22 +320,22 @@ describe("the Dialogue and the Answer from the UI", () => {
     expect(await orchestrator.dialogue.receive({ type: "answer", clientId: TAB, seq: 1, requestId: 1 as never, text: "blue" })).toMatchObject({ outcome: "duplicate", watermark: 1 });
   });
 
-  it("delivers a line queued during a Turn after a restart, once the resumed Turn is over", async () => {
-    await takeIssue();
+  it("delivers a line the Session did not take before a restart into the resumed Turn", async () => {
+    const process = await takeIssue();
+    process.takesAtOnce = false;
     const ws = await connect();
     expect(await ack(ws, dialogueFrame(1, "after the restart"))).toMatchObject({ outcome: "applied" });
+    await flush();
+    expect(process.sent).toEqual(["after the restart"]);
     await testApp.orchestrator.shutdown();
     expect(await queue()).toEqual([expect.objectContaining({ text: "after the restart" })]);
 
     const orchestrator = new Orchestrator({ ports: testApp.ports, index: testApp.index, log: testApp.log, product: { repoPath: TEST_REPO_PATH } });
     restarted.push(orchestrator);
     await orchestrator.pollOnce();
+    await flush();
     const resumed = testApp.ports.driver.lastLaunch();
     expect(resumed.launch).toMatchObject({ resume: SESSION });
-    expect(resumed.sent).toEqual([]);
-    resumed.emit(sdkMessages.init(SESSION));
-    resumed.emit(sdkMessages.resultSuccess(SESSION, "resumed turn done"));
-    await flush();
     expect(resumed.sent).toEqual(["after the restart"]);
     expect(testApp.index.dialogue.listUndelivered()).toEqual([]);
   });
