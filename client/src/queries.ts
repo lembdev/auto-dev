@@ -161,6 +161,15 @@ export function useStartUpdate() {
   });
 }
 
+// "Скрыть" on a failed update: the offer of the newer release comes back.
+export function useDismissUpdate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<InstallationResponse>("/api/installation/update", { method: "DELETE" }),
+    onSuccess: (installation) => queryClient.setQueryData(KEYS.installation, installation),
+  });
+}
+
 // The Session history of one Agent of a Task: a node of the Pipeline, live or finished.
 export const fetchAgentHistory = (issueNumber: number, agentId: number) => api<AgentHistoryResponse>(`/api/tasks/${issueNumber}/agents/${agentId}/history`);
 

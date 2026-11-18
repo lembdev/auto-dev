@@ -1,5 +1,5 @@
 import type { Pid } from "../ids.js";
-import type { ProcessFilter, ProcessInfo, ProcessPort } from "../ports/process.js";
+import type { ProcessFilter, ProcessInfo, ProcessPort, RunResult } from "../ports/process.js";
 import { CallLog } from "./call-log.js";
 
 export type FakeProcessSpec = {
@@ -17,15 +17,19 @@ export type SignalRecord = {
   delivered: boolean;
 };
 
-export type SpawnRecord = { command: string; args: string[]; pid: Pid };
+export type RunRecord = { command: string; args: string[] };
+
+// Answers a command the code under test runs; undefined falls back to a silent success.
+export type RunHandler = (command: string, args: readonly string[]) => Partial<RunResult> | undefined;
 
 export class FakeProcessPort implements ProcessPort {
   readonly log = new CallLog();
   readonly signals: SignalRecord[] = [];
-  // Commands started detached, in order; nothing runs, the test reads what would have.
-  readonly spawned: SpawnRecord[] = [];
-  // Set to make the next detached start fail the way a missing binary does.
-  spawnFailure: Error | undefined;
+  // Commands run to their end, in order; nothing runs, the test reads what would have.
+  readonly ran: RunRecord[] = [];
+  onRun: RunHandler | undefined;
+  // Set to make every run fail the way a missing binary does.
+  runFailure: Error | undefined;
   user = "auto-dev";
   root = false;
   private readonly _processes = new Map<Pid, FakeProcessSpec>();
@@ -74,12 +78,12 @@ export class FakeProcessPort implements ProcessPort {
     return this.root;
   }
 
-  async spawnDetached(command: string, args: readonly string[]): Promise<Pid> {
-    this.log.record("spawnDetached", command, [...args]);
-    if (this.spawnFailure) throw this.spawnFailure;
-    const pid = (50_000 + this.spawned.length) as Pid;
-    this.spawned.push({ command, args: [...args], pid });
-    return pid;
+  async run(command: string, args: readonly string[]): Promise<RunResult> {
+    this.log.record("run", command, [...args]);
+    if (this.runFailure) throw this.runFailure;
+    this.ran.push({ command, args: [...args] });
+    const answer = this.onRun?.(command, args) ?? {};
+    return { code: answer.code ?? 0, stdout: answer.stdout ?? "", stderr: answer.stderr ?? "" };
   }
 
   private _info(spec: FakeProcessSpec): ProcessInfo {

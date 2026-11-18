@@ -47,11 +47,12 @@ describe("deploy/auto-dev.sudoers", () => {
     .map((line) => line.trim())
     .filter((line) => line !== "" && !line.startsWith("#"));
 
-  it("allows auto-dev exactly the updater, the updater in its own unit and its own journal, without a password", () => {
+  it("allows auto-dev exactly the updater, the updater in its own unit, its own journal and the updater's, without a password", () => {
     expect(rules).toEqual([
       "auto-dev ALL=(root) NOPASSWD: /usr/bin/update",
-      "auto-dev ALL=(root) NOPASSWD: /usr/bin/systemd-run --unit\\=auto-dev-update --collect --setenv\\=PHS_SILENT\\=1 --setenv\\=HOME\\=/root /usr/bin/update",
+      "auto-dev ALL=(root) NOPASSWD: /usr/bin/systemd-run --unit\\=auto-dev-update --collect --setenv\\=PHS_SILENT\\=1 --setenv\\=TERM\\=linux --setenv\\=HOME\\=/root /usr/bin/update",
       "auto-dev ALL=(root) NOPASSWD: /usr/bin/journalctl -u auto-dev *",
+      "auto-dev ALL=(root) NOPASSWD: /usr/bin/journalctl -u auto-dev-update *",
     ]);
   });
 

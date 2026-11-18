@@ -9,8 +9,11 @@ import {
   RELEASE_CHECK_INTERVAL_MS,
   RELEASE_RETRY_MS,
   TURN_WAIT_TIMEOUT_MS,
+  REQUEST_TTL_MS,
+  UNIT_STATE_COMMAND,
   UPDATE_COMMAND,
   UPDATE_PAUSE_REASON,
+  cleanLogLines,
   compareVersions,
 } from "../../src/orchestrator/update-coordinator.js";
 import type { InstallationResponse } from "../../src/server/app.js";
@@ -71,6 +74,8 @@ describe("update of the Installation", () => {
         checkedAt: new Date(clock.now()).toISOString(),
         phase: "idle",
         phaseSince: null,
+        error: null,
+        log: [],
       });
 
       releases.publish("0.3.0");
@@ -125,9 +130,11 @@ describe("update of the Installation", () => {
       const response = await testApp.request("/api/installation/update", { method: "POST" });
       expect(response.status).toBe(202);
       expect(((await response.json()) as InstallationResponse).update.phase).toBe("requested");
-      expect(testApp.ports.processes.spawned).toEqual([{ command: "sudo", args: [...UPDATE_COMMAND.args], pid: expect.any(Number) }]);
+      expect(testApp.ports.processes.ran).toEqual([{ command: "sudo", args: [...UPDATE_COMMAND.args] }]);
       expect(UPDATE_COMMAND.args).toContain("/usr/bin/update");
       expect(UPDATE_COMMAND.args[0]).toBe("-n");
+      // The engine clears the screen under errexit; without TERM the update dies before it starts.
+      expect(UPDATE_COMMAND.args).toContain("--setenv=TERM=linux");
     });
 
     it("refuses a second start while the first is under way", async () => {
@@ -135,12 +142,12 @@ describe("update of the Installation", () => {
       await testApp.request("/api/installation/update", { method: "POST" });
       const again = await testApp.request("/api/installation/update", { method: "POST" });
       expect(again.status).toBe(409);
-      expect(testApp.ports.processes.spawned).toHaveLength(1);
+      expect(testApp.ports.processes.ran).toHaveLength(1);
     });
 
-    it("reports a failed start and stays idle", async () => {
+    it("reports a refused sudo and stays idle", async () => {
       const testApp = app();
-      testApp.ports.processes.spawnFailure = new Error("sudo: a password is required");
+      testApp.ports.processes.onRun = () => ({ code: 1, stderr: "sudo: a password is required\n" });
       const response = await testApp.request("/api/installation/update", { method: "POST" });
       expect(response.status).toBe(500);
       expect(((await response.json()) as { error: string }).error).toContain("a password is required");
@@ -151,7 +158,118 @@ describe("update of the Installation", () => {
       const testApp = app();
       const response = await testApp.app.request("/api/installation/update", { method: "POST", headers: { host: TEST_HOST } });
       expect(response.status).toBe(401);
-      expect(testApp.ports.processes.spawned).toHaveLength(0);
+      expect(testApp.ports.processes.ran).toHaveLength(0);
+    });
+  });
+
+  describe("an updater that ends without updating", () => {
+    const JOURNAL = "\u001b[33m➤\u001b[0m Checking for update\r\u001b[K\u001b[1;92m✔\u001b[0m Checking for update\nTERM environment variable not set.\n";
+
+    // The updater's unit in the given state and its journal.
+    const unit = (testApp: TestApp, state: () => string, journal = JOURNAL): void => {
+      testApp.ports.processes.onRun = (command, args) => {
+        if (command === UNIT_STATE_COMMAND.command && args.join(" ") === UNIT_STATE_COMMAND.args.join(" ")) return { code: state() === "active" ? 0 : 3, stdout: `${state()}\n` };
+        if (args.includes("/usr/bin/journalctl")) return { stdout: journal };
+        return undefined;
+      };
+    };
+
+    const requested = async (testApp: TestApp): Promise<void> => {
+      expect((await testApp.request("/api/installation/update", { method: "POST" })).status).toBe(202);
+    };
+
+    it("keeps the update in progress while its unit runs", async () => {
+      const testApp = app();
+      unit(testApp, () => "active");
+      await requested(testApp);
+      await testApp.orchestrator.pollOnce();
+      await testApp.ports.clock.advance(REQUEST_TTL_MS);
+      await testApp.orchestrator.pollOnce();
+      expect((await installation(testApp)).update).toMatchObject({ phase: "requested", error: null, log: [] });
+    });
+
+    it("shows the failure with the tail of the updater's journal once its unit is gone", async () => {
+      const testApp = app();
+      let state = "active";
+      unit(testApp, () => state);
+      await requested(testApp);
+      await testApp.orchestrator.pollOnce();
+
+      state = "inactive";
+      await testApp.orchestrator.pollOnce();
+      const view = (await installation(testApp)).update;
+      expect(view).toMatchObject({ phase: "failed", error: "обновитель завершился, не перезапустив сервис" });
+      expect(view.log).toEqual(["✔ Checking for update", "TERM environment variable not set."]);
+      const journal = testApp.ports.processes.ran.find((run) => run.args.includes("/usr/bin/journalctl"));
+      expect(journal?.args.slice(0, 4)).toEqual(["-n", "/usr/bin/journalctl", "-u", "auto-dev-update"]);
+    });
+
+    it("lifts the update Pause when the updater dies during the preparation", async () => {
+      const testApp = app();
+      let state = "active";
+      unit(testApp, () => state);
+      await requested(testApp);
+      await testApp.app.request("/api/installation/prepare-update", { method: "POST", headers: { host: "127.0.0.1:8080", authorization: `Bearer ${LOCAL_TOKEN}` } });
+      await flush();
+      expect((await installation(testApp)).pause).toMatchObject({ source: "update" });
+
+      state = "failed";
+      await testApp.orchestrator.pollOnce();
+      const view = await installation(testApp);
+      expect(view.update.phase).toBe("failed");
+      expect(view.paused).toBe(false);
+    });
+
+    it("lets the human retry or hide a failure", async () => {
+      const testApp = app();
+      unit(testApp, () => "inactive");
+      await requested(testApp);
+      await testApp.orchestrator.pollOnce();
+      expect((await installation(testApp)).update.phase).toBe("failed");
+
+      expect((await testApp.request("/api/installation/update", { method: "POST" })).status).toBe(202);
+      expect((await installation(testApp)).update).toMatchObject({ phase: "requested", error: null });
+      await testApp.orchestrator.pollOnce();
+
+      const hidden = await testApp.request("/api/installation/update", { method: "DELETE" });
+      expect(hidden.status).toBe(200);
+      expect(((await hidden.json()) as InstallationResponse).update).toMatchObject({ phase: "idle", error: null });
+    });
+
+    it("gives up on an unreadable unit state after a while", async () => {
+      const testApp = app();
+      unit(testApp, () => "");
+      await requested(testApp);
+      await testApp.orchestrator.pollOnce();
+      expect((await installation(testApp)).update.phase).toBe("requested");
+      await testApp.ports.clock.advance(REQUEST_TTL_MS);
+      await testApp.orchestrator.pollOnce();
+      expect((await installation(testApp)).update).toMatchObject({ phase: "failed", error: "не удалось узнать состояние обновителя" });
+    });
+
+    it("tells a restart on the same version from a finished update", async () => {
+      const testApp = app("0.1.0");
+      let state = "active";
+      unit(testApp, () => state);
+      await requested(testApp);
+      await testApp.app.request("/api/installation/prepare-update", { method: "POST", headers: { host: "127.0.0.1:8080", authorization: `Bearer ${LOCAL_TOKEN}` } });
+      await flush();
+      expect((await installation(testApp)).update.phase).toBe("ready");
+      await testApp.orchestrator.shutdown();
+
+      const next = new Orchestrator({ ports: testApp.ports, index: testApp.index, log: testApp.log, product: { repoPath: TEST_REPO_PATH }, version: "0.1.0" });
+      restarted.push(next);
+      await next.pollOnce();
+      expect(next.updates.view()).toMatchObject({ phase: "failed", error: "сервис перезапущен на прежней версии 0.1.0: новая версия не установилась", log: [] });
+      expect(next.installation.findPause()).toBeUndefined();
+
+      state = "inactive";
+      await next.pollOnce();
+      expect(next.updates.view().log).toContain("TERM environment variable not set.");
+    });
+
+    it("cleans the engine's colours and spinner rewrites out of the journal", () => {
+      expect(cleanLogLines("\u001b[33m➤\u001b[0m a\r\u001b[K\u001b[32m✔\u001b[0m a  \n\n  \nb\n")).toEqual(["✔ a", "b"]);
     });
   });
 

@@ -345,7 +345,7 @@ export function createApp(deps: AppDeps): App {
 
   app.get("/api/installation", (c) => c.json(installationView()));
 
-  // "Обновить": the updater starts detached; the answer comes before it does anything.
+  // "Обновить": the updater starts in its own unit; the answer comes before it does anything.
   app.post("/api/installation/update", async (c) => {
     try {
       await deps.orchestrator.updates.request();
@@ -355,6 +355,12 @@ export function createApp(deps: AppDeps): App {
       return c.json({ error: `the updater did not start: ${error instanceof Error ? error.message : String(error)}` }, 500);
     }
     return c.json(installationView(), 202);
+  });
+
+  // "Скрыть" on a failed update.
+  app.delete("/api/installation/update", (c) => {
+    deps.orchestrator.updates.dismiss();
+    return c.json(installationView());
   });
 
   // The updater, before it stops the service: Pause and the wait for the running Turns start here;

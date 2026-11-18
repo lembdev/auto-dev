@@ -532,6 +532,7 @@ export class Orchestrator {
     await this._recoverIntents();
     await this._installation.check();
     await this._updates.checkRelease();
+    await this._updates.checkUnit();
     await this._recovery.resumeInterrupted();
     await this._recovery.checkHangs();
     await this._pollIssues();

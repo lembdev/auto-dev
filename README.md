@@ -21,7 +21,7 @@ Community Scripts (`community-scripts/core`, MIT), запинен в `ct/auto-de
 Что делает установщик внутри контейнера:
 
 - ставит git, `gh` (из GitHub Releases `cli/cli`), Node 22 LTS (NodeSource), `sudo`, `jq`;
-- создаёт пользователя `auto-dev` (без sudo, кроме NOPASSWD на `/usr/bin/update` и `journalctl -u auto-dev`,
+- создаёт пользователя `auto-dev` (без sudo, кроме NOPASSWD на `/usr/bin/update`, `journalctl -u auto-dev` и `journalctl -u auto-dev-update`,
   плюс группа `systemd-journal` для чтения журнала из UI) и ставит ему `claude` native installer
   (`https://claude.ai/install.sh`), который обновляет себя сам;
 - раскладка: `/opt/auto-dev/releases/<версия>` плюс симлинк `/opt/auto-dev/current` (код, владелец root),
@@ -43,6 +43,9 @@ Community Scripts (`community-scripts/core`, MIT), запинен в `ct/auto-de
 - **Из UI.** Раз в сутки сервер проверяет последний релиз на GitHub; если он новее установленного, в шапке появляется
   баннер «Доступна версия X» с кнопкой «Обновить». Кнопка запускает `update` в отдельном unit
   (`sudo -n systemd-run --unit=auto-dev-update ... /usr/bin/update`), чтобы остановка сервиса не убила апдейтер.
+  Если sudo отказал, ошибка видна сразу под кнопкой. Если апдейтер завершился, а сервис продолжает работать на
+  прежней версии, баннер становится красным: причина, хвост `journalctl -u auto-dev-update` и кнопки
+  «Повторить» и «Скрыть».
 - **Из консоли контейнера** (от root):
 
   ```

@@ -27,6 +27,9 @@ export type HeaderProps = {
   onUpdate?: () => void;
   updatePending?: boolean;
   updateError?: string | undefined;
+  // "Скрыть" on a failed update.
+  onDismissUpdate?: () => void;
+  dismissUpdatePending?: boolean;
   connected: boolean;
   now: number;
   onLogout: () => void;
@@ -117,7 +120,49 @@ export function Header(props: HeaderProps) {
     </button>
   );
   const banners: ReactNode[] = [];
-  if (update && update.phase !== "idle") {
+  if (update?.phase === "failed") {
+    banners.push(
+      <Banner
+        key="update"
+        tone="danger"
+        role="alert"
+        data-testid="update-banner"
+        action={
+          <span className="flex gap-2">
+            {update.available && (
+              <Button size="sm" variant="danger" disabled={props.updatePending || !props.onUpdate} onClick={props.onUpdate}>
+                Повторить
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" disabled={props.dismissUpdatePending || !props.onDismissUpdate} onClick={props.onDismissUpdate}>
+              Скрыть
+            </Button>
+          </span>
+        }
+      >
+        <span>
+          Обновление{update.latest ? ` до ${update.latest}` : ""} не удалось: {update.error ?? "причина неизвестна"}. Работает версия {update.current}, Пауза обновления снята.
+        </span>
+        {update.log.length > 0 ? (
+          <details className="mt-1">
+            <summary className="cursor-pointer text-muted">Вывод обновителя</summary>
+            <pre className="mt-1 max-h-60 overflow-auto rounded bg-subtle p-2 font-mono text-[11px] leading-4 whitespace-pre-wrap" data-testid="update-log">
+              {update.log.join("\n")}
+            </pre>
+          </details>
+        ) : (
+          <div className="mt-1 text-muted">
+            Полный вывод: <code className="rounded bg-subtle px-1 font-mono text-[0.9em]">journalctl -u auto-dev-update</code>
+          </div>
+        )}
+        {props.updateError && (
+          <div className="mt-1 text-danger-text" role="alert">
+            Не удалось запустить обновление: {props.updateError}
+          </div>
+        )}
+      </Banner>,
+    );
+  } else if (update && update.phase !== "idle") {
     banners.push(
       <Banner key="update" tone="accent" role="status" data-testid="update-banner">
         Обновление{update.latest ? ` до ${update.latest}` : ""}: {UPDATE_PHASE_TEXT[update.phase] ?? update.phase}. После перезапуска Агенты продолжат свои Ходы.

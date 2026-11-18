@@ -4,7 +4,7 @@ export { FakeDiskPort } from "./disk.js";
 export { FakeDriverPort, FakeAgentProcess } from "./driver.js";
 export { FakeGitHubPort } from "./github.js";
 export type { IssueSeed, MilestoneSeed, PullRequestSeed, CheckRunSeed, CommitStatusSeed, Reaction } from "./github.js";
-export { FakeProcessPort, type FakeProcessSpec, type SignalRecord, type SpawnRecord } from "./process.js";
+export { FakeProcessPort, type FakeProcessSpec, type SignalRecord, type RunRecord, type RunHandler } from "./process.js";
 export { FakeReleasesPort } from "./releases.js";
 export { FakeWorktreePort } from "./worktree.js";
 export { sdkMessages } from "./sdk-messages.js";
